@@ -30,9 +30,9 @@ services:
     restart: always
     command: gunicorn --bind 0.0.0.0:8000 config.wsgi:application
     volumes:
-      - static_volume:/app/staticfiles
-      - media_volume:/app/media
-      - ./logs:/app/logs
+      - /srv/aurora/shared/static:/app/staticfiles
+      - /srv/aurora/shared/media:/app/media
+      - /srv/aurora/shared/logs:/app/logs
     env_file:
       - .env
     environment:
@@ -60,8 +60,8 @@ services:
     restart: always
     command: celery -A config worker --loglevel=info
     volumes:
-      - media_volume:/app/media
-      - ./logs:/app/logs
+      - /srv/aurora/shared/media:/app/media
+      - /srv/aurora/shared/logs:/app/logs
     env_file:
       - .env
     environment:
@@ -115,12 +115,12 @@ services:
       - "80:80"
       - "443:443"
     volumes:
-      - ./deploy/nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
-      - ./certbot/www:/var/www/certbot
-      - ./certbot/conf:/etc/letsencrypt
-      - static_volume:/app/staticfiles:ro
-      - media_volume:/app/media:ro
-      - ./logs/nginx:/var/log/nginx
+      - /srv/aurora/current/deploy/nginx/nginx.prod.conf:/etc/nginx/conf.d/default.conf:ro
+      - /srv/aurora/shared/certbot/www:/var/www/certbot
+      - /srv/aurora/shared/certbot/conf:/etc/letsencrypt
+      - /srv/aurora/shared/static:/app/staticfiles:ro
+      - /srv/aurora/shared/media:/app/media:ro
+      - /srv/aurora/shared/logs/nginx:/var/log/nginx
     depends_on:
       - backend
       - frontend
