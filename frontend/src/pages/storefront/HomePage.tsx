@@ -1,4 +1,5 @@
 import React, { useRef } from 'react';
+import { Link } from 'react-router-dom';
 import { useScrollReveal } from '@/animations/useScrollReveal';
 import { usePromoBanners } from '@/hooks/usePromoBanners';
 import PromoBannerGrid from '@/components/promo/PromoBannerGrid/PromoBannerGrid';
@@ -82,7 +83,11 @@ export const HomePage: React.FC = () => {
             </div>
             <h4 className="text-3xl font-semibold text-foreground">Simple Return</h4>
             <p className="mt-2 text-base text-muted-foreground">
-              Shop with confidence—easy 30-day returns & exchanges, no questions asked.
+              Shop with confidence—easy 7-day returns & exchanges, refer{' '}
+              <Link to="/return-and-refund-policy/" className="text-primary hover:underline font-medium">
+                Return & Refund Policy
+              </Link>
+              .
             </p>
           </div>
 
