@@ -8,6 +8,9 @@ on:
 jobs:
   build-test-package:
     runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
     services:
