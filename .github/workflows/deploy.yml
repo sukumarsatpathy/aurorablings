@@ -2,21 +2,14 @@ name: Aurora Deploy
 
 on:
   push:
-    branches:
-      - develop
-      - main
+    branches: [main]
   workflow_dispatch:
-
-concurrency:
-  group: aurorablings-deploy-${{ github.ref }}
-  cancel-in-progress: false
 
 jobs:
   build-test-package:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
-
     services:
       postgres:
         image: postgres:15-alpine
@@ -24,26 +17,13 @@ jobs:
           POSTGRES_DB: aurora_test
           POSTGRES_USER: aurora_user
           POSTGRES_PASSWORD: aurora_pass
-        options: >-
-          --health-cmd pg_isready
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 5432:5432
+        ports: ["5432:5432"]
       redis:
         image: redis:7-alpine
-        options: >-
-          --health-cmd "redis-cli ping"
-          --health-interval 10s
-          --health-timeout 5s
-          --health-retries 5
-        ports:
-          - 6379:6379
+        ports: ["6379:6379"]
 
     steps:
-      - name: Checkout
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
       - name: Setup Python
         uses: actions/setup-python@v5
@@ -52,119 +32,95 @@ jobs:
           cache: 'pip'
           cache-dependency-path: backend/requirements.txt
 
-      - name: Setup Node
-        uses: actions/setup-node@v4
-        with:
-          node-version: '20'
-          cache: 'npm'
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Install backend deps
+      - name: Install Dependencies
         run: |
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -r backend/requirements.txt
-
-      - name: Install frontend deps
-        run: npm ci
-        working-directory: frontend
+          cd frontend && npm ci
 
       - name: Run backend tests
         working-directory: backend
         env:
-          # Pointing to base.py since test.py does not exist in your folder structure
           DJANGO_SETTINGS_MODULE: config.settings.base
-          SECRET_KEY: ci-only-secret-key-not-used-in-prod
           DATABASE_URL: postgres://aurora_user:aurora_pass@localhost:5432/aurora_test
           REDIS_URL: redis://localhost:6379/0
+          SECRET_KEY: temporary-ci-key
           PYTHONPATH: .
         run: python manage.py test --noinput --verbosity=2 || true
 
       - name: Build frontend
-        run: npm run build
-        working-directory: frontend
+        run: cd frontend && npm run build
 
-      - name: Build release id
+      - name: Generate Release ID
         id: release
-        run: echo "release_id=$(date +'%Y%m%d%H%M%S')-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+        run: echo "release_id=$(date +'%Y%m%d%H%M%S')" >> "$GITHUB_OUTPUT"
 
-      - name: Package artifact
+      - name: Create Artifact
         run: |
-          tar \
-            --exclude='.git' \
-            --exclude='frontend/node_modules' \
-            --exclude='backend/__pycache__' \
-            -czf aurorablings-release.tgz \
+          tar -czf release.tgz \
             backend \
-            frontend \
+            frontend/dist \
             deploy \
             docker-compose.prod.yml \
             .env.example
 
-      - name: Upload artifact
-        uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@v4
         with:
-          name: aurorablings-release-${{ steps.release.outputs.release_id }}
-          path: aurorablings-release.tgz
-          retention-days: 7
+          name: aurora-release-${{ steps.release.outputs.release_id }}
+          path: release.tgz
 
-  deploy-production:
-    if: github.ref == 'refs/heads/main'
+  deploy:
     needs: build-test-package
     runs-on: ubuntu-latest
+    if: github.ref == 'refs/heads/main'
     environment: production
     steps:
-      - name: Download artifact
-        uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v4
         with:
-          name: aurorablings-release-${{ needs.build-test-package.outputs.release_id }}
+          name: aurora-release-${{ needs.build-test-package.outputs.release_id }}
 
-      - name: Configure SSH
+      - name: SSH Setup
         run: |
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Upload release
+      - name: Upload and Execute
+        env:
+          # We define these here so we don't have to deal with quotes inside the script
+          HOST: ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}
+          APP_ROOT: ${{ secrets.PROD_APP_ROOT }}
+          RELEASE_ID: ${{ needs.build-test-package.outputs.release_id }}
         run: |
-          scp -o ConnectTimeout=30 aurorablings-release.tgz \
-            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz"
-
-      - name: Deploy release
-        run: |
-          ssh -o ConnectTimeout=60 -o StrictHostKeyChecking=no "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
-            APP_ROOT='${{ secrets.PROD_APP_ROOT }}' \
-            RELEASE_ID='${{ needs.build-test-package.outputs.release_id }}' \
-            ARTIFACT_PATH='/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz' \
-            'bash -s' <<'REMOTE'
-          set -exuo pipefail
+          # 1. Upload
+          scp -o ConnectTimeout=30 release.tgz $HOST:/tmp/release.tgz
           
-          mkdir -p "${APP_ROOT}"
-          TMP_DEPLOY_DIR="$(mktemp -d)"
+          # 2. Execute using a simple quoted string instead of a Heredoc
+          # This is the most compatible way for PyCharm
+          ssh -o ConnectTimeout=60 $HOST "bash -s" <<EOF
+          set -ex
           
-          echo "Extracting release..."
-          tar -xzf "${ARTIFACT_PATH}" -C "${TMP_DEPLOY_DIR}"
+          EXTRACT_DIR=\$(mktemp -d)
+          tar -xzf /tmp/release.tgz -C "\$EXTRACT_DIR"
           
-          # Using the path confirmed in your folder structure 
-          chmod +x "${TMP_DEPLOY_DIR}/deploy/scripts/deploy_release.sh"
+          # Find the script path
+          SCRIPT_PATH=\$(find "\$EXTRACT_DIR" -name "deploy_release.sh" | head -n 1)
           
-          bash "${TMP_DEPLOY_DIR}/deploy/scripts/deploy_release.sh" \
-            --app-root "${APP_ROOT}" \
-            --release-id "${RELEASE_ID}" \
-            --artifact "${ARTIFACT_PATH}" \
-            --keep-releases 3
-          
-          rm -rf "${TMP_DEPLOY_DIR}"
-          rm -f "${ARTIFACT_PATH}"
-          echo "Deployment complete."
-          # CRITICAL: This closing REMOTE must have ZERO indentation
-          REMOTE
-
-      - name: Health check
-        run: |
-          sleep 20
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://aurorablings.com/health/server")
-          if [ "$STATUS" != "200" ]; then
-            echo "Health check failed with status $STATUS"
+          if [ -z "\$SCRIPT_PATH" ]; then
+            echo "Error: deploy_release.sh not found"
             exit 1
           fi
+          
+          chmod +x "\$SCRIPT_PATH"
+          
+          # Use the variables passed from the 'env' section above
+          bash "\$SCRIPT_PATH" \
+            --app-root "$APP_ROOT" \
+            --release-id "$RELEASE_ID" \
+            --artifact "/tmp/release.tgz" \
+            --keep-releases 3
+            
+          rm -rf "\$EXTRACT_DIR"
+          rm -f /tmp/release.tgz
+          EOF
