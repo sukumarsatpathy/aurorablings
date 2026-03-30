@@ -81,9 +81,18 @@ jobs:
 
       - name: SSH Setup
         run: |
+          # 1. Validation Guard
+          if [ -z "${{ secrets.PROD_HOST }}" ]; then
+            echo "❌ ERROR: PROD_HOST secret is not configured in GitHub!"
+            exit 1
+          fi
+          
+          # 2. Key Configuration
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
+          
+          # 3. Known Hosts (The line that was failing)
           ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Upload and Execute
