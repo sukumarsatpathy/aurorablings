@@ -37,7 +37,19 @@ jobs:
           username: ${{ secrets.SERVER_USER }}
           key: ${{ secrets.SERVER_SSH_KEY }}
           port: ${{ secrets.SERVER_PORT }}
+          script_stop: true
+          timeout: 300s
           script: |
-            cd /var/www/aurorablings || exit
+            set -e
+
+            echo "🚀 Starting deployment..."
+
+            cd /var/www/aurorablings || { echo "❌ Directory not found"; exit 1; }
+
+            echo "📦 Pulling latest images..."
             docker compose pull
+
+            echo "🔄 Restarting containers..."
             docker compose up -d
+
+            echo "✅ Deployment completed"
