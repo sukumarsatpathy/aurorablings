@@ -26,7 +26,7 @@ services:
       retries: 5
 
   backend:
-    image: ghcr.io/sukumarsatpathy/aurora-blings/backend:latest
+    image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
     command: gunicorn --bind 0.0.0.0:8000 config.wsgi:application
     volumes:
@@ -55,7 +55,7 @@ services:
 
   celery_worker:
     # Replaces 'build' with the pre-built backend image
-    image: ghcr.io/sukumarsatpathy/aurora-blings/backend:latest
+    image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
     command: celery -A config worker --loglevel=info
     volumes:
@@ -78,7 +78,7 @@ services:
 
   celery_beat:
     # Replaces 'build' with the pre-built backend image
-    image: ghcr.io/sukumarsatpathy/aurora-blings/backend:latest
+    image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
     command: celery -A config beat --loglevel=info
     volumes:
@@ -100,7 +100,7 @@ services:
 
   frontend:
     # Replaces 'build' with your pre-built frontend image
-    image: ghcr.io/sukumarsatpathy/aurora-blings/frontend:latest
+    image: ghcr.io/sukumarsatpathy/aurorablings/frontend:latest
     restart: always
     depends_on:
       - backend

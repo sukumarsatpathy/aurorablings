@@ -48,8 +48,32 @@ jobs:
           PYTHONPATH: .
         run: python manage.py test --noinput --verbosity=2 || true
 
-      - name: Build frontend
+      - name: Build frontend static files
         run: cd frontend && npm run build
+
+      # --- NEW STEPS TO FIX THE 'NOT FOUND' ERROR ---
+      - name: Log in to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and Push Backend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: ./backend
+          push: true
+          tags: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
+
+      - name: Build and Push Frontend Image
+        uses: docker/build-push-action@v5
+        with:
+          context: .
+          file: ./Dockerfile
+          push: true
+          tags: ghcr.io/sukumarsatpathy/aurorablings/frontend:latest
+      # ----------------------------------------------
 
       - name: Generate Release ID
         id: release
@@ -81,40 +105,32 @@ jobs:
 
       - name: SSH Setup
         run: |
-          # 1. Validation Guard
           if [ -z "${{ secrets.PROD_HOST }}" ]; then
-            echo "❌ ERROR: PROD_HOST secret is not configured in GitHub!"
+            echo "❌ ERROR: PROD_HOST secret is not configured!"
             exit 1
           fi
-          # 2. Key Configuration
           mkdir -p ~/.ssh
           echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
           chmod 600 ~/.ssh/id_ed25519
-          # 3. Known Hosts (The line that was failing)
           ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
 
       - name: Upload and Execute
         env:
-          # We define these here so we don't have to deal with quotes inside the script
           HOST: ${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}
           APP_ROOT: ${{ secrets.PROD_APP_ROOT }}
           RELEASE_ID: ${{ needs.build-test-package.outputs.release_id }}
         run: |
-          # 1. Upload
           scp -v -o ConnectTimeout=30 \
               -o StrictHostKeyChecking=accept-new \
               -i ~/.ssh/id_ed25519 \
               release.tgz $HOST:/tmp/release.tgz
           
-          # 2. Execute using a simple quoted string instead of a Heredoc
-          # This is the most compatible way for PyCharm
           ssh -o ConnectTimeout=60 $HOST "bash -s" <<EOF
           set -ex
           
           EXTRACT_DIR=\$(mktemp -d)
           tar -xzf /tmp/release.tgz -C "\$EXTRACT_DIR"
           
-          # Find the script path
           SCRIPT_PATH=\$(find "\$EXTRACT_DIR" -name "deploy_release.sh" | head -n 1)
           
           if [ -z "\$SCRIPT_PATH" ]; then
@@ -124,7 +140,6 @@ jobs:
           
           chmod +x "\$SCRIPT_PATH"
           
-          # Use the variables passed from the 'env' section above
           bash "\$SCRIPT_PATH" \
             --app-root "$APP_ROOT" \
             --release-id "$RELEASE_ID" \
