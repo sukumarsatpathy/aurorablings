@@ -116,6 +116,7 @@ jobs:
           
           # Find the script path
           SCRIPT_PATH=\$(find "\$EXTRACT_DIR" -name "deploy_release.sh" | head -n 1)
+          
           if [ -z "\$SCRIPT_PATH" ]; then
             echo "Error: deploy_release.sh not found"
             exit 1
