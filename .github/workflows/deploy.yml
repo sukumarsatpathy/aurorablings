@@ -44,7 +44,7 @@ jobs:
 
             echo "🚀 Starting deployment..."
 
-            cd /var/www/aurorablings || { echo "❌ Directory not found"; exit 1; }
+            cd /var/www/aurora || { echo "❌ Directory not found"; exit 1; }
 
             echo "📦 Pulling latest images..."
             docker compose pull
