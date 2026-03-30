@@ -1,0 +1,38 @@
+.previewContainer {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.label {
+  font-size: 0.875rem;
+  font-weight: 600;
+  color: #6b7280;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.scaler {
+  width: 100%;
+  overflow: hidden;
+  border-radius: 1rem;
+  border: 1px solid #e5e7eb;
+  background: white;
+  aspect-ratio: 16 / 9;
+  position: relative;
+}
+
+.wrapper {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 222.22%; /* 1 / 0.45 */
+  transform: scale(0.45);
+  transform-origin: top left;
+}
+
+.note {
+  font-size: 0.75rem;
+  color: #9ca3af;
+  text-align: center;
+}

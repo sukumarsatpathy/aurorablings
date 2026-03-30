@@ -1,0 +1,24 @@
+[Unit]
+Description=Aurora Blings Gunicorn
+After=network.target
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/aurorablings/current/backend
+EnvironmentFile=/srv/aurorablings/shared/.env
+Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
+Environment=PYTHONUNBUFFERED=1
+Environment=GUNICORN_BIND=unix:/srv/aurorablings/shared/run/gunicorn.sock
+Environment=GUNICORN_ACCESS_LOG=/srv/aurorablings/shared/logs/gunicorn-access.log
+Environment=GUNICORN_ERROR_LOG=/srv/aurorablings/shared/logs/gunicorn-error.log
+ExecStart=/srv/aurorablings/shared/venv/bin/gunicorn -c config/gunicorn.conf.py config.wsgi:application
+ExecReload=/bin/kill -s HUP $MAINPID
+Restart=always
+RestartSec=5
+TimeoutStopSec=30
+KillMode=mixed
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Back in Stock - Aurora Blings</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f5f7f5; font-family: Arial, sans-serif;">
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f7f5; padding:20px 0;">
+    <tr>
+        <td align="center">
+
+            <!-- MAIN CONTAINER -->
+            <table width="600" cellpadding="0" cellspacing="0"
+                   style="background:#ffffff; border-radius:10px; overflow:hidden;">
+
+                <!-- LOGO -->
+                <tr>
+                    <td align="center" style="padding:30px;">
+                        <img src="{{logo_url}}" style="height:40px;">
+                    </td>
+                </tr>
+
+                <!-- BODY -->
+                <tr>
+                    <td style="padding:30px; color:#333333;">
+
+                        <h2 style="margin-top:0;">It's Back in Stock 🎉</h2>
+
+                        <p>Hi {{ user.first_name|default:"there" }},</p>
+
+                        <p>
+                            Great news! The item you were waiting for is now available again:
+                        </p>
+
+                        <!-- PRODUCT BOX -->
+                        <table width="100%" cellpadding="0" cellspacing="0"
+                               style="margin:20px 0; background:#f6f8f6; border-radius:8px;">
+                            <tr>
+                                <td style="padding:15px;">
+
+                                    <table width="100%" cellpadding="0" cellspacing="0">
+                                        <tr>
+
+                                            <!-- PRODUCT IMAGE -->
+                                            {% if product.image_url %}
+                                            <td width="100" valign="top">
+                                                <img src="{{ product.image_url }}"
+                                                     style="width:90px; border-radius:8px;">
+                                            </td>
+                                            {% endif %}
+
+                                            <!-- DETAILS -->
+                                            <td style="padding-left:15px; vertical-align:top;">
+                                                <strong style="font-size:15px;">{{ product.name }}</strong><br>
+
+                                                {% if product.price %}
+                                                <span style="color:#517b4b; font-weight:bold; font-size:14px;">
+                                        ₹{{ product.price }}
+                                    </span><br>
+                                                {% endif %}
+
+                                                <span style="font-size:12px; color:#888;">
+                                        Limited stock available
+                                    </span>
+                                            </td>
+
+                                        </tr>
+                                    </table>
+
+                                </td>
+                            </tr>
+                        </table>
+
+                        <!-- URGENCY -->
+                        <p style="color:#a05c2f; font-weight:500;">
+                            ⚡ Popular item — it may sell out again soon!
+                        </p>
+
+                        <!-- CTA BUTTON -->
+                        <div style="text-align:center; margin:30px 0;">
+                            <a href="{{ product_url }}"
+                               style="background:#517b4b; color:#ffffff; padding:14px 26px;
+                          text-decoration:none; border-radius:6px; font-size:15px; font-weight:bold;">
+                                Shop Now
+                            </a>
+                        </div>
+
+                        <!-- SECONDARY TEXT -->
+                        <p style="text-align:center; font-size:13px; color:#666;">
+                            Tap the button above to grab yours before it's gone.
+                        </p>
+
+                        <p style="margin-top:30px;">
+                            Happy shopping,<br>
+                            <strong>Aurora Blings Team</strong>
+                        </p>
+
+                    </td>
+                </tr>
+
+                <!-- FOOTER -->
+                <tr>
+                    <td align="center" style="padding:20px; background:#f9f9f9;">
+
+                        <p style="font-weight:600;">Aurora Blings Support 💬</p>
+                        <p style="margin:4px 0; font-size:13px;">
+                            WhatsApp: +91-7847090866
+                        </p>
+                        <p style="margin:4px 0; font-size:13px;">
+                            Email: <a href="mailto:connect@aurorablings.com"
+                                      target="_blank">connect@aurorablings.com</a>
+                        </p>
+                        <p>
+                            <a href="https://aurorablings.com" style="color:#517b4b;">
+                                www.aurorablings.com
+                            </a>
+                        </p>
+
+                        <p style="padding:20px; background:#f0f3f0; text-align:center; font-size:12px; color:#777;">
+                            © {{year}} Aurora Blings. All rights reserved.
+                        </p>
+
+                    </td>
+                </tr>
+
+            </table>
+
+        </td>
+    </tr>
+</table>
+
+</body>
+</html>

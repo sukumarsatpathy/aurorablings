@@ -1,0 +1,7 @@
+{% extends "emails/base.html" %}
+{% block email_content %}
+<h2 style="margin:0 0 12px;font-size:22px;color:#517b4b;">Order Delivered</h2>
+<p style="margin:0 0 12px;">Your order <strong>{{ order_number }}</strong> has been delivered. We hope you love it.</p>
+<p style="margin:14px 0 20px;"><a href="{{ order_url|default:'#' }}" style="display:inline-block;background:#517b4b;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">View Order</a></p>
+{% if invoice_url %}<p style="margin:0;">Invoice: <a href="{{ invoice_url }}">Download PDF</a></p>{% endif %}
+{% endblock %}

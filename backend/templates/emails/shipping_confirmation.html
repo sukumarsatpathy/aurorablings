@@ -1,0 +1,14 @@
+{% extends "emails/base.html" %}
+{% block email_content %}
+<h2 style="margin:0 0 12px;font-size:22px;color:#517b4b;">Your Order Is On The Way</h2>
+<p style="margin:0 0 12px;">Order <strong>{{ order_number }}</strong> has been shipped.</p>
+<table role="presentation" width="100%" style="border-collapse:collapse;margin:14px 0;">
+  <tr><td style="padding:8px;border:1px solid #e5e7eb;">Tracking Number</td><td style="padding:8px;border:1px solid #e5e7eb;">{{ tracking_number|default:'N/A' }}</td></tr>
+  <tr><td style="padding:8px;border:1px solid #e5e7eb;">Courier</td><td style="padding:8px;border:1px solid #e5e7eb;">{{ carrier|default:'N/A' }}</td></tr>
+  <tr><td style="padding:8px;border:1px solid #e5e7eb;">Status</td><td style="padding:8px;border:1px solid #e5e7eb;">{{ shipment_status|default:'Shipped' }}</td></tr>
+</table>
+<p style="margin:0 0 18px;">
+  {% if tracking_url %}<a href="{{ tracking_url }}" style="display:inline-block;background:#517b4b;color:#ffffff;text-decoration:none;padding:10px 16px;border-radius:8px;font-weight:600;">Track Shipment</a>{% endif %}
+</p>
+{% if invoice_url %}<p style="margin:0;">Invoice: <a href="{{ invoice_url }}">Download PDF</a></p>{% endif %}
+{% endblock %}

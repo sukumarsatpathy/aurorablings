@@ -1,0 +1,239 @@
+/* ── Section ──────────────────────────────────────────────────── */
+.section {
+    padding: 50px 0;
+    background-color: var(--color-background);
+}
+
+.container {
+    composes: container mx-auto px-4 from global;
+}
+
+/* ── Two-column row ───────────────────────────────────────────── */
+.row {
+    display: grid;
+    grid-template-columns: 1fr;
+    gap: 1.5rem;
+    align-items: stretch;
+}
+
+@media (min-width: 992px) {
+    .row {
+        /* mirrors Bootstrap col-lg-5 / col-lg-7 */
+        grid-template-columns: 5fr 7fr;
+        gap: 1.5rem;
+    }
+}
+
+/* ── Left: image column ───────────────────────────────────────── */
+.imageCol {
+    display: flex;
+}
+
+.imageWrap {
+    position: relative;
+    width: 100%;
+    border-radius: 20px;
+    overflow: hidden;
+    /* image fills full height of the right panel */
+    min-height: 340px;
+}
+
+.heroImg {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    display: block;
+    border-radius: 20px;
+}
+
+/* "50% Off" badge – bottom-right, overlapping the image edge */
+.offerBadge {
+    position: absolute;
+    bottom: 1.25rem;
+    right: -0.75rem;
+    /* intentionally bleeds right */
+    background: #222;
+    color: #fff;
+    padding: 0.45rem 1.1rem;
+    border-radius: 2rem;
+    font-size: 0.85rem;
+    font-weight: 700;
+    letter-spacing: 0.02em;
+    box-shadow: 0 4px 12px rgba(0, 0, 0, 0.18);
+    z-index: 2;
+}
+
+/* ── Right: carousel column ───────────────────────────────────── */
+.carouselCol {
+    display: flex;
+    flex-direction: column;
+    gap: 1.5rem;
+}
+
+/* ── Section heading ──────────────────────────────────────────── */
+.categoryTitle h2 {
+    font-size: 2.6rem;
+    font-weight: 800;
+    line-height: 1.15;
+    color: var(--color-foreground);
+    margin: 0;
+}
+
+/* ── Carousel wrapper ─────────────────────────────────────────── */
+.swiperOuter {
+    --card-gap: 24px;
+    --card-w: calc((100% - var(--card-gap) * 2) / 3);
+    /* 3 visible */
+
+    position: relative;
+}
+
+/* Clips the sliding track */
+.viewport {
+    overflow: hidden;
+}
+
+.track {
+    display: flex;
+    gap: var(--card-gap);
+    transition: transform 0.5s cubic-bezier(0.4, 0, 0.2, 1);
+    will-change: transform;
+}
+
+/* ── Individual slide ─────────────────────────────────────────── */
+.slide {
+    flex: 0 0 var(--card-w);
+    width: var(--card-w);
+}
+
+.categoryBox {
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    padding: 1.75rem 1rem 1.25rem;
+    border-radius: 20px;
+    text-align: center;
+    cursor: pointer;
+    transition: transform 0.35s cubic-bezier(0.175, 0.885, 0.32, 1.275),
+        box-shadow 0.35s ease;
+}
+
+.categoryBox:hover {
+    transform: translateY(-6px);
+    box-shadow: 0 12px 28px -8px rgba(0, 0, 0, 0.12);
+}
+
+/* Alternating background colors (matches original color1/color2 pattern) */
+.color1 {
+    background-color: #fff1f2;
+}
+
+/* soft pink  */
+.color2 {
+    background-color: #edfdf8;
+}
+
+/* soft teal  */
+
+.categoryImage {
+    width: 80px;
+    height: 80px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    margin-bottom: 1rem;
+}
+
+.categoryImage img {
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+}
+
+.categoryInfo h5 {
+    font-size: 1rem;
+    font-weight: 700;
+    margin: 0 0 0.2rem;
+    color: var(--color-foreground);
+}
+
+.categoryInfo h5 a {
+    color: inherit;
+    text-decoration: none;
+    transition: color 0.2s ease;
+}
+
+.categoryInfo h5 a:hover {
+    color: #e11d48;
+}
+
+.categoryInfo p {
+    font-size: 0.82rem;
+    color: var(--color-muted-foreground, #888);
+    margin: 0;
+    font-weight: 500;
+}
+
+/* ── Arrow buttons ────────────────────────────────────────────── */
+.arrows {
+    display: flex;
+    justify-content: flex-end;
+    gap: 10px;
+    margin-top: 1.25rem;
+}
+
+.arrowBtn {
+    width: 38px;
+    height: 38px;
+    border-radius: 50%;
+    border: 1.5px solid #e5e7eb;
+    background: transparent;
+    cursor: pointer;
+    font-size: 1rem;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: var(--color-foreground);
+    transition: all 0.2s ease;
+}
+
+.arrowBtn:hover {
+    background: #f3f4f6;
+    border-color: #d1d5db;
+}
+
+/* ── Dot indicators ───────────────────────────────────────────── */
+.dots {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    justify-content: center;
+}
+
+.dot {
+    width: 8px;
+    height: 8px;
+    border-radius: 99px;
+    border: none;
+    background: #d1d5db;
+    cursor: pointer;
+    padding: 0;
+    transition: all 0.3s ease;
+}
+
+.dotActive {
+    width: 24px;
+    background: var(--color-foreground, #1a1a1a);
+}
+
+/* ── Responsive ───────────────────────────────────────────────── */
+@media (max-width: 640px) {
+    .swiperOuter {
+        --card-w: calc((100% - var(--card-gap)) / 2);
+        /* 2 visible on mobile */
+    }
+
+    .categoryTitle h2 {
+        font-size: 1.8rem;
+    }
+}

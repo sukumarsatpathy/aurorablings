@@ -1,0 +1,21 @@
+[Unit]
+Description=Aurora Blings Celery Worker
+After=network.target redis.service
+
+[Service]
+Type=simple
+User=www-data
+Group=www-data
+WorkingDirectory=/srv/aurorablings/current/backend
+EnvironmentFile=/srv/aurorablings/shared/.env
+Environment=DJANGO_SETTINGS_MODULE=config.settings.prod
+Environment=PYTHONUNBUFFERED=1
+ExecStart=/srv/aurorablings/shared/venv/bin/celery -A config worker --loglevel=INFO --concurrency=4
+ExecStop=/bin/kill -s TERM $MAINPID
+Restart=always
+RestartSec=5
+StandardOutput=append:/srv/aurorablings/shared/logs/celery-worker.log
+StandardError=append:/srv/aurorablings/shared/logs/celery-worker.log
+
+[Install]
+WantedBy=multi-user.target

@@ -1,0 +1,150 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Invoice {{ invoice_number }}</title>
+  <style>
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: Arial, sans-serif; color: #1f2937; font-size: 12px; background: #fff; padding: 40px; padding-bottom: 120px; }
+
+    /* HEADER */
+    .header { display: flex; justify-content: space-between; align-items: flex-start; margin-bottom: 32px; padding-bottom: 20px; border-bottom: 3px solid {{ brand_color|default:"#517b4b" }}; }
+    .brand-name { font-size: 28px; font-weight: 700; color: {{ brand_color|default:"#517b4b" }}; letter-spacing: -0.5px; }
+    .brand-tagline { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .invoice-title-block { text-align: right; }
+    .invoice-title { font-size: 32px; font-weight: 700; color: #1f2937; letter-spacing: 2px; text-transform: uppercase; }
+    .invoice-meta { margin-top: 6px; }
+    .invoice-meta div { font-size: 11px; color: #6b7280; margin-top: 2px; }
+    .invoice-meta span { color: #1f2937; font-weight: 600; }
+
+    /* BILL TO + ORDER INFO */
+    .info-row { display: flex; justify-content: space-between; margin-bottom: 28px; gap: 24px; }
+    .info-box { flex: 1; }
+    .info-box-label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; color: {{ brand_color|default:"#517b4b" }}; margin-bottom: 8px; border-bottom: 1px solid #e5e7eb; padding-bottom: 4px; }
+    .info-box .name { font-size: 14px; font-weight: 700; color: #1f2937; margin-bottom: 4px; }
+    .info-box .detail { color: #4b5563; line-height: 1.6; }
+
+    .order-table { width: 100%; border-collapse: collapse; }
+    .order-table td { padding: 3px 0; font-size: 11px; }
+    .order-table td:first-child { color: #6b7280; width: 44%; }
+    .order-table td:last-child { color: #1f2937; font-weight: 600; }
+
+    /* STATUS BADGE */
+    .badge { display: inline-block; padding: 2px 8px; border-radius: 10px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .badge-paid { background: #d1fae5; color: #065f46; }
+    .badge-pending { background: #fef3c7; color: #92400e; }
+
+    /* LINE ITEMS TABLE */
+    .items-table { width: 100%; border-collapse: collapse; margin-bottom: 24px; }
+    .items-table thead tr { background: {{ brand_color|default:"#517b4b" }}; color: #fff; }
+    .items-table thead th { padding: 10px 12px; text-align: left; font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.5px; }
+    .items-table thead th:last-child { text-align: right; }
+    .items-table thead th:nth-child(2),
+    .items-table thead th:nth-child(3) { text-align: center; }
+    .items-table tbody tr { border-bottom: 1px solid #f3f4f6; }
+    .items-table tbody td { padding: 10px 12px; font-size: 12px; color: #374151; }
+    .items-table tbody td:last-child { text-align: right; font-weight: 600; }
+    .items-table tbody td:nth-child(2),
+    .items-table tbody td:nth-child(3) { text-align: center; }
+    .variant { font-size: 10px; color: #9ca3af; margin-top: 2px; }
+
+    /* TOTALS */
+    .totals-wrapper { display: flex; justify-content: flex-end; margin-bottom: 28px; }
+    .totals-box { width: 280px; }
+    .totals-row { display: flex; justify-content: space-between; padding: 5px 0; font-size: 12px; border-bottom: 1px solid #f3f4f6; }
+    .totals-row .t-label { color: #6b7280; }
+    .totals-row .t-value { color: #1f2937; font-weight: 500; }
+    .totals-row.discount .t-value { color: #dc2626; }
+    .totals-row.grand { border-top: 2px solid {{ brand_color|default:"#517b4b" }}; border-bottom: none; margin-top: 4px; padding-top: 8px; }
+    .totals-row.grand .t-label { font-size: 13px; font-weight: 700; color: #1f2937; }
+    .totals-row.grand .t-value { font-size: 14px; font-weight: 700; color: {{ brand_color|default:"#517b4b" }}; }
+
+    /* FOOTER */
+    .footer { position: fixed; left: 40px; right: 40px; bottom: 30px; border-top: 1px solid #e5e7eb; padding-top: 16px; display: flex; justify-content: space-between; align-items: center; gap: 12px; }
+    .footer-note { font-size: 10px; color: #9ca3af; font-style: italic; }
+    .footer-support { font-size: 11px; color: {{ brand_color|default:"#517b4b" }}; font-weight: 600; }
+  </style>
+</head>
+<body>
+
+  <!-- HEADER -->
+  <div class="header">
+    <div>
+      <div class="brand-name">{{ brand_name|default:"Aurora Blings" }}</div>
+      <div class="brand-tagline">{{ branding_tagline|default:"Jewellery for every story" }}</div>
+    </div>
+    <div class="invoice-title-block">
+      <div class="invoice-title">Invoice</div>
+    </div>
+  </div>
+
+  <!-- BILL TO + ORDER INFO -->
+  <div class="info-row">
+    <div class="info-box">
+      <div class="info-box-label">Bill To</div>
+      <div class="name">{{ customer_name }}</div>
+      <div class="detail">
+        {% if customer_email %}{{ customer_email }}<br>{% endif %}
+        {% if customer_phone %}{{ customer_phone }}<br>{% endif %}
+        {% if shipping_address.address_line1 %}{{ shipping_address.address_line1 }}<br>{% elif shipping_address.line1 %}{{ shipping_address.line1 }}<br>{% endif %}
+        {% if shipping_address.address_line2 %}{{ shipping_address.address_line2 }}<br>{% elif shipping_address.line2 %}{{ shipping_address.line2 }}<br>{% endif %}
+        {% if shipping_address.city %}{{ shipping_address.city }}<br>{% endif %}
+        {% if shipping_address.state %}{{ shipping_address.state }}{% endif %}{% if shipping_address.pincode %} {{ shipping_address.pincode }}{% elif shipping_address.postal_code %} {{ shipping_address.postal_code }}{% endif %}{% if shipping_address.country %}, {{ shipping_address.country }}{% endif %}
+      </div>
+    </div>
+    <div class="info-box">
+      <div class="info-box-label">Order Details</div>
+      <table class="order-table">
+        <tr><td>Order Number</td><td>{{ order_number }}</td></tr>
+        <tr><td>Order Date</td><td>{{ order_date|date:"F j, Y" }}</td></tr>
+        <tr><td>Payment Method</td><td>{{ payment_method }}</td></tr>
+        <tr><td>Payment Status</td><td><span class="badge {% if payment_status|lower == 'paid' %}badge-paid{% else %}badge-pending{% endif %}">{{ payment_status }}</span></td></tr>
+        <tr><td>Order Status</td><td><span class="badge {% if order_status|lower == 'delivered' or order_status|lower == 'completed' or order_status|lower == 'confirmed' %}badge-paid{% else %}badge-pending{% endif %}">{{ order_status }}</span></td></tr>
+      </table>
+    </div>
+  </div>
+
+  <!-- LINE ITEMS -->
+  <table class="items-table">
+    <thead>
+      <tr>
+        <th>Item</th>
+        <th>Qty</th>
+        <th>Unit Price</th>
+        <th>Total</th>
+      </tr>
+    </thead>
+    <tbody>
+      {% for item in items %}
+      <tr style="{% cycle '' 'background:#f9fafb' %}">
+        <td>
+          {{ item.product_name }}
+          <div class="variant">{{ item.sku }}</div>
+        </td>
+        <td>{{ item.quantity }}</td>
+        <td>{{ currency }} {{ item.unit_price }}</td>
+        <td>{{ currency }} {{ item.line_total }}</td>
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+
+  <!-- TOTALS -->
+  <div class="totals-wrapper">
+    <div class="totals-box">
+      <div class="totals-row"><span class="t-label">Subtotal</span><span class="t-value">{{ currency }} {{ subtotal }}</span></div>
+      <div class="totals-row"><span class="t-label">Shipping</span><span class="t-value">{{ currency }} {{ shipping }}</span></div>
+      <div class="totals-row"><span class="t-label">Tax</span><span class="t-value">{{ currency }} {{ tax }}</span></div>
+      <div class="totals-row discount"><span class="t-label">Discount</span><span class="t-value">- {{ currency }} {{ discount }}</span></div>
+      <div class="totals-row grand"><span class="t-label">Grand Total</span><span class="t-value">{{ currency }} {{ total }}</span></div>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div class="footer">
+    <div class="footer-note">This is a system generated invoice and does not require a signature.</div>
+    <div class="footer-support">connect@aurorablings.com</div>
+  </div>
+
+</body>
+</html>

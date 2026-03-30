@@ -1,0 +1,38 @@
+2026-03-24 19:01:18,453 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:02:23,126 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:02:24,797 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:02:36,380 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:04:19,478 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:05:05,698 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:05:05,702 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:05:05,907 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:05:07,382 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:05:07,382 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:05:07,382 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:05:13,811 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:05:28,881 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:05:29,226 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:05:29,304 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:05:29,332 [INFO] django.utils.autoreload: F:\Development\Django\aurorablings\backend\config\settings\base.py changed, reloading.
+2026-03-24 19:08:04,043 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:08:04,047 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:08:04,082 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:08:04,107 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:08:04,123 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:08:04,256 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:08:21,179 [INFO] django.utils.autoreload: Watching for file changes with StatReloader
+2026-03-24 19:09:26,069 [WARNING] aurora_app: [1a8c819e-a774-4d68-99c6-845f3f4f02cd] DRF error 401: Authentication credentials were not provided.
+2026-03-24 19:09:26,070 [WARNING] aurora_app: [42052287-7324-4cac-be40-cd21a1e32a13] DRF error 401: Authentication credentials were not provided.
+2026-03-24 19:09:26,143 [WARNING] django.request: Unauthorized: /api/v1/auth/admin/customers/
+2026-03-24 19:09:26,148 [WARNING] django.request: Unauthorized: /api/v1/auth/admin/customers/
+2026-03-24 19:09:26,154 [WARNING] django.server: "GET /api/v1/auth/admin/customers/?search= HTTP/1.1" 401 228
+2026-03-24 19:09:26,156 [WARNING] django.server: "GET /api/v1/auth/admin/customers/?search= HTTP/1.1" 401 228
+2026-03-24 19:10:14,661 [WARNING] aurora_app: [d35f31c2-2195-4205-988f-a7a875231102] DRF error 401: Authentication credentials were not provided.
+2026-03-24 19:10:14,667 [WARNING] django.request: Unauthorized: /api/v1/auth/admin/customers/
+2026-03-24 19:10:14,669 [WARNING] django.server: "POST /api/v1/auth/admin/customers/ HTTP/1.1" 401 228
+2026-03-24 19:23:29,013 [WARNING] aurora_app: [750141f1-2905-47a5-a040-66fba3a5e36d] DRF error 401: Authentication credentials were not provided.
+2026-03-24 19:23:29,030 [WARNING] django.request: Unauthorized: /api/v1/auth/admin/customers/
+2026-03-24 19:23:29,034 [WARNING] django.server: "GET /api/v1/auth/admin/customers/?search= HTTP/1.1" 401 228
+2026-03-24 19:23:29,062 [WARNING] aurora_app: [05b2577e-6184-4362-8ac9-302fdc274b3a] DRF error 401: Authentication credentials were not provided.
+2026-03-24 19:23:29,075 [WARNING] django.request: Unauthorized: /api/v1/auth/admin/customers/
+2026-03-24 19:23:29,079 [WARNING] django.server: "GET /api/v1/auth/admin/customers/?search= HTTP/1.1" 401 228

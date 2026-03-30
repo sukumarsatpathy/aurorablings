@@ -1,0 +1,65 @@
+services:
+  db:
+      image: postgres:15-alpine
+      volumes:
+        - postgres_data:/var/lib/postgresql/data/
+      env_file:
+        - .env
+      environment:
+        - POSTGRES_DB=${POSTGRES_DB:-aurora_db}
+        - POSTGRES_USER=${POSTGRES_USER:-user}
+        - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      expose:
+        - 5432
+
+  redis:
+    image: redis:7-alpine
+    expose:
+      - 6379
+
+  backend:
+    build:
+      context: ./backend
+    command: gunicorn --bind 0.0.0.0:8000 config.wsgi:application
+    volumes:
+      - ./backend:/app
+      - static_volume:/app/staticfiles
+      - media_volume:/app/media
+    expose:
+      - 8000
+    env_file:
+      - .env
+    environment:
+      AUTO_CREATE_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "1"
+    depends_on:
+      - db
+      - redis
+
+  celery_worker:
+    build:
+      context: ./backend
+    command: celery -A config worker --loglevel=info
+    volumes:
+      - ./backend:/app
+    env_file:
+      - .env
+    environment:
+      AUTO_CREATE_MIGRATIONS: "0"
+      RUN_COLLECTSTATIC: "0"
+    depends_on:
+      - redis
+      - db
+
+  frontend:
+    build:
+      context: ./frontend
+    ports:
+      - "80:80"
+    depends_on:
+      - backend
+
+volumes:
+  postgres_data:
+  static_volume:
+  media_volume:

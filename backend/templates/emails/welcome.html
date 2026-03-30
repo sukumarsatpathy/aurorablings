@@ -1,0 +1,113 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Welcome to Aurora Blings</title>
+</head>
+
+<body style="margin:0; padding:0; background-color:#f5f5f5; font-family: Arial, sans-serif;">
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background-color:#f5f5f5; padding:20px 0;">
+    <tr>
+        <td align="center">
+
+            <table width="600" cellpadding="0" cellspacing="0"
+                   style="background:#ffffff; border-radius:12px; overflow:hidden;">
+
+                <tr>
+                    <td align="center" style="padding:30px 20px 10px;">
+                        {% if logo_url %}
+                            <img src="{{logo_url}}" alt="Aurora Blings" style="height:40px;">
+                        {% else %}
+                            <span style="font-size:22px; font-weight:700; color:#181C32;">Aurora Blings</span>
+                        {% endif %}
+                    </td>
+                </tr>
+
+                <tr>
+                    <td align="center" style="padding:10px 30px 20px;">
+
+                        <h1 style="margin:0; font-size:22px; color:#181C32;">
+                            Welcome {{user_name}} ✨
+                        </h1>
+
+                        <p style="margin:10px 0 0; color:#7E8299; font-size:14px;">
+                            Thank you for joining <strong>Aurora Blings</strong> 💎
+                        </p>
+
+                        <p style="margin:6px 0; color:#7E8299; font-size:14px;">
+                            Discover elegant jewellery curated just for you.
+                        </p>
+
+                        <p style="margin:6px 0 20px; color:#7E8299; font-size:14px;">
+                            Enjoy exclusive offers, fast delivery & premium designs.
+                        </p>
+
+                        <a href="{{activation_url}}" target="_blank"
+                           style="background:#517b4b; color:#ffffff; text-decoration:none;
+padding:12px 22px; border-radius:6px; display:inline-block; font-weight:600;">
+                            Start Shopping
+                        </a>
+
+                    </td>
+                </tr>
+
+                <tr>
+                    <td style="padding:20px 30px;">
+
+                        <h3 style="margin-bottom:15px; color:#181C32;">What’s next?</h3>
+
+                        <p style="margin:8px 0; font-weight:600;">1. Explore Our Collection</p>
+                        <p style="margin:0 0 10px; color:#5E6278; font-size:13px;">
+                            Browse trending earrings, rings & premium designs curated for you.
+                        </p>
+
+                        <p style="margin:8px 0; font-weight:600;">2. Unlock Exclusive Offers</p>
+                        <p style="margin:0 0 10px; color:#5E6278; font-size:13px;">
+                            Get special discounts and rewards on your first order.
+                        </p>
+
+                        <p style="margin:8px 0; font-weight:600;">3. Fast & Secure Checkout</p>
+                        <p style="margin:0; color:#5E6278; font-size:13px;">
+                            Seamless payment experience with secure gateways and quick delivery.
+                        </p>
+
+                    </td>
+                </tr>
+
+                <tr>
+                    <td align="center" style="padding:25px 20px; background:#f9f9f9;">
+
+                        <p style="margin:0 0 10px; font-weight:600; color:#181C32;">
+                            Need help? We’re here for you 💬
+                        </p>
+
+                        <p style="margin:4px 0; font-size:13px;">
+                            WhatsApp: +91-7847090866
+                        </p>
+                        <p style="margin:4px 0; font-size:13px;">
+                            Email: <a href="mailto:connect@aurorablings.com" target="_blank">connect@aurorablings.com</a>
+                        </p>
+
+                        <p style="margin:4px 0; font-size:13px;">
+                            <a href="https://aurorablings.com" style="color:#517b4b; text-decoration:none;">
+                                www.aurorablings.com
+                            </a>
+                        </p>
+
+                        <p style="padding:20px; background:#f0f3f0; text-align:center; font-size:12px; color:#777;">
+                            © {{year}} Aurora Blings. All rights reserved.
+                        </p>
+
+                    </td>
+                </tr>
+
+            </table>
+
+        </td>
+    </tr>
+</table>
+
+</body>
+</html>

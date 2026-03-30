@@ -1,0 +1,181 @@
+@import "tailwindcss";
+
+@plugin "tailwindcss-animate";
+
+@theme {
+  --font-sans: "Inter", ui-sans-serif, system-ui, sans-serif, "Apple Color Emoji", "Segoe UI Emoji", "Segoe UI Symbol", "Noto Color Emoji";
+
+  --color-primary: #517b4b;
+  --color-primary-foreground: #ffffff;
+
+  --color-secondary: #7ea378;
+  --color-secondary-foreground: #ffffff;
+
+  --color-accent: #3a5936;
+  --color-accent-foreground: #ffffff;
+
+  --color-destructive: #dc2626;
+  --color-destructive-foreground: #ffffff;
+
+  --color-background: #ffffff;
+  --color-foreground: #020817;
+
+  --color-muted: #eef1ea;
+  --color-muted-foreground: #64748b;
+
+  --color-card: #eef1ea;
+  --color-card-foreground: #020817;
+
+  --color-popover: #ffffff;
+  --color-popover-foreground: #020817;
+
+  --color-border: #e2e8f0;
+  --color-input: #e2e8f0;
+  --color-ring: #517b4b;
+
+  /* Category Showcase Theme */
+  --color-category-pink: hsl(var(--category-pink));
+  --color-category-green: hsl(var(--category-green));
+  --color-category-badge: hsl(var(--category-badge));
+  --color-category-badge-foreground: hsl(var(--category-badge-foreground));
+
+  --radius-2xl: 1rem;
+  --radius-xl: 0.75rem;
+  --radius-lg: 0.5rem;
+  --radius-md: 0.375rem;
+  --radius-sm: 0.25rem;
+
+  --shadow-soft: 0 4px 6px -1px rgb(0 0 0 / 0.1), 0 2px 4px -2px rgb(0 0 0 / 0.1);
+  --shadow-premium: 0 20px 25px -5px rgb(0 0 0 / 0.1), 0 8px 10px -6px rgb(0 0 0 / 0.1);
+}
+
+@layer base {
+  * {
+    @apply border-border outline-ring;
+  }
+
+  body {
+    @apply bg-background text-foreground font-sans antialiased;
+    font-feature-settings: "rlig" 1, "calt" 1;
+  }
+
+  body.quick-view-open .storefront-navbar {
+    display: none !important;
+  }
+
+  :root {
+    --scroll-velocity: 0;
+
+    /* Category Colors */
+    --category-pink: 354 100% 97%;
+    --category-green: 161 68% 96%;
+    --category-badge: 0 0% 13%;
+    --category-badge-foreground: 0 0% 100%;
+  }
+
+  .dark {
+    --color-background: #0f172a;
+    --color-foreground: #e2e8f0;
+    --color-muted: #1e293b;
+    --color-muted-foreground: #94a3b8;
+    --color-card: #111827;
+    --color-card-foreground: #e2e8f0;
+    --color-popover: #111827;
+    --color-popover-foreground: #e2e8f0;
+    --color-border: #334155;
+    --color-input: #334155;
+    --color-ring: #86efac;
+  }
+
+  html.premium-cursor-enabled,
+  html.premium-cursor-enabled a,
+  html.premium-cursor-enabled button,
+  html.premium-cursor-enabled input,
+  html.premium-cursor-enabled textarea,
+  html.premium-cursor-enabled select {
+    cursor: none !important;
+  }
+
+  input:focus,
+  input:focus-visible,
+  select:focus,
+  select:focus-visible,
+  textarea:focus,
+  textarea:focus-visible {
+    transform: none !important;
+  }
+
+  input,
+  textarea {
+    line-height: 1.25rem;
+  }
+
+  input:-webkit-autofill,
+  input:-webkit-autofill:hover,
+  input:-webkit-autofill:focus,
+  input:-webkit-autofill:active {
+    -webkit-text-fill-color: inherit;
+    transition: background-color 9999s ease-out;
+    box-shadow: 0 0 0 1000px transparent inset;
+  }
+}
+
+/* Custom Utilities */
+@layer utilities {
+  .glass {
+    @apply bg-white/70 backdrop-blur-md border border-white/20;
+  }
+
+  .premium-card {
+    @apply bg-white rounded-2xl shadow-soft border border-border/50 transition-all duration-300 hover:shadow-premium;
+  }
+
+  .velocity-reactive {
+    transform: translate3d(0, calc(var(--scroll-velocity) * -0.8px), 0);
+    transition: transform 160ms linear;
+    will-change: transform;
+  }
+
+  .premium-bg {
+    background-color: #ffffff;
+    background-image:
+      radial-gradient(at 0% 0%, rgba(81, 123, 75, 0.05) 0px, transparent 50%),
+      radial-gradient(at 50% 0%, rgba(81, 123, 75, 0.03) 0px, transparent 50%),
+      radial-gradient(at 100% 0%, rgba(81, 123, 75, 0.05) 0px, transparent 50%);
+    background-attachment: fixed;
+  }
+
+  .floating-orb {
+    @apply absolute rounded-full blur-[120px] opacity-20 pointer-events-none;
+    background: var(--color-primary);
+  }
+
+  .category-stroke-text {
+    -webkit-text-stroke: 1px var(--color-border);
+    color: transparent;
+  }
+
+  .animate-zoom-in-out {
+    animation: zoom-in-zoom-out 0.5s ease-out;
+  }
+}
+
+@keyframes zoom-in-zoom-out {
+  0% {
+    transform: scale(1, 1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.2, 1.2);
+  }
+  100% {
+    transform: scale(1, 1);
+    opacity: 1;
+  }
+}
+
+.category-stroke-text {
+  -webkit-text-stroke: 2px #d1d5db;
+  /* gray-300 — visible on light bg */
+  color: transparent;
+}

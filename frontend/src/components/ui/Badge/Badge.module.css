@@ -1,0 +1,12 @@
+.badge {
+  display: inline-block;
+  font-family: inherit;
+  font-size: 1.125rem;
+  color: #1a1a1a;
+  letter-spacing: -0.01em;
+  margin-bottom: 0.5rem;
+}
+
+.badge strong {
+  font-weight: 700;
+}

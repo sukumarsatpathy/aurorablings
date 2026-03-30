@@ -1,0 +1,191 @@
+.section {
+  padding: 50px 0;
+}
+
+.row {
+  display: flex;
+  flex-wrap: wrap;
+  margin: 0 -12px -24px;
+}
+
+.col {
+  flex: 0 0 50%;
+  max-width: 50%;
+  padding: 0 12px;
+  margin-bottom: 24px;
+}
+
+@media (max-width: 991px) {
+  .col {
+    flex: 0 0 100%;
+    max-width: 100%;
+  }
+}
+
+.bannerBox {
+  padding: 30px;
+  border-radius: 20px;
+  position: relative;
+  overflow: hidden;
+  min-height: 350px;
+  display: flex;
+  align-items: center;
+}
+
+.bannerBox::before {
+  content: "";
+  width: 400px;
+  height: 600px;
+  position: absolute;
+  left: -200px;
+  top: -200px;
+  bottom: 0;
+  transform: rotate(40deg);
+  z-index: 0;
+  transition: all 0.3s ease-in-out;
+  background-color: var(--shape-color, #f4dab4);
+}
+
+.bannerBox::after {
+  content: "";
+  width: 150px;
+  height: 300px;
+  position: absolute;
+  right: -70px;
+  bottom: -100px;
+  transform: rotate(40deg);
+  z-index: 0;
+  transition: all 0.3s ease-in-out;
+  background-color: var(--shape-color, #ffc6ce);
+}
+
+.bannerBox:hover::before {
+  left: -210px;
+  top: -210px;
+}
+
+.bannerBox:hover::after {
+  right: -80px;
+  bottom: -110px;
+}
+
+.innerBox {
+  position: relative;
+  z-index: 1;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  width: 100%;
+}
+
+.sideImage {
+  padding: 0 12px;
+  flex: 0 0 50%;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.imageFrame {
+  width: 280px;
+  height: 280px;
+  border-radius: 28px;
+  overflow: hidden;
+  background: #eceff1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.sideImage img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  border-radius: 28px;
+}
+
+.contact {
+  flex: 0 0 50%;
+  padding: 0 12px;
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  justify-content: center;
+}
+
+.contact h5 {
+  margin-bottom: 15px;
+  font-size: 31px;
+  font-weight: bold;
+  color: #3d4750;
+  line-height: 1.2;
+}
+
+.contact p {
+  margin-bottom: 15px;
+  font-size: 16px;
+  color: #686e7d;
+}
+
+.btn {
+  background: #6c7fd8;
+  color: white;
+  padding: 10px 25px;
+  border-radius: 5px;
+  font-weight: 600;
+  text-decoration: none;
+  transition: background 0.3s;
+}
+
+.btn:hover {
+  background: #5a6bc2;
+}
+
+@media (max-width: 1399px) {
+  .imageFrame {
+    width: 230px;
+    height: 230px;
+  }
+}
+
+@media (max-width: 1199px) {
+  .bannerBox::before,
+  .bannerBox::after {
+    opacity: 0.5;
+  }
+  .sideImage img {
+    width: 100%;
+    height: 100%;
+  }
+  .imageFrame {
+    width: 180px;
+    height: 180px;
+  }
+  .contact h5 {
+    font-size: 26px;
+  }
+}
+
+@media (max-width: 575px) {
+  .imageFrame {
+    width: min(220px, 100%);
+    height: min(220px, 100%);
+  }
+  .contact h5 {
+    font-size: 24px;
+  }
+}
+
+@media (max-width: 480px) {
+  .innerBox {
+    flex-direction: column;
+  }
+  .sideImage {
+    margin-bottom: 15px;
+  }
+  .contact {
+    align-items: center;
+    text-align: center;
+    flex: 0 0 100%;
+  }
+}
