@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="${APP_ROOT:-/srv/aurorablings}"
+APP_ROOT="${APP_ROOT:-/srv/aurora}"
 RELEASE_ID="${RELEASE_ID:-}"
 ARTIFACT_PATH="${ARTIFACT_PATH:-}"
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
@@ -17,7 +17,7 @@ while [[ $# -gt 0 ]]; do
 done
 
 if [[ -z "${RELEASE_ID}" || -z "${ARTIFACT_PATH}" ]]; then
-  echo "Usage: deploy_release.sh --release-id <id> --artifact <path> [--app-root /srv/aurorablings]" >&2
+  echo "Usage: deploy_release.sh --release-id <id> --artifact <path> [--app-root /srv/aurora]" >&2
   exit 1
 fi
 
