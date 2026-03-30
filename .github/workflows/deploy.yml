@@ -54,7 +54,6 @@ jobs:
       - name: Build frontend static files
         run: cd frontend && npm run build
 
-      # --- NEW STEPS TO FIX THE 'NOT FOUND' ERROR ---
       - name: Log in to GitHub Container Registry
         uses: docker/login-action@v3
         with:
@@ -78,7 +77,6 @@ jobs:
           file: ./frontend/Dockerfile
           push: true
           tags: ghcr.io/sukumarsatpathy/aurorablings/frontend:latest
-      # ----------------------------------------------
 
       - name: Generate Release ID
         id: release
@@ -125,14 +123,14 @@ jobs:
           APP_ROOT: ${{ secrets.PROD_APP_ROOT }}
           RELEASE_ID: ${{ needs.build-test-package.outputs.release_id }}
         run: |
-          scp -v -o ConnectTimeout=30 \
+          scp -v -o ConnectTimeout=120 \
               -o StrictHostKeyChecking=accept-new \
               -i ~/.ssh/id_ed25519 \
               release.tgz $HOST:/tmp/release.tgz
           
           ssh -o ConnectTimeout=60 $HOST "bash -s" <<EOF
           set -ex
-          
+
           EXTRACT_DIR=\$(mktemp -d)
           tar -xzf /tmp/release.tgz -C "\$EXTRACT_DIR"
           
