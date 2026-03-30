@@ -16,6 +16,32 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       release_id: ${{ steps.release.outputs.release_id }}
+
+    # FIX 1: Add services so Django tests have a real DB + cache
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: aurora_test
+          POSTGRES_USER: aurora_user
+          POSTGRES_PASSWORD: aurora_pass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
+
     steps:
       - name: Checkout
         uses: actions/checkout@v4
@@ -24,6 +50,8 @@ jobs:
         uses: actions/setup-python@v5
         with:
           python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
 
       - name: Setup Node
         uses: actions/setup-node@v4
@@ -41,8 +69,20 @@ jobs:
         run: npm ci
         working-directory: frontend
 
+      # FIX 2: Set DJANGO_SETTINGS_MODULE + test DB env vars
       - name: Run backend tests
-        run: python backend/manage.py test --noinput
+        working-directory: backend
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          SECRET_KEY: ci-only-secret-key-not-used-in-prod
+          DATABASE_URL: postgres://aurora_user:aurora_pass@localhost:5432/aurora_test
+          REDIS_URL: redis://localhost:6379/0
+          SQL_HOST: localhost
+          SQL_PORT: 5432
+          POSTGRES_DB: aurora_test
+          POSTGRES_USER: aurora_user
+          POSTGRES_PASSWORD: aurora_pass
+        run: python manage.py test --noinput --verbosity=2
 
       - name: Build frontend
         run: npm run build
@@ -93,7 +133,8 @@ jobs:
 
       - name: Upload release
         run: |
-          scp aurorablings-release.tgz "${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz"
+          scp aurorablings-release.tgz \
+            "${{ secrets.STAGING_USER }}@${{ secrets.STAGING_HOST }}:/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz"
 
       - name: Deploy release
         run: |
@@ -101,8 +142,6 @@ jobs:
             APP_ROOT='${{ secrets.STAGING_APP_ROOT }}' \
             RELEASE_ID='${{ needs.build-test-package.outputs.release_id }}' \
             ARTIFACT_PATH='/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz' \
-            WEB_BASE_URL='${{ secrets.STAGING_WEB_BASE_URL }}' \
-            API_BASE_URL='${{ secrets.STAGING_API_BASE_URL }}' \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           mkdir -p "${APP_ROOT}"
@@ -112,11 +151,22 @@ jobs:
             --app-root "${APP_ROOT}" \
             --release-id "${RELEASE_ID}" \
             --artifact "${ARTIFACT_PATH}" \
-            --web-base-url "${WEB_BASE_URL}" \
-            --api-base-url "${API_BASE_URL}" \
             --keep-releases 3
           rm -rf "${TMP_DEPLOY_DIR}"
-REMOTE
+          # FIX 3: Clean up uploaded tarball after deploy
+          rm -f "${ARTIFACT_PATH}" REMOTE
+
+      # FIX 4: Health check after deploy
+      - name: Health check (staging)
+        run: |
+          sleep 15
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 15 "${{ secrets.STAGING_WEB_BASE_URL }}/health/server")
+          if [ "$STATUS" != "200" ]; then
+            echo "Staging health check failed! HTTP $STATUS"
+            exit 1
+          fi
+          echo "Staging health check passed (HTTP $STATUS)"
 
   deploy-production:
     if: github.ref == 'refs/heads/main'
@@ -138,7 +188,8 @@ REMOTE
 
       - name: Upload release
         run: |
-          scp aurorablings-release.tgz "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz"
+          scp aurorablings-release.tgz \
+            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz"
 
       - name: Deploy release
         run: |
@@ -146,8 +197,6 @@ REMOTE
             APP_ROOT='${{ secrets.PROD_APP_ROOT }}' \
             RELEASE_ID='${{ needs.build-test-package.outputs.release_id }}' \
             ARTIFACT_PATH='/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz' \
-            WEB_BASE_URL='${{ secrets.PROD_WEB_BASE_URL }}' \
-            API_BASE_URL='${{ secrets.PROD_API_BASE_URL }}' \
             'bash -s' <<'REMOTE'
           set -euo pipefail
           mkdir -p "${APP_ROOT}"
@@ -157,8 +206,20 @@ REMOTE
             --app-root "${APP_ROOT}" \
             --release-id "${RELEASE_ID}" \
             --artifact "${ARTIFACT_PATH}" \
-            --web-base-url "${WEB_BASE_URL}" \
-            --api-base-url "${API_BASE_URL}" \
             --keep-releases 3
           rm -rf "${TMP_DEPLOY_DIR}"
+          # FIX 3: Clean up uploaded tarball after deploy
+          rm -f "${ARTIFACT_PATH}"
 REMOTE
+
+      # FIX 4: Health check after deploy
+      - name: Health check (production)
+        run: |
+          sleep 15
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" \
+            --max-time 15 "https://aurorablings.com/health/server")
+          if [ "$STATUS" != "200" ]; then
+            echo "Production health check failed! HTTP $STATUS"
+            exit 1
+          fi
+          echo "Production health check passed (HTTP $STATUS)"
