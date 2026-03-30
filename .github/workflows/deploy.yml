@@ -101,7 +101,10 @@ jobs:
           RELEASE_ID: ${{ needs.build-test-package.outputs.release_id }}
         run: |
           # 1. Upload
-          scp -o ConnectTimeout=30 release.tgz $HOST:/tmp/release.tgz
+          scp -v -o ConnectTimeout=30 \
+              -o StrictHostKeyChecking=accept-new \
+              -i ~/.ssh/id_ed25519 \
+              release.tgz $HOST:/tmp/release.tgz
           
           # 2. Execute using a simple quoted string instead of a Heredoc
           # This is the most compatible way for PyCharm
@@ -113,7 +116,6 @@ jobs:
           
           # Find the script path
           SCRIPT_PATH=\$(find "\$EXTRACT_DIR" -name "deploy_release.sh" | head -n 1)
-          
           if [ -z "\$SCRIPT_PATH" ]; then
             echo "Error: deploy_release.sh not found"
             exit 1
