@@ -72,9 +72,9 @@ jobs:
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v5
         with:
-          # This tells Docker to look inside the frontend folder
-          context: ./frontend
-          # This points exactly to the Dockerfile inside that folder
+          # Change context back to the root (dot)
+          context: .
+          # Point exactly to the frontend Dockerfile
           file: ./frontend/Dockerfile
           push: true
           tags: ghcr.io/sukumarsatpathy/aurorablings/frontend:latest
