@@ -54,9 +54,8 @@ services:
       retries: 3
 
   celery_worker:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    # Replaces 'build' with the pre-built backend image
+    image: ghcr.io/sukumarsatpathy/aurora-blings/backend:latest
     restart: always
     command: celery -A config worker --loglevel=info
     volumes:
@@ -78,13 +77,12 @@ services:
         condition: service_healthy
 
   celery_beat:
-    build:
-      context: ./backend
-      dockerfile: Dockerfile
+    # Replaces 'build' with the pre-built backend image
+    image: ghcr.io/sukumarsatpathy/aurora-blings/backend:latest
     restart: always
     command: celery -A config beat --loglevel=info
     volumes:
-      - ./logs:/app/logs
+      - /srv/aurora/shared/logs:/app/logs
     env_file:
       - .env
     environment:
@@ -101,9 +99,8 @@ services:
         condition: service_healthy
 
   frontend:
-    build:
-      context: .
-      dockerfile: Dockerfile
+    # Replaces 'build' with your pre-built frontend image
+    image: ghcr.io/sukumarsatpathy/aurora-blings/frontend:latest
     restart: always
     depends_on:
       - backend
@@ -127,5 +124,3 @@ services:
 
 volumes:
   postgres_data:
-  static_volume:
-  media_volume:
