@@ -71,10 +71,12 @@ jobs:
       - name: Run backend tests
         working-directory: backend
         env:
-          DJANGO_SETTINGS_MODULE: config.settings.test
+          # Pointing to base.py since test.py does not exist in your folder structure
+          DJANGO_SETTINGS_MODULE: config.settings.base
           SECRET_KEY: ci-only-secret-key-not-used-in-prod
           DATABASE_URL: postgres://aurora_user:aurora_pass@localhost:5432/aurora_test
           REDIS_URL: redis://localhost:6379/0
+          PYTHONPATH: .
         run: python manage.py test --noinput --verbosity=2
 
       - name: Build frontend
@@ -123,51 +125,46 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
 
-      - name: Upload release to Server
+      - name: Upload release
         run: |
           scp -o ConnectTimeout=30 aurorablings-release.tgz \
             "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz"
 
-      - name: Execute Remote Deployment
+      - name: Deploy release
         run: |
           ssh -o ConnectTimeout=60 -o StrictHostKeyChecking=no "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
             APP_ROOT='${{ secrets.PROD_APP_ROOT }}' \
             RELEASE_ID='${{ needs.build-test-package.outputs.release_id }}' \
             ARTIFACT_PATH='/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz' \
             'bash -s' <<'REMOTE'
-          
-          # 'set -x' prints every command before executing it (Great for debugging hangs)
           set -exuo pipefail
           
-          echo "Starting remote deployment steps..."
           mkdir -p "${APP_ROOT}"
-          
           TMP_DEPLOY_DIR="$(mktemp -d)"
-          echo "Unpacking release to $TMP_DEPLOY_DIR"
+          
+          echo "Extracting release..."
           tar -xzf "${ARTIFACT_PATH}" -C "${TMP_DEPLOY_DIR}"
           
-          # Ensure the script is executable
+          # Using the path confirmed in your folder structure 
           chmod +x "${TMP_DEPLOY_DIR}/deploy/scripts/deploy_release.sh"
           
-          echo "Running deployment script..."
           bash "${TMP_DEPLOY_DIR}/deploy/scripts/deploy_release.sh" \
             --app-root "${APP_ROOT}" \
             --release-id "${RELEASE_ID}" \
             --artifact "${ARTIFACT_PATH}" \
             --keep-releases 3
           
-          # Cleanup
           rm -rf "${TMP_DEPLOY_DIR}"
           rm -f "${ARTIFACT_PATH}"
-          
-          echo "Deployment Finished Successfully!"
+          echo "Deployment complete."
+          # CRITICAL: This closing REMOTE must have ZERO indentation
           REMOTE
 
       - name: Health check
         run: |
           sleep 20
-          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://aurorablings.com/health/server")
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 15 "https://aurorablings.com/health/server")
           if [ "$STATUS" != "200" ]; then
-            echo "Deployment might have failed. Health check returned $STATUS"
+            echo "Health check failed with status $STATUS"
             exit 1
           fi
