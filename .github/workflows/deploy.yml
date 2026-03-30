@@ -123,32 +123,42 @@ jobs:
           APP_ROOT: ${{ secrets.PROD_APP_ROOT }}
           RELEASE_ID: ${{ needs.build-test-package.outputs.release_id }}
         run: |
+          # 1. Upload the file specifically to /tmp/release.tgz
           scp -v -o ConnectTimeout=120 \
               -o StrictHostKeyChecking=accept-new \
               -i ~/.ssh/id_ed25519 \
               release.tgz $HOST:/tmp/release.tgz
           
+          # 2. Execute the script using the absolute path to the uploaded file
           ssh -o ConnectTimeout=60 $HOST "bash -s" <<EOF
           set -ex
-
+          
+          # Create a temporary folder for extraction
           EXTRACT_DIR=\$(mktemp -d)
+          
+          # ✅ FIX: Explicitly use the /tmp/release.tgz path we just uploaded to
           tar -xzf /tmp/release.tgz -C "\$EXTRACT_DIR"
           
+          # Find the deployment script inside the extracted files
           SCRIPT_PATH=\$(find "\$EXTRACT_DIR" -name "deploy_release.sh" | head -n 1)
           
           if [ -z "\$SCRIPT_PATH" ]; then
-            echo "Error: deploy_release.sh not found"
+            echo "Error: deploy_release.sh not found in the artifact"
+            ls -R "\$EXTRACT_DIR"
             exit 1
           fi
           
           chmod +x "\$SCRIPT_PATH"
           
+          # Run the script, passing the correct absolute path to the artifact
           bash "\$SCRIPT_PATH" \
             --app-root "$APP_ROOT" \
             --release-id "$RELEASE_ID" \
             --artifact "/tmp/release.tgz" \
             --keep-releases 3
-            
+          
+          # Cleanup
           rm -rf "\$EXTRACT_DIR"
-          rm -f /tmp/release.tgz
+          # Optional: Keep /tmp/release.tgz if your deploy_release.sh needs it later, 
+          # but usually the script handles its own cleanup.
           EOF
