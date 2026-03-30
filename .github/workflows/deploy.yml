@@ -1,59 +1,173 @@
-name: Deploy Aurora Blings
+name: Aurora Deploy
 
 on:
   push:
     branches:
+      - develop
       - main
-      - master
+  workflow_dispatch:
 
-permissions:
-  packages: write
-  contents: read
+concurrency:
+  group: aurorablings-deploy-${{ github.ref }}
+  cancel-in-progress: false
 
 jobs:
-  deploy:
+  build-test-package:
     runs-on: ubuntu-latest
+    outputs:
+      release_id: ${{ steps.release.outputs.release_id }}
+
+    services:
+      postgres:
+        image: postgres:15-alpine
+        env:
+          POSTGRES_DB: aurora_test
+          POSTGRES_USER: aurora_user
+          POSTGRES_PASSWORD: aurora_pass
+        options: >-
+          --health-cmd pg_isready
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 5432:5432
+      redis:
+        image: redis:7-alpine
+        options: >-
+          --health-cmd "redis-cli ping"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+        ports:
+          - 6379:6379
 
     steps:
-      - name: Checkout code
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Login to GitHub Container Registry
-        run: |
-          echo "${{ secrets.GITHUB_TOKEN }}" | docker login ghcr.io -u ${{ github.actor }} --password-stdin
-
-      - name: Build backend image
-        run: |
-          docker build -t ghcr.io/${{ github.repository }}/backend:latest ./backend
-
-      - name: Push backend image
-        run: |
-          docker push ghcr.io/${{ github.repository }}/backend:latest
-
-      - name: Deploy to server
-        uses: appleboy/ssh-action@v1.0.3
+      - name: Setup Python
+        uses: actions/setup-python@v5
         with:
-          host: ${{ secrets.SERVER_HOST }}
-          username: ${{ secrets.SERVER_USER }}
-          key: ${{ secrets.SERVER_SSH_KEY }}
-          port: ${{ secrets.SERVER_PORT }}
-          script_stop: true
-          timeout: 300s
-          envs: GITHUB_TOKEN,GITHUB_ACTOR
-          script: |
-            set -e
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: backend/requirements.txt
 
-            echo "🚀 Starting deployment..."
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: 'npm'
+          cache-dependency-path: frontend/package-lock.json
 
-            cd /var/www/aurora || { echo "❌ Directory not found"; exit 1; }
+      - name: Install backend deps
+        run: |
+          python -m pip install --upgrade pip
+          pip install -r backend/requirements.txt
 
-            echo "🔐 Logging into container registry..."
-            echo "$GITHUB_TOKEN" | docker login ghcr.io -u $GITHUB_ACTOR --password-stdin
+      - name: Install frontend deps
+        run: npm ci
+        working-directory: frontend
 
-            echo "📦 Pulling latest images..."
-            docker compose -f docker-compose.prod.yml pull
+      - name: Run backend tests
+        working-directory: backend
+        env:
+          DJANGO_SETTINGS_MODULE: config.settings.test
+          SECRET_KEY: ci-only-secret-key-not-used-in-prod
+          DATABASE_URL: postgres://aurora_user:aurora_pass@localhost:5432/aurora_test
+          REDIS_URL: redis://localhost:6379/0
+        run: python manage.py test --noinput --verbosity=2
 
-            echo "🔄 Restarting containers..."
-            docker compose -f docker-compose.prod.yml up -d
+      - name: Build frontend
+        run: npm run build
+        working-directory: frontend
 
-            echo "✅ Deployment completed"
+      - name: Build release id
+        id: release
+        run: echo "release_id=$(date +'%Y%m%d%H%M%S')-${GITHUB_SHA::7}" >> "$GITHUB_OUTPUT"
+
+      - name: Package artifact
+        run: |
+          tar \
+            --exclude='.git' \
+            --exclude='frontend/node_modules' \
+            --exclude='backend/__pycache__' \
+            -czf aurorablings-release.tgz \
+            backend \
+            frontend \
+            deploy \
+            docker-compose.prod.yml \
+            .env.example
+
+      - name: Upload artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: aurorablings-release-${{ steps.release.outputs.release_id }}
+          path: aurorablings-release.tgz
+          retention-days: 7
+
+  deploy-production:
+    if: github.ref == 'refs/heads/main'
+    needs: build-test-package
+    runs-on: ubuntu-latest
+    environment: production
+    steps:
+      - name: Download artifact
+        uses: actions/download-artifact@v4
+        with:
+          name: aurorablings-release-${{ needs.build-test-package.outputs.release_id }}
+
+      - name: Configure SSH
+        run: |
+          mkdir -p ~/.ssh
+          echo "${{ secrets.PROD_SSH_KEY }}" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan -H "${{ secrets.PROD_HOST }}" >> ~/.ssh/known_hosts
+
+      - name: Upload release to Server
+        run: |
+          scp -o ConnectTimeout=30 aurorablings-release.tgz \
+            "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}:/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz"
+
+      - name: Execute Remote Deployment
+        run: |
+          ssh -o ConnectTimeout=60 -o StrictHostKeyChecking=no "${{ secrets.PROD_USER }}@${{ secrets.PROD_HOST }}" \
+            APP_ROOT='${{ secrets.PROD_APP_ROOT }}' \
+            RELEASE_ID='${{ needs.build-test-package.outputs.release_id }}' \
+            ARTIFACT_PATH='/tmp/aurorablings-release-${{ needs.build-test-package.outputs.release_id }}.tgz' \
+            'bash -s' <<'REMOTE'
+          
+          # 'set -x' prints every command before executing it (Great for debugging hangs)
+          set -exuo pipefail
+          
+          echo "Starting remote deployment steps..."
+          mkdir -p "${APP_ROOT}"
+          
+          TMP_DEPLOY_DIR="$(mktemp -d)"
+          echo "Unpacking release to $TMP_DEPLOY_DIR"
+          tar -xzf "${ARTIFACT_PATH}" -C "${TMP_DEPLOY_DIR}"
+          
+          # Ensure the script is executable
+          chmod +x "${TMP_DEPLOY_DIR}/deploy/scripts/deploy_release.sh"
+          
+          echo "Running deployment script..."
+          bash "${TMP_DEPLOY_DIR}/deploy/scripts/deploy_release.sh" \
+            --app-root "${APP_ROOT}" \
+            --release-id "${RELEASE_ID}" \
+            --artifact "${ARTIFACT_PATH}" \
+            --keep-releases 3
+          
+          # Cleanup
+          rm -rf "${TMP_DEPLOY_DIR}"
+          rm -f "${ARTIFACT_PATH}"
+          
+          echo "Deployment Finished Successfully!"
+          REMOTE
+
+      - name: Health check
+        run: |
+          sleep 20
+          STATUS=$(curl -s -o /dev/null -w "%{http_code}" --max-time 10 "https://aurorablings.com/health/server")
+          if [ "$STATUS" != "200" ]; then
+            echo "Deployment might have failed. Health check returned $STATUS"
+            exit 1
+          fi
