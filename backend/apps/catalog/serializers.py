@@ -33,13 +33,26 @@ class CategorySerializer(serializers.ModelSerializer):
         products = obj.products.all()
         if not products.exists():
             return True
-        
-        # Check if any variant of any product in this category has stock
-        total_stock = products.aggregate(
-            total=Sum("variants__stock_quantity")
-        )["total"] or 0
-        
-        return total_stock <= 0
+
+        # Prefer warehouse-level availability when inventory records exist.
+        try:
+            from apps.inventory.models import WarehouseStock
+
+            stock_qs = WarehouseStock.objects.filter(
+                variant__product__in=products,
+                variant__is_active=True,
+                warehouse__is_active=True,
+            )
+            if stock_qs.exists():
+                total_available = stock_qs.aggregate(total=Sum("available"))["total"] or 0
+                return int(total_available) <= 0
+        except Exception:
+            # Fallback to legacy variant stock below.
+            pass
+
+        # Legacy fallback when warehouse stock isn't configured.
+        total_stock = products.aggregate(total=Sum("variants__stock_quantity"))["total"] or 0
+        return int(total_stock) <= 0
 
     def validate_image(self, value):
         if value in (None, ""):

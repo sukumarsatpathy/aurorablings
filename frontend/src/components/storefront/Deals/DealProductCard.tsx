@@ -101,7 +101,7 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
   const firstVariant = product.variants?.[0];
   const price = Number(firstVariant?.effective_price || product.default_variant?.price || '0');
   const originalPrice = Number(firstVariant?.display_compare_at_price || firstVariant?.compare_at_price || 0);
-  const packLabel = firstVariant?.name?.trim() || '1 Pack';
+  const packLabel = firstVariant?.sku?.trim() || product.default_variant?.sku || 'N/A';
   const ratingValue = parseFloat(product.rating || '0');
 
   const defaultQuickVariant = useMemo(() => {
