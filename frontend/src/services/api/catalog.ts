@@ -120,7 +120,14 @@ const catalogService = {
 
     const extractCount = (payload: any): number => {
       const root = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
-      const count = Number(root?.count ?? root?.total ?? 0);
+      const meta = payload?.meta && typeof payload.meta === 'object' ? payload.meta : root?.meta;
+      const count = Number(
+        meta?.total_count ??
+        root?.total_count ??
+        root?.count ??
+        root?.total ??
+        0
+      );
       return Number.isFinite(count) ? count : 0;
     };
 

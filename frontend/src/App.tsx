@@ -215,7 +215,11 @@ function AppContent() {
       ? 'image/png'
       : lower.endsWith('.ico')
         ? 'image/x-icon'
-        : 'image/svg+xml';
+        : lower.endsWith('.webp')
+          ? 'image/webp'
+          : lower.endsWith('.jpg') || lower.endsWith('.jpeg')
+            ? 'image/jpeg'
+            : 'image/svg+xml';
 
     rels.forEach((rel) => {
       const existing = document.querySelector(`link[rel='${rel}']`) as HTMLLinkElement | null;

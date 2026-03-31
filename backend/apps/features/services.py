@@ -50,6 +50,14 @@ logger = get_logger(__name__)
 
 TURNSTILE_CONFIG_CACHE_KEY = "settings:turnstile:config"
 TURNSTILE_CONFIG_TTL_SECONDS = 60
+ALWAYS_PUBLIC_SETTING_KEYS = {
+    "branding_logo_url",
+    "branding_favicon_url",
+    "branding_site_name",
+    "branding_site_title",
+    "branding_tagline",
+    "branding_footer_text",
+}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -311,11 +319,12 @@ def get_public_settings() -> dict:
     if cached is not None:
         return cached
 
-    data = {
-        s.key: s.typed_value
-        for s in AppSetting.objects.filter(is_public=True)
-        if not is_secret_setting(s.key)
-    }
+    data = {}
+    public_or_whitelisted = AppSetting.objects.filter(is_public=True) | AppSetting.objects.filter(key__in=ALWAYS_PUBLIC_SETTING_KEYS)
+    for s in public_or_whitelisted.distinct():
+        if is_secret_setting(s.key):
+            continue
+        data[s.key] = s.typed_value
     _cache.set_all_public_settings(data)
     return data
 

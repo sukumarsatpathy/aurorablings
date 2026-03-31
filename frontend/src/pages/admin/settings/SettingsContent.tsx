@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -32,6 +32,49 @@ export const SettingsContent: React.FC<Props> = ({
   );
   const [quickValues, setQuickValues] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState('');
+  const [uploadingKey, setUploadingKey] = useState('');
+  const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
+
+  const isBrandingAssetSetting = (settingKey: string) =>
+    settingKey === 'branding_logo_url' || settingKey === 'branding_favicon_url';
+
+  const getBackendOrigin = (): string => {
+    const baseURL = String(import.meta.env.VITE_API_BASE_URL || '').trim();
+    const explicitBackendOrigin = String(import.meta.env.VITE_BACKEND_ORIGIN || '').trim();
+
+    if (explicitBackendOrigin) {
+      try {
+        return new URL(explicitBackendOrigin).origin;
+      } catch {
+        // ignore invalid env and continue fallback
+      }
+    }
+
+    try {
+      if (baseURL) {
+        const parsed = new URL(baseURL, window.location.origin);
+        if (/^https?:$/i.test(parsed.protocol) && parsed.origin !== window.location.origin) {
+          return parsed.origin;
+        }
+      }
+    } catch {
+      // ignore and fallback
+    }
+
+    if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
+      return `${window.location.protocol}//${window.location.hostname}:8000`;
+    }
+
+    return window.location.origin;
+  };
+
+  const toPreviewUrl = (raw: string): string => {
+    const value = String(raw || '').trim();
+    if (!value) return '';
+    if (/^https?:\/\//i.test(value)) return value;
+    const backendOrigin = getBackendOrigin();
+    return value.startsWith('/') ? `${backendOrigin}${value}` : `${backendOrigin}/${value}`;
+  };
 
   const saveQuick = async (setting: AppSetting) => {
     const nextValue = quickValues[setting.key] ?? setting.value;
@@ -53,6 +96,36 @@ export const SettingsContent: React.FC<Props> = ({
       onToast('error', error?.response?.data?.message || 'Failed to update setting.');
     } finally {
       setSavingKey('');
+    }
+  };
+
+  const uploadBrandingAsset = async (setting: AppSetting, file: File) => {
+    try {
+      setUploadingKey(setting.key);
+      const response = await settingsService.uploadAsset(file, setting.key);
+      const payload = response?.data || response || {};
+      const uploadedUrl = String(payload.url || payload.absolute_url || '').trim();
+      if (!uploadedUrl) {
+        onToast('error', 'Upload succeeded but URL was not returned.');
+        return;
+      }
+      setQuickValues((prev) => ({ ...prev, [setting.key]: uploadedUrl }));
+      await settingsService.update(setting.key, {
+        key: setting.key,
+        value: uploadedUrl,
+        value_type: setting.value_type,
+        category: setting.category,
+        label: setting.label,
+        description: setting.description,
+        is_public: setting.is_public,
+        is_editable: setting.is_editable,
+      });
+      onToast('success', `${setting.label || setting.key} uploaded and saved.`);
+      await onRefresh();
+    } catch (error: any) {
+      onToast('error', error?.response?.data?.message || 'Failed to upload branding asset.');
+    } finally {
+      setUploadingKey('');
     }
   };
 
@@ -101,10 +174,68 @@ export const SettingsContent: React.FC<Props> = ({
                       disabled={disabled}
                       onChange={(e) => setQuickValues((prev) => ({ ...prev, [setting.key]: e.target.value }))}
                     />
+                    {category === 'branding' && isBrandingAssetSetting(setting.key) ? (
+                      <div className="pt-1 space-y-2">
+                        {inputValue ? (
+                          <div className="rounded-lg border border-border/60 bg-muted/10 p-2 inline-flex items-center gap-3">
+                            <img
+                              src={toPreviewUrl(inputValue)}
+                              alt={setting.key === 'branding_favicon_url' ? 'Favicon Preview' : 'Logo Preview'}
+                              className={
+                                setting.key === 'branding_favicon_url'
+                                  ? 'h-8 w-8 rounded object-contain bg-white border border-border/50'
+                                  : 'h-10 w-24 rounded object-contain bg-white border border-border/50'
+                              }
+                              onError={(event) => {
+                                const img = event.currentTarget as HTMLImageElement;
+                                img.style.display = 'none';
+                              }}
+                            />
+                            <a
+                              href={toPreviewUrl(inputValue)}
+                              target="_blank"
+                              rel="noreferrer"
+                              className="text-xs text-primary hover:underline break-all"
+                            >
+                              Open image
+                            </a>
+                          </div>
+                        ) : null}
+                        <div className="flex items-center gap-2">
+                        <input
+                          ref={(node) => {
+                            fileInputRefs.current[setting.key] = node;
+                          }}
+                          type="file"
+                          accept="image/png,image/jpeg,image/webp"
+                          className="hidden"
+                          onChange={(event) => {
+                            const file = event.target.files?.[0];
+                            if (file) {
+                              void uploadBrandingAsset(setting, file);
+                            }
+                            event.currentTarget.value = '';
+                          }}
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          disabled={disabled || uploadingKey === setting.key}
+                          onClick={() => fileInputRefs.current[setting.key]?.click()}
+                        >
+                          {uploadingKey === setting.key
+                            ? 'Uploading...'
+                            : setting.key === 'branding_favicon_url'
+                              ? 'Upload Favicon'
+                              : 'Upload Logo'}
+                        </Button>
+                        </div>
+                      </div>
+                    ) : null}
                   </div>
                   <Button
                     className="md:ml-4"
-                    disabled={disabled || savingKey === setting.key}
+                    disabled={disabled || savingKey === setting.key || uploadingKey === setting.key}
                     onClick={() => saveQuick(setting)}
                   >
                     {savingKey === setting.key ? 'Saving...' : 'Save'}
