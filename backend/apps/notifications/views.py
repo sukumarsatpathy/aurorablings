@@ -306,12 +306,11 @@ class ContactFormNotificationView(APIView):
         if not support_email:
             support_email = "connect@aurorablings.com"
 
-        recipients = []
+        contact_inbox = "connect@aurorablings.com"
+        recipients = [contact_inbox]
         for email in [support_email, str(getattr(settings, "ADMINS_EMAIL", "") or "").strip()]:
             if email and email not in recipients:
                 recipients.append(email)
-        if not recipients:
-            recipients = [support_email]
 
         notifications = []
         for admin_email in recipients:

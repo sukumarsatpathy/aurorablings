@@ -23,7 +23,15 @@ class BrevoSender(NotificationSenderBase):
             "content-type": "application/json",
         }
 
-    def send(self, *, recipient: str, subject: str, html_body: str, text_body: str) -> SendResult:
+    def send(
+        self,
+        *,
+        recipient: str,
+        subject: str,
+        html_body: str,
+        text_body: str,
+        cc_recipients: list[str] | None = None,
+    ) -> SendResult:
         cfg = self.load_config()
         enabled = bool(cfg.get("enabled", False))
         api_key = str(cfg.get("api_key", "") or "")
@@ -41,6 +49,8 @@ class BrevoSender(NotificationSenderBase):
             "htmlContent": html_body,
             "textContent": text_body,
         }
+        if cc_recipients:
+            payload["cc"] = [{"email": email} for email in cc_recipients]
 
         req = urllib.request.Request(
             f"{self.base_url}/smtp/email",

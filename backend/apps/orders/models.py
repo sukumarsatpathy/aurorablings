@@ -70,6 +70,7 @@ class PaymentMethod(models.TextChoices):
     COD          = "cod",          _("Cash on Delivery")
     CASHFREE     = "cashfree",     _("Cashfree")
     RAZORPAY     = "razorpay",     _("Razorpay")
+    PHONEPE      = "phonepe",      _("PhonePe")
     STRIPE       = "stripe",       _("Stripe")
     UPI          = "upi",          _("UPI")
     BANK_TRANSFER = "bank_transfer", _("Bank Transfer")

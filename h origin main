@@ -1,0 +1,11 @@
+[33mcommit 5fcfa5f5422efcd10288c51a9de118c29e9a8e90[m[33m ([m[1;36mHEAD[m[33m -> [m[1;32mmain[m[33m, [m[1;31morigin/codex/fix-storefront-pagination-branding[m[33m, [m[1;32mcodex/fix-storefront-pagination-branding[m[33m)[m
+Author: Er. Sukumar Satapathy <sukumarsatpathy@gmail.com>
+Date:   Tue Mar 31 18:32:36 2026 +0530
+
+    Fix storefront pagination and branding asset upload handling
+
+ backend/apps/features/services.py                  |  19 [32m++[m[31m-[m
+ frontend/src/App.tsx                               |   6 [32m+[m[31m-[m
+ .../src/pages/admin/settings/SettingsContent.tsx   | 135 [32m++++++++++++++++++++[m[31m-[m
+ frontend/src/services/api/catalog.ts               |   9 [32m+[m[31m-[m
+ 4 files changed, 160 insertions(+), 9 deletions(-)

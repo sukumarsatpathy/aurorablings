@@ -188,7 +188,7 @@ const ordersService = {
   placeOrder: async (payload: {
     shipping_address: Record<string, string>;
     billing_address?: Record<string, string>;
-    payment_method: 'cod' | 'cashfree' | 'razorpay' | 'stripe' | 'upi' | 'bank_transfer';
+    payment_method: 'cod' | 'cashfree' | 'razorpay' | 'phonepe' | 'stripe' | 'upi' | 'bank_transfer';
     shipping_cost: number;
     coupon_code?: string;
     notes?: string;

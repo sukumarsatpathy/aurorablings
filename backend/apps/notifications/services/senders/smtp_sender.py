@@ -45,7 +45,15 @@ class SMTPSender(NotificationSenderBase):
             timeout=int(raw.get("timeout", 20) or 20),
         )
 
-    def send(self, *, recipient: str, subject: str, html_body: str, text_body: str) -> SendResult:
+    def send(
+        self,
+        *,
+        recipient: str,
+        subject: str,
+        html_body: str,
+        text_body: str,
+        cc_recipients: list[str] | None = None,
+    ) -> SendResult:
         cfg = self.load_config()
         if not cfg.enabled:
             raise RuntimeError("SMTP provider is disabled in settings")
@@ -69,6 +77,7 @@ class SMTPSender(NotificationSenderBase):
             body=text_body,
             from_email=cfg.from_email,
             to=[recipient],
+            cc=cc_recipients or None,
             reply_to=[cfg.reply_to] if cfg.reply_to else None,
             connection=connection,
         )

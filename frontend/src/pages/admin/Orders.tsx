@@ -34,7 +34,7 @@ const extractRows = (payload: any): any[] => {
 
 const statusOptions = ['draft', 'placed', 'paid', 'processing', 'shipped', 'delivered', 'completed', 'cancelled', 'refunded'];
 const paymentStatusOptions = ['pending', 'paid', 'failed', 'refunded', 'partially_refunded'];
-const paymentMethodOptions = ['cod', 'cashfree', 'razorpay', 'stripe', 'upi', 'bank_transfer'];
+const paymentMethodOptions = ['cod', 'cashfree', 'razorpay', 'phonepe', 'stripe', 'upi', 'bank_transfer'];
 
 const toTitle = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
 

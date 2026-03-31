@@ -114,6 +114,9 @@ def _provider_enabled(provider_name: str) -> bool:
     if name == "razorpay":
         from django.conf import settings
         return bool(str(getattr(settings, "RAZORPAY_KEY_ID", "") or "").strip() and str(getattr(settings, "RAZORPAY_KEY_SECRET", "") or "").strip())
+    if name == "phonepe":
+        from django.conf import settings
+        return bool(str(getattr(settings, "PHONEPE_MERCHANT_ID", "") or "").strip() and str(getattr(settings, "PHONEPE_SALT_KEY", "") or "").strip())
 
     return False
 
@@ -143,7 +146,7 @@ class ProviderListView(APIView):
     permission_classes = [AllowAny]
 
     def get(self, request):
-        allowed = {"cashfree", "razorpay"}
+        allowed = {"cashfree", "razorpay", "phonepe"}
         enforce_enabled = _has_any_payment_toggle(allowed)
         providers = [
             {

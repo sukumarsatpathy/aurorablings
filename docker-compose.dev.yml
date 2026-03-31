@@ -1,24 +1,24 @@
 version: "3.9"
 
 services:
-  db:
-    image: postgres:15-alpine
-    restart: unless-stopped
-    env_file:
-      - .env
-    environment:
-      POSTGRES_DB: ${POSTGRES_DB:-aurora_db}
-      POSTGRES_USER: ${POSTGRES_USER:-user}
-      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
-    ports:
-      - "5432:5432"
-    volumes:
-      - postgres_data_dev:/var/lib/postgresql/data
-    healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-aurora_db}"]
-      interval: 5s
-      timeout: 5s
-      retries: 20
+#   db:
+#     image: postgres:15-alpine
+#     restart: unless-stopped
+#     env_file:
+#       - .env
+#     environment:
+#       POSTGRES_DB: ${POSTGRES_DB:-aurora_db}
+#       POSTGRES_USER: ${POSTGRES_USER:-user}
+#       POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-password}
+#     ports:
+#       - "5432:5432"
+#     volumes:
+#       - postgres_data_dev:/var/lib/postgresql/data
+#     healthcheck:
+#       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-user} -d ${POSTGRES_DB:-aurora_db}"]
+#       interval: 5s
+#       timeout: 5s
+#       retries: 20
 
   redis:
     image: redis:7-alpine
@@ -41,13 +41,10 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE: postgres
-      SQL_HOST: db
-      SQL_PORT: 5432
-      AUTO_CREATE_MIGRATIONS: "1"
-      RUN_COLLECTSTATIC: "1"
-      DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-aurora_db}
+      # DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-aurora_db}
       REDIS_URL: redis://redis:6379/1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes:
@@ -57,8 +54,8 @@ services:
     ports:
       - "8000:8000"
     depends_on:
-      db:
-        condition: service_healthy
+      # db:
+      #   condition: service_healthy
       redis:
         condition: service_healthy
 
@@ -70,20 +67,17 @@ services:
     env_file:
       - .env
     environment:
-      DATABASE: postgres
-      SQL_HOST: db
-      SQL_PORT: 5432
-      AUTO_CREATE_MIGRATIONS: "0"
-      RUN_COLLECTSTATIC: "0"
-      DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-aurora_db}
+      # DATABASE_URL: postgres://${POSTGRES_USER:-user}:${POSTGRES_PASSWORD:-password}@db:5432/${POSTGRES_DB:-aurora_db}
       REDIS_URL: redis://redis:6379/1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       CELERY_BROKER_URL: redis://redis:6379/1
       CELERY_RESULT_BACKEND: redis://redis:6379/1
     volumes:
       - ./backend:/app
     depends_on:
-      db:
-        condition: service_healthy
+      # db:
+      #   condition: service_healthy
       redis:
         condition: service_healthy
 

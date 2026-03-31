@@ -5,6 +5,7 @@ import notificationsAdminService, { type NotificationEmailPreviewTest } from '@/
 import { Button } from '@/components/ui/Button';
 import type { AppSetting, SettingCategory } from '@/types/setting';
 import { CashfreeForm } from './CashfreeForm';
+import { PhonePeForm } from './PhonePeForm';
 import { RazorpayForm } from './RazorpayForm';
 import { PaymentGatewayCard } from './PaymentGatewayCard';
 import { getBundlesForCategory, makePayloadFromBundle, validateBundleValues } from './helpers';
@@ -28,7 +29,7 @@ export const PaymentSettings: React.FC<Props> = ({
   onToast,
 }) => {
   const defaults = useMemo(() => {
-    if (category === 'payment') return ['cashfree', 'razorpay'];
+    if (category === 'payment') return ['cashfree', 'razorpay', 'phonepe'];
     return [];
   }, [category]);
 
@@ -135,6 +136,19 @@ export const PaymentSettings: React.FC<Props> = ({
         if (pluginKey === 'razorpay') {
           return (
             <RazorpayForm
+              key={bundle.configKey}
+              bundle={bundle}
+              value={value}
+              saving={saving}
+              canEdit={canEdit}
+              onChange={onChange}
+              onSave={onSave}
+            />
+          );
+        }
+        if (pluginKey === 'phonepe') {
+          return (
+            <PhonePeForm
               key={bundle.configKey}
               bundle={bundle}
               value={value}

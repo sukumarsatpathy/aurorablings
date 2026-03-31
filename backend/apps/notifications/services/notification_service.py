@@ -156,6 +156,32 @@ def _to_absolute_url(raw_url: str, *, frontend_url: str, backend_url: str) -> st
     return f"{web_base}/{value.lstrip('/')}"
 
 
+def _normalized_email_list(value) -> list[str]:
+    if isinstance(value, str):
+        values = [value]
+    elif isinstance(value, (list, tuple, set)):
+        values = list(value)
+    else:
+        values = []
+    seen: set[str] = set()
+    output: list[str] = []
+    for raw in values:
+        email = str(raw or "").strip().lower()
+        if not email or "@" not in email or email in seen:
+            continue
+        seen.add(email)
+        output.append(email)
+    return output
+
+
+def _build_cc_recipients(*, event_type: str, context: dict, primary_recipient: str) -> list[str]:
+    cc_list = _normalized_email_list((context or {}).get("cc_emails"))
+    if str(event_type or "").strip().lower() == "order.created":
+        cc_list = _normalized_email_list(cc_list + ["connect@aurorablings.com"])
+    primary = str(primary_recipient or "").strip().lower()
+    return [email for email in cc_list if email != primary]
+
+
 def _build_template_context(raw_context: dict, event_type: str) -> dict:
     context = dict(raw_context or {})
     frontend_url = str(
@@ -418,6 +444,11 @@ def send_notification(*, notification_id: str) -> Notification | None:
             subject=subject,
             html_body=html_body,
             text_body=text_body,
+            cc_recipients=_build_cc_recipients(
+                event_type=notification.event_type or notification.event,
+                context=context,
+                primary_recipient=recipient,
+            ),
         )
 
         notification.status = NotificationStatus.SENT

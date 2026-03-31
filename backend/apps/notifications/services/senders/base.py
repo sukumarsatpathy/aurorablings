@@ -14,7 +14,15 @@ class SendResult:
 class NotificationSenderBase:
     provider_key = "other"
 
-    def send(self, *, recipient: str, subject: str, html_body: str, text_body: str) -> SendResult:
+    def send(
+        self,
+        *,
+        recipient: str,
+        subject: str,
+        html_body: str,
+        text_body: str,
+        cc_recipients: list[str] | None = None,
+    ) -> SendResult:
         raise NotImplementedError
 
     def test_connection(self) -> tuple[bool, str]:

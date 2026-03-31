@@ -22,6 +22,7 @@ import hashlib
 import hmac as _hmac
 import json
 from decimal import Decimal
+from typing import Any
 
 from django.conf import settings
 
@@ -38,11 +39,77 @@ class PhonePeProvider(BasePaymentProvider):
     PAY_ENDPOINT = "/pg/v1/pay"
 
     def __init__(self):
-        self.merchant_id  = getattr(settings, "PHONEPE_MERCHANT_ID", "")
-        self.salt_key     = getattr(settings, "PHONEPE_SALT_KEY", "")
-        self.salt_index   = getattr(settings, "PHONEPE_SALT_INDEX", "1")
-        env               = getattr(settings, "PHONEPE_ENV", "sandbox")
-        self.base_url     = (
+        self.merchant_id = ""
+        self.salt_key = ""
+        self.salt_index = "1"
+        self.env = "sandbox"
+        self.base_url = "https://api-preprod.phonepe.com/apis/pg-sandbox"
+
+    def _load_runtime_config(self) -> None:
+        merchant_id = str(getattr(settings, "PHONEPE_MERCHANT_ID", "") or "").strip()
+        salt_key = str(getattr(settings, "PHONEPE_SALT_KEY", "") or "").strip()
+        salt_index = str(getattr(settings, "PHONEPE_SALT_INDEX", "1") or "1").strip()
+        env = str(getattr(settings, "PHONEPE_ENV", "sandbox") or "sandbox").strip().lower()
+
+        try:
+            from apps.features.models import AppSetting, ProviderConfig
+
+            config: dict[str, Any] = {}
+            setting = (
+                AppSetting.objects
+                .filter(key__in=[
+                    "payment.phonepe",
+                    "payment-phonepe",
+                    "payment_phonepe",
+                    "phonepe",
+                ])
+                .order_by("-updated_at")
+                .first()
+            )
+            if setting:
+                value = setting.typed_value
+                if isinstance(value, dict):
+                    config = value
+                elif isinstance(value, str):
+                    try:
+                        parsed = json.loads(value)
+                        if isinstance(parsed, dict):
+                            config = parsed
+                    except Exception:
+                        config = {}
+
+            if not config:
+                provider_row = (
+                    ProviderConfig.objects
+                    .filter(
+                        provider_key="phonepe",
+                        is_active=True,
+                        feature__category="payment",
+                    )
+                    .order_by("-updated_at")
+                    .first()
+                )
+                if provider_row and isinstance(provider_row.config, dict):
+                    config = provider_row.config
+
+            if config:
+                merchant_id = str(config.get("merchant_id") or merchant_id).strip()
+                salt_key = str(config.get("salt_key") or salt_key).strip()
+                salt_index = str(config.get("salt_index") or salt_index).strip()
+                env = str(config.get("environment") or config.get("env") or env).strip().lower()
+        except Exception:
+            pass
+
+        if env not in {"sandbox", "production"}:
+            env = "sandbox"
+        if not salt_index:
+            salt_index = "1"
+
+        self.merchant_id = merchant_id
+        self.salt_key = salt_key
+        self.salt_index = salt_index
+        self.env = env
+        self.base_url = (
             "https://api.phonepe.com/apis/hermes"
             if env == "production"
             else "https://api-preprod.phonepe.com/apis/pg-sandbox"
@@ -63,6 +130,14 @@ class PhonePeProvider(BasePaymentProvider):
         metadata: dict | None = None,
     ) -> PaymentResult:
         import requests
+        self._load_runtime_config()
+
+        if not self.merchant_id or not self.salt_key:
+            return PaymentResult(
+                success=False,
+                provider_ref="",
+                error="PhonePe credentials missing. Set merchant_id and salt_key in payment settings.",
+            )
 
         # PhonePe expects amount in paise
         amount_paise = int(amount * 100)
@@ -112,7 +187,10 @@ class PhonePeProvider(BasePaymentProvider):
         PhonePe sends an x-verify header:
         SHA256(base64_payload + callback_url + salt_key) + "###" + salt_index
         """
-        x_verify = headers.get("x-verify", "")
+        self._load_runtime_config()
+
+        normalized_headers = {str(k).lower(): v for k, v in (headers or {}).items()}
+        x_verify = str(normalized_headers.get("x-verify", "") or "").strip()
         if not x_verify:
             return WebhookResult(verified=False, provider_ref="", order_ref="",
                                  status="failed", amount=Decimal(0), currency="INR",
@@ -150,7 +228,7 @@ class PhonePeProvider(BasePaymentProvider):
                 raw_data=event_data,
             )
         except Exception as exc:
-            return WebhookResult(verified=True, provider_ref="", order_ref="",
+            return WebhookResult(verified=False, provider_ref="", order_ref="",
                                  status="failed", amount=Decimal(0), currency="INR",
                                  error=str(exc))
 
@@ -158,6 +236,7 @@ class PhonePeProvider(BasePaymentProvider):
 
     def refund(self, *, provider_ref: str, amount: Decimal, reason: str = "") -> RefundResult:
         import requests
+        self._load_runtime_config()
         amount_paise = int(amount * 100)
         payload_dict = {
             "merchantId":            self.merchant_id,
@@ -191,6 +270,7 @@ class PhonePeProvider(BasePaymentProvider):
 
     def get_status(self, *, provider_ref: str) -> StatusResult:
         import requests
+        self._load_runtime_config()
         endpoint    = f"/pg/v1/status/{self.merchant_id}/{provider_ref}"
         checksum    = self._compute_checksum("", endpoint)
         try:

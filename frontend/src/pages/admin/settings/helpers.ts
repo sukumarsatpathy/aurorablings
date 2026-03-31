@@ -66,6 +66,29 @@ export const getDefaultPluginSchema = (pluginKey: string): DynamicFormSchema => 
       },
     };
   }
+  if (lower === 'phonepe') {
+    return {
+      title: 'PhonePe',
+      description: 'Configure PhonePe payments',
+      fields: {
+        enabled: { type: 'toggle', label: 'Enabled', default: false },
+        environment: {
+          type: 'select',
+          label: 'Environment',
+          required: true,
+          options: [
+            { label: 'Sandbox', value: 'sandbox' },
+            { label: 'Production', value: 'production' },
+          ],
+          default: 'sandbox',
+        },
+        merchant_id: { type: 'text', label: 'Merchant ID', required: true },
+        salt_key: { type: 'password', label: 'Salt Key', required: true },
+        salt_index: { type: 'text', label: 'Salt Index', required: true, default: '1' },
+        webhook_secret: { type: 'password', label: 'Webhook Secret', required: false },
+      },
+    };
+  }
   return {
     title: pluginKey.replace(/[_-]/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase()),
     description: 'Plugin configuration',

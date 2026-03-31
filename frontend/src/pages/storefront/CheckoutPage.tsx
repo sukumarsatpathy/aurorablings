@@ -31,7 +31,7 @@ interface AuthUserCache {
   phone?: string;
 }
 
-type CheckoutPaymentMethod = 'cashfree' | 'razorpay' | 'stripe' | 'upi' | 'bank_transfer';
+type CheckoutPaymentMethod = 'cashfree' | 'razorpay' | 'phonepe' | 'stripe' | 'upi' | 'bank_transfer';
 
 interface ProviderRow {
   name: string;
@@ -253,6 +253,7 @@ export const CheckoutPage: React.FC = () => {
     const providerToMethod: Record<string, CheckoutPaymentMethod> = {
       cashfree: 'cashfree',
       razorpay: 'razorpay',
+      phonepe: 'phonepe',
     };
 
     try {
@@ -673,6 +674,7 @@ export const CheckoutPage: React.FC = () => {
         const providerByMethod: Partial<Record<CheckoutPaymentMethod, string>> = {
           cashfree: 'cashfree',
           razorpay: 'razorpay',
+          phonepe: 'phonepe',
         };
         const provider = providerByMethod[paymentMethod];
 

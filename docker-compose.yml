@@ -1,21 +1,33 @@
 services:
   db:
       image: postgres:15-alpine
+      restart: always
       volumes:
         - postgres_data:/var/lib/postgresql/data/
       env_file:
         - .env
       environment:
         - POSTGRES_DB=${POSTGRES_DB:-aurora_db}
-        - POSTGRES_USER=${POSTGRES_USER:-user}
+        - POSTGRES_USER=${POSTGRES_USER:-aurora_user}
         - POSTGRES_PASSWORD=${POSTGRES_PASSWORD:-password}
+      healthcheck:
+        test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aurora_user} -d ${POSTGRES_DB:-aurora_db}"]
+        interval: 5s
+        timeout: 5s
+        retries: 5
       expose:
         - 5432
 
   redis:
     image: redis:7-alpine
+    restart: always
     expose:
       - 6379
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
 
   backend:
     build:
@@ -30,11 +42,18 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE: postgres
+      SQL_HOST: db
+      SQL_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       AUTO_CREATE_MIGRATIONS: "0"
       RUN_COLLECTSTATIC: "1"
     depends_on:
-      - db
-      - redis
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   celery_worker:
     build:
@@ -45,19 +64,28 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE: postgres
+      SQL_HOST: db
+      SQL_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
       AUTO_CREATE_MIGRATIONS: "0"
       RUN_COLLECTSTATIC: "0"
     depends_on:
-      - redis
-      - db
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
 
   frontend:
     build:
-      context: ./frontend
+      context: .
+      dockerfile: frontend/Dockerfile
     ports:
       - "80:80"
     depends_on:
-      - backend
+      backend:
+        condition: service_started
 
 volumes:
   postgres_data:
