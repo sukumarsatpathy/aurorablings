@@ -10,7 +10,6 @@ from drf_spectacular.views import (
 from apps.features.views import PublicRuntimeSettingsView
 
 urlpatterns = [
-    path("admin/", admin.site.urls),
     path("health/", include("apps.health.deploy_urls", namespace="public_health")),
     path("api/settings/public", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings"),
     path("api/settings/public/", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings-slash"),
@@ -50,6 +49,9 @@ urlpatterns = [
     path("api/docs/",   SpectacularSwaggerView.as_view(url_name="schema"), name="swagger-ui"),
     path("api/redoc/",  SpectacularRedocView.as_view(url_name="schema"),   name="redoc"),
 ]
+
+if settings.ENABLE_DJANGO_ADMIN:
+    urlpatterns = [path("admin/", admin.site.urls)] + urlpatterns
 
 if settings.DEBUG:
     urlpatterns += static(settings.MEDIA_URL, document_root=settings.MEDIA_ROOT)
