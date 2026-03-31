@@ -283,16 +283,9 @@ LOGGING = {
     'version': 1,
     'disable_existing_loggers': False,
     'formatters': {
-        'json_formatter': {
-            '()': 'structlog.stdlib.ProcessorFormatter',
-            'processor': structlog.processors.JSONRenderer(),
-        },
         'plain_formatter': {
             '()': 'structlog.stdlib.ProcessorFormatter',
             'processor': structlog.dev.ConsoleRenderer(),
-        },
-        'standard': {
-            'format': '%(asctime)s [%(levelname)s] %(name)s: %(message)s'
         },
     },
     'handlers': {
@@ -303,20 +296,8 @@ LOGGING = {
         },
     },
     'loggers': {
-        'django': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': True,
-        },
-        'aurora_app': {
-            'handlers': ['console'],
-            'level': 'DEBUG',
-            'propagate': True,
-        },
-        'core': {
-            'handlers': ['console'],
-            'level': 'INFO',
-            'propagate': True,
-        },
+        'django': {'handlers': ['console'], 'level': 'INFO', 'propagate': True},
+        'aurora_app': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': True},
+        'core': {'handlers': ['console'], 'level': 'INFO', 'propagate': True},
     },
 }
