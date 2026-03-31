@@ -438,7 +438,7 @@ export const ProductManagement: React.FC = () => {
     try {
       setLoading(true);
       const [productsRes, categoriesRes, attributesRes] = await Promise.allSettled([
-        catalogService.listProducts(),
+        catalogService.listAllProducts(),
         catalogService.listCategories(),
         catalogService.listAttributes(),
       ]);

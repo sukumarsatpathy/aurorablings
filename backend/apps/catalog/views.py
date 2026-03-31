@@ -162,6 +162,7 @@ class ProductViewSet(BaseViewSet):
     # ── List ──────────────────────────────────────────────────
     def list(self, request):
         qs = selectors.get_product_list(published_only=not request.user.is_staff)
+        qs = self.filter_queryset(qs)
         return self.paginate(qs, ProductListSerializer)
 
     @action(detail=False, methods=["get"])
