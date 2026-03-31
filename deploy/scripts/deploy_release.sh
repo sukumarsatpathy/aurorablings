@@ -43,6 +43,9 @@ ln -sfn "${SHARED_DIR}/.env" "${RELEASE_DIR}/.env"
 echo "Starting Docker Compose deployment..."
 pushd "${RELEASE_DIR}" >/dev/null
 
+# ✅ ADD THIS LINE: Ensure the 'current' link exists for Docker mounts
+ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
+
 # Pull/Build images
 docker compose -f docker-compose.prod.yml build --pull
 
