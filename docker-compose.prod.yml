@@ -124,3 +124,5 @@ services:
 
 volumes:
   postgres_data:
+    external: true
+    name: aurora_postgres_data
