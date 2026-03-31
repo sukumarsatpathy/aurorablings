@@ -30,29 +30,8 @@ class CategorySerializer(serializers.ModelSerializer):
         return obj.products.count()
 
     def get_is_coming_soon(self, obj) -> bool:
-        products = obj.products.all()
-        if not products.exists():
-            return True
-
-        # Prefer warehouse-level availability when inventory records exist.
-        try:
-            from apps.inventory.models import WarehouseStock
-
-            stock_qs = WarehouseStock.objects.filter(
-                variant__product__in=products,
-                variant__is_active=True,
-                warehouse__is_active=True,
-            )
-            if stock_qs.exists():
-                total_available = stock_qs.aggregate(total=Sum("available"))["total"] or 0
-                return int(total_available) <= 0
-        except Exception:
-            # Fallback to legacy variant stock below.
-            pass
-
-        # Legacy fallback when warehouse stock isn't configured.
-        total_stock = products.aggregate(total=Sum("variants__stock_quantity"))["total"] or 0
-        return int(total_stock) <= 0
+        # "Coming Soon" should mean category has no live products yet.
+        return not obj.products.exists()
 
     def validate_image(self, value):
         if value in (None, ""):

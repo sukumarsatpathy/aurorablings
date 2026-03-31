@@ -14,7 +14,7 @@ interface ProductListItem {
   rating?: string;
   primary_image?: string | null;
   hover_image?: string | null;
-  default_variant?: { price?: string | number | null } | null;
+  default_variant?: { id?: string; sku?: string; price?: string | number | null; stock_quantity?: number } | null;
   price_range?: { min?: string | number | null; max?: string | number | null } | null;
   variants?: DealProduct['variants'];
   total_stock?: number;
@@ -109,8 +109,8 @@ export const NewArrivalsSection: React.FC = () => {
       const cardVariant =
         item.variants?.[0] ??
         {
-          id: item.id,
-          sku: 'NA',
+          id: item.default_variant?.id || item.id,
+          sku: item.default_variant?.sku || '',
           name: item.name,
           price,
           compare_at_price: compareAtPrice,
@@ -122,11 +122,11 @@ export const NewArrivalsSection: React.FC = () => {
           has_active_offer: !!item.has_active_offer,
           effective_price: price,
           display_compare_at_price: compareAtPrice,
-          stock_quantity: item.total_stock ?? 0,
+          stock_quantity: item.total_stock ?? item.default_variant?.stock_quantity ?? 0,
           is_active: true,
           is_default: true,
           discount_percentage: null,
-          is_in_stock: (item.total_stock ?? 0) > 0,
+          is_in_stock: (item.total_stock ?? item.default_variant?.stock_quantity ?? 0) > 0,
           is_low_stock: false,
         };
 
