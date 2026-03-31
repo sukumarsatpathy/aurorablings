@@ -51,11 +51,11 @@ echo "Stopping all old containers..."
 docker stop $(docker ps -aq) 2>/dev/null || true
 docker rm $(docker ps -aq) 2>/dev/null || true
 
-# Pull/Build images
-docker compose -f docker-compose.prod.yml build --pull
+# Pull latest tagged images from registry (critical when using :latest tags)
+docker compose -f docker-compose.prod.yml pull backend frontend celery_worker celery_beat nginx_proxy db redis
 
 # Start new containers (replaces existing ones)
-docker compose -f docker-compose.prod.yml up -d --remove-orphans
+docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
 
 # 4. Post-Deployment Checks
 echo "Verifying deployment health..."
