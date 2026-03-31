@@ -296,8 +296,8 @@ LOGGING = {
         },
     },
     'loggers': {
-        'django': {'handlers': ['console'], 'level': 'INFO', 'propagate': True},
+        'django':     {'handlers': ['console'], 'level': 'INFO', 'propagate': True},
         'aurora_app': {'handlers': ['console'], 'level': 'DEBUG', 'propagate': True},
-        'core': {'handlers': ['console'], 'level': 'INFO', 'propagate': True},
+        'core':       {'handlers': ['console'], 'level': 'INFO', 'propagate': True},
     },
 }
