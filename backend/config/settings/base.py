@@ -305,15 +305,6 @@ LOGGING = {
             'class': 'logging.StreamHandler',
             'formatter': 'plain_formatter',
         },
-        'file': {
-            'level': 'INFO',
-            'class': 'logging.handlers.TimedRotatingFileHandler',
-            'filename': LOGGING_DIR / 'app.log',
-            'when': 'midnight',
-            'interval': 1,
-            'backupCount': 10,
-            'formatter': 'standard',
-        },
     },
     'loggers': {
         'django': {
