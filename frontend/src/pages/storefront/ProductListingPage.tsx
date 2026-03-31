@@ -170,7 +170,7 @@ export const ProductListingPage: React.FC = () => {
       try {
         setLoading(true);
         const [productRes, categoryRes] = await Promise.all([
-          catalogService.listProducts(),
+          catalogService.listAllProducts(),
           catalogService.listCategories(),
         ]);
         setProducts(extractRows(productRes));

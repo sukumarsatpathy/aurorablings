@@ -98,9 +98,45 @@ export interface ProductNotifyPayload {
 }
 
 const catalogService = {
-  listProducts: async () => {
-    const response = await apiClient.get('/v1/catalog/products/');
+  listProducts: async (params?: Record<string, unknown>) => {
+    const response = await apiClient.get('/v1/catalog/products/', { params });
     return response.data;
+  },
+
+  listAllProducts: async () => {
+    const pageSize = 100;
+    const first = await apiClient.get('/v1/catalog/products/', {
+      params: { page: 1, page_size: pageSize },
+    });
+    const firstPayload = first.data;
+
+    const extractRows = (payload: any): any[] => {
+      if (Array.isArray(payload?.data)) return payload.data;
+      if (Array.isArray(payload?.data?.results)) return payload.data.results;
+      if (Array.isArray(payload?.results)) return payload.results;
+      if (Array.isArray(payload)) return payload;
+      return [];
+    };
+
+    const extractCount = (payload: any): number => {
+      const root = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+      const count = Number(root?.count ?? root?.total ?? 0);
+      return Number.isFinite(count) ? count : 0;
+    };
+
+    const allRows = [...extractRows(firstPayload)];
+    const count = extractCount(firstPayload);
+    if (!count || allRows.length >= count) return allRows;
+
+    const totalPages = Math.ceil(count / pageSize);
+    for (let page = 2; page <= totalPages; page += 1) {
+      const response = await apiClient.get('/v1/catalog/products/', {
+        params: { page, page_size: pageSize },
+      });
+      allRows.push(...extractRows(response.data));
+    }
+
+    return allRows;
   },
 
   listDeals: async () => {

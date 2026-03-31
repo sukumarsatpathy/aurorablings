@@ -1,4 +1,6 @@
 from .base import *
+import logging.handlers
+
 
 DEBUG = False
 SECRET_KEY = env('DJANGO_SECRET_KEY') # No default, will fail if missing
@@ -29,3 +31,19 @@ CACHES = {
         }
     }
 }
+
+LOGGING_DIR = Path(env("DJANGO_LOGGING_DIR", default="/app/logs"))
+
+LOGGING['handlers']['file'] = {
+    'level': 'INFO',
+    'class': 'logging.handlers.RotatingFileHandler',
+    'filename': str(LOGGING_DIR / 'app.log'),
+    'maxBytes': 1024 * 1024 * 10,
+    'backupCount': 5,
+    'formatter': 'plain_formatter',
+}
+
+# Add file handler to all loggers
+for logger in LOGGING['loggers'].values():
+    if 'file' not in logger['handlers']:
+        logger['handlers'].append('file')
