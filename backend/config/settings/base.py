@@ -269,7 +269,7 @@ TURNSTILE_SECRET_KEY = env("TURNSTILE_SECRET_KEY", default="")
 
 
 # Logging Configuration
-LOGGING_DIR = Path(env("DJANGO_LOG_DIR", default=str(BASE_DIR.parent / "logs")))
+LOGGING_DIR = BASE_DIR / "logs"
 LOGGING_DIR.mkdir(parents=True, exist_ok=True)
 
 # CORS (Development)
