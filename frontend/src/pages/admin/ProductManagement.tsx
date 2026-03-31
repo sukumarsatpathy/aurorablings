@@ -328,6 +328,8 @@ export const ProductManagement: React.FC = () => {
   const [globalAttributes, setGlobalAttributes] = useState<Array<{ id: string; name: string; options: string[] }>>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [offerFilter, setOfferFilter] = useState<'all' | 'active' | 'none'>('all');
+  const [currentPage, setCurrentPage] = useState(1);
+  const [rowsPerPage, setRowsPerPage] = useState(20);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
 
@@ -1259,6 +1261,17 @@ export const ProductManagement: React.FC = () => {
     [products, searchTerm, offerFilter]
   );
 
+  useEffect(() => {
+    setCurrentPage(1);
+  }, [searchTerm, offerFilter, rowsPerPage]);
+
+  const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
+  const safePage = Math.min(currentPage, totalPages);
+  const paginatedProducts = useMemo(() => {
+    const start = (safePage - 1) * rowsPerPage;
+    return filteredProducts.slice(start, start + rowsPerPage);
+  }, [filteredProducts, safePage, rowsPerPage]);
+
   const actions = (item: Product) => (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
@@ -1341,7 +1354,53 @@ export const ProductManagement: React.FC = () => {
           Loading products...
         </div>
       ) : (
-        <DataTable data={filteredProducts} columns={columns} actions={actions} onRowClick={(item) => handleEdit(item)} />
+        <div className="space-y-3">
+          <DataTable data={paginatedProducts} columns={columns} actions={actions} onRowClick={(item) => handleEdit(item)} />
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-[14px] border border-border bg-white px-3 py-2">
+            <div className="text-xs text-muted-foreground">
+              Showing {filteredProducts.length === 0 ? 0 : (safePage - 1) * rowsPerPage + 1}
+              {' '}-{' '}
+              {Math.min(safePage * rowsPerPage, filteredProducts.length)} of {filteredProducts.length}
+            </div>
+            <div className="flex items-center gap-3">
+              <div className="flex items-center gap-2">
+                <label className="text-xs text-muted-foreground">Rows</label>
+                <select
+                  value={rowsPerPage}
+                  onChange={(e) => setRowsPerPage(Number(e.target.value))}
+                  className="h-8 rounded-md border border-border bg-white px-2 text-xs"
+                >
+                  <option value={20}>20</option>
+                  <option value={50}>50</option>
+                  <option value={100}>100</option>
+                </select>
+              </div>
+              <div className="flex items-center gap-1">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  onClick={() => setCurrentPage((p) => Math.max(1, p - 1))}
+                  disabled={safePage <= 1}
+                >
+                  Prev
+                </Button>
+                <span className="text-xs text-muted-foreground px-2">
+                  Page {safePage} / {totalPages}
+                </span>
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="h-8 px-2 text-xs"
+                  onClick={() => setCurrentPage((p) => Math.min(totalPages, p + 1))}
+                  disabled={safePage >= totalPages}
+                >
+                  Next
+                </Button>
+              </div>
+            </div>
+          </div>
+        </div>
       )}
 
       <Modal open={isModalOpen} onOpenChange={setIsModalOpen}>
