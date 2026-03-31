@@ -46,6 +46,11 @@ pushd "${RELEASE_DIR}" >/dev/null
 # ✅ ADD THIS LINE: Ensure the 'current' link exists for Docker mounts
 ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 
+# ✅ ADD THESE LINES: Stop all old containers before starting new ones
+echo "Stopping all old containers..."
+docker stop $(docker ps -aq) 2>/dev/null || true
+docker rm $(docker ps -aq) 2>/dev/null || true
+
 # Pull/Build images
 docker compose -f docker-compose.prod.yml build --pull
 
@@ -78,7 +83,7 @@ ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
 # 6. Cleanup
 echo "Cleaning up old releases..."
 # Prune old images to save space on Vultr
-docker image prune -f --filter "until=168h" 
+docker image prune -f --filter "until=168h"
 
 # Keep only N recent releases in the file system
 ls -dt "${RELEASES_DIR}"/* | tail -n +"$((KEEP_RELEASES + 1))" | xargs -r rm -rf
