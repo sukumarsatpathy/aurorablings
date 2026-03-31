@@ -1,11 +1,15 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="${APP_ROOT:-/srv/aurorablings}"
+APP_ROOT="${APP_ROOT:-/srv/aurora}"          # ✅ match docker-compose.prod.yml
 SHARED_DIR="${APP_ROOT}/shared"
 RELEASES_DIR="${APP_ROOT}/releases"
 
-sudo mkdir -p "${RELEASES_DIR}" "${SHARED_DIR}"/{media,static,logs,run,tmp}
+sudo mkdir -p "${RELEASES_DIR}" \
+    "${SHARED_DIR}"/{media,static,logs,logs/nginx,run,tmp}
+
+# ✅ Fix ownership so django user (uid 1000) inside container can write
+sudo chown -R 1000:1000 "${SHARED_DIR}/logs"
 
 if [[ ! -f "${SHARED_DIR}/.env" ]]; then
   sudo touch "${SHARED_DIR}/.env"
