@@ -116,7 +116,7 @@ def get_all_stock_records(
 
 
 def get_variant_options(*, search: str | None = None, active_only: bool = True) -> QuerySet:
-    qs = ProductVariant.objects.select_related("product").all()
+    qs = ProductVariant.objects.select_related("product", "product__category").prefetch_related("product__media").all()
     if active_only:
         qs = qs.filter(is_active=True, product__is_active=True)
     if search:

@@ -1,6 +1,6 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation } from 'react-router-dom';
-import { Search, Plus, Edit, Trash2, PackagePlus, Shuffle, SlidersHorizontal, AlertCircle } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, PackagePlus, Shuffle, SlidersHorizontal, AlertCircle, ChevronDown } from 'lucide-react';
 import { DataTable, StatusBadge } from '@/components/admin/AdminTable';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -33,6 +33,9 @@ export const Inventory: React.FC = () => {
   const [opsOpen, setOpsOpen] = useState(false);
   const [opsMode, setOpsMode] = useState<Ops>('receive');
   const [opsVariantSearch, setOpsVariantSearch] = useState('');
+  const [opsCategoryFilter, setOpsCategoryFilter] = useState('');
+  const [opsVariantDropdownOpen, setOpsVariantDropdownOpen] = useState(false);
+  const opsVariantDropdownRef = useRef<HTMLDivElement | null>(null);
   const [opsForm, setOpsForm] = useState({
     variant_id: '',
     warehouse_id: '',
@@ -133,6 +136,8 @@ export const Inventory: React.FC = () => {
   const openOps = (mode: Ops) => {
     setOpsMode(mode);
     setOpsVariantSearch('');
+    setOpsCategoryFilter('');
+    setOpsVariantDropdownOpen(false);
     setOpsForm({ variant_id: '', warehouse_id: '', quantity: 1, quantity_delta: 0, reason: '', reference_id: '', notes: '', from_warehouse_id: '', to_warehouse_id: '' });
     setOpsOpen(true);
   };
@@ -170,16 +175,44 @@ export const Inventory: React.FC = () => {
     { header: 'Status', accessorKey: 'status', align: 'right' as const, cell: (i: InventoryStockRecord) => <StatusBadge status={i.available <= 0 ? 'Out of Stock' : i.is_low_stock ? 'Low Stock' : 'In Stock'} /> },
   ];
 
+  const categoryOptions = useMemo(() => {
+    const values = new Set<string>();
+    variants.forEach((v) => {
+      const categoryName = String(v.category_name || '').trim();
+      if (categoryName) values.add(categoryName);
+    });
+    return Array.from(values).sort((a, b) => a.localeCompare(b));
+  }, [variants]);
+
+  const selectedOpsVariant = useMemo(
+    () => variants.find((v) => v.id === opsForm.variant_id) || null,
+    [variants, opsForm.variant_id]
+  );
+
   const filteredOpsVariants = useMemo(() => {
     const q = opsVariantSearch.trim().toLowerCase();
-    if (!q) return variants;
-    return variants.filter((v) => {
+    const byCategory = opsCategoryFilter ? variants.filter((v) => v.category_name === opsCategoryFilter) : variants;
+    if (!q) return byCategory;
+    return byCategory.filter((v) => {
       const sku = String(v.sku || '').toLowerCase();
       const product = String(v.product_name || '').toLowerCase();
       const variant = String(v.name || '').toLowerCase();
-      return sku.includes(q) || product.includes(q) || variant.includes(q);
+      const category = String(v.category_name || '').toLowerCase();
+      return sku.includes(q) || product.includes(q) || variant.includes(q) || category.includes(q);
     });
-  }, [variants, opsVariantSearch]);
+  }, [variants, opsVariantSearch, opsCategoryFilter]);
+
+  useEffect(() => {
+    if (!opsVariantDropdownOpen) return;
+    const handleOutsideClick = (event: MouseEvent) => {
+      if (!opsVariantDropdownRef.current) return;
+      if (!opsVariantDropdownRef.current.contains(event.target as Node)) {
+        setOpsVariantDropdownOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, [opsVariantDropdownOpen]);
 
   return (
     <div className="space-y-6">
@@ -227,7 +260,102 @@ export const Inventory: React.FC = () => {
 
       <Modal open={warehouseDeleteOpen} onOpenChange={setWarehouseDeleteOpen}><ModalContent className="max-w-md"><ModalHeader><ModalTitle>Delete Warehouse</ModalTitle></ModalHeader><div className="space-y-2 py-2"><p className="text-sm text-muted-foreground">Are you sure you want to delete this warehouse?</p>{warehouseDeleteTarget && <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm"><div className="font-semibold">{warehouseDeleteTarget.name}</div><div className="text-xs text-muted-foreground">{warehouseDeleteTarget.code}</div></div>}</div><ModalFooter><Button variant="outline" onClick={() => setWarehouseDeleteOpen(false)} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Cancel</Button><Button variant="outline" onClick={deleteWarehouse} className="rounded-xl border-red-300 bg-white text-red-600 hover:bg-red-600 hover:text-white">Confirm Delete</Button></ModalFooter></ModalContent></Modal>
 
-      <Modal open={opsOpen} onOpenChange={setOpsOpen}><ModalContent className="max-w-2xl"><ModalHeader><ModalTitle>{opsMode === 'receive' ? 'Receive Stock' : opsMode === 'adjust' ? 'Adjust Stock' : 'Transfer Stock'}</ModalTitle></ModalHeader><div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4"><div className="grid gap-2 md:col-span-2"><label className="text-xs font-bold uppercase text-muted-foreground">Search Variant</label><Input placeholder="Search by SKU, product or variant..." value={opsVariantSearch} onChange={(e) => setOpsVariantSearch(e.target.value)} /></div><div className="grid gap-2 md:col-span-2"><label className="text-xs font-bold uppercase text-muted-foreground">Variant</label><select className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm" value={opsForm.variant_id} onChange={(e) => setOpsForm({ ...opsForm, variant_id: e.target.value })}><option value="">Select variant</option>{filteredOpsVariants.map((v) => <option key={v.id} value={v.id}>{v.sku} • {v.product_name}{v.name ? ` • ${v.name}` : ''}</option>)}</select></div>{opsMode !== 'transfer' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Warehouse</label><select className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm" value={opsForm.warehouse_id} onChange={(e) => setOpsForm({ ...opsForm, warehouse_id: e.target.value })}><option value="">Select warehouse</option>{warehouses.filter((w) => w.is_active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>}{opsMode === 'transfer' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">From</label><select className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm" value={opsForm.from_warehouse_id} onChange={(e) => setOpsForm({ ...opsForm, from_warehouse_id: e.target.value })}><option value="">Select source</option>{warehouses.filter((w) => w.is_active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>}{opsMode === 'transfer' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">To</label><select className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm" value={opsForm.to_warehouse_id} onChange={(e) => setOpsForm({ ...opsForm, to_warehouse_id: e.target.value })}><option value="">Select destination</option>{warehouses.filter((w) => w.is_active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>}<div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">{opsMode === 'adjust' ? 'Quantity Delta (+/-)' : 'Quantity'}</label><Input type="number" value={opsMode === 'adjust' ? opsForm.quantity_delta : opsForm.quantity} onChange={(e) => setOpsForm({ ...opsForm, [opsMode === 'adjust' ? 'quantity_delta' : 'quantity']: Number(e.target.value || 0) })} /></div>{opsMode === 'adjust' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Reason</label><Input value={opsForm.reason} onChange={(e) => setOpsForm({ ...opsForm, reason: e.target.value })} /></div>}{opsMode === 'receive' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Reference</label><Input value={opsForm.reference_id} onChange={(e) => setOpsForm({ ...opsForm, reference_id: e.target.value })} /></div>}<div className="grid gap-2 md:col-span-2"><label className="text-xs font-bold uppercase text-muted-foreground">Notes</label><Input value={opsForm.notes} onChange={(e) => setOpsForm({ ...opsForm, notes: e.target.value })} /></div></div><ModalFooter><Button variant="outline" onClick={() => setOpsOpen(false)} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Cancel</Button><Button variant="outline" onClick={submitOps} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Apply</Button></ModalFooter></ModalContent></Modal>
+      <Modal open={opsOpen} onOpenChange={setOpsOpen}>
+        <ModalContent className="max-w-2xl">
+          <ModalHeader>
+            <ModalTitle>{opsMode === 'receive' ? 'Receive Stock' : opsMode === 'adjust' ? 'Adjust Stock' : 'Transfer Stock'}</ModalTitle>
+          </ModalHeader>
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
+            <div className="grid gap-2 md:col-span-2">
+              <label className="text-xs font-bold uppercase text-muted-foreground">Category</label>
+              <select
+                className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm"
+                value={opsCategoryFilter}
+                onChange={(e) => {
+                  const category = e.target.value;
+                  const selectedVariant = variants.find((v) => v.id === opsForm.variant_id) || null;
+                  setOpsCategoryFilter(category);
+                  setOpsVariantSearch('');
+                  if (selectedVariant && category && selectedVariant.category_name !== category) {
+                    setOpsForm({ ...opsForm, variant_id: '' });
+                  }
+                }}
+              >
+                <option value="">All categories</option>
+                {categoryOptions.map((category) => (
+                  <option key={category} value={category}>
+                    {category}
+                  </option>
+                ))}
+              </select>
+            </div>
+            <div className="grid gap-2 md:col-span-2">
+              <label className="text-xs font-bold uppercase text-muted-foreground">Variant</label>
+              <div className="relative" ref={opsVariantDropdownRef}>
+                <button
+                  type="button"
+                  className="flex h-11 w-full items-center justify-between rounded-xl border border-border/60 bg-background px-3 text-left text-sm"
+                  onClick={() => setOpsVariantDropdownOpen((open) => !open)}
+                >
+                  <span className="truncate">
+                    {selectedOpsVariant ? `${selectedOpsVariant.sku} • ${selectedOpsVariant.name || selectedOpsVariant.product_name}` : 'Select variant'}
+                  </span>
+                  <ChevronDown className="h-4 w-4 text-muted-foreground" />
+                </button>
+                {opsVariantDropdownOpen && (
+                  <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-border bg-background shadow-lg">
+                    <div className="border-b border-border p-2">
+                      <Input
+                        placeholder="Search by SKU, product or variant..."
+                        value={opsVariantSearch}
+                        onChange={(e) => setOpsVariantSearch(e.target.value)}
+                        className="h-9"
+                      />
+                    </div>
+                    <div className="max-h-72 overflow-y-auto p-1">
+                      {filteredOpsVariants.length === 0 && (
+                        <div className="px-3 py-2 text-xs text-muted-foreground">No variants found.</div>
+                      )}
+                      {filteredOpsVariants.map((v) => (
+                        <button
+                          key={v.id}
+                          type="button"
+                          className={`flex w-full items-center gap-3 rounded-lg px-2 py-2 text-left hover:bg-muted/50 ${opsForm.variant_id === v.id ? 'bg-muted/70' : ''}`}
+                          onClick={() => {
+                            setOpsForm({ ...opsForm, variant_id: v.id });
+                            setOpsVariantDropdownOpen(false);
+                          }}
+                        >
+                          {v.product_image ? (
+                            <img src={v.product_image} alt={v.product_name} className="h-10 w-10 rounded-md border border-border/50 object-cover" />
+                          ) : (
+                            <div className="h-10 w-10 rounded-md border border-border/50 bg-muted/40" />
+                          )}
+                          <div className="min-w-0">
+                            <div className="truncate text-sm font-semibold">{v.name || v.sku}</div>
+                            <div className="truncate text-xs text-muted-foreground">{v.product_name}</div>
+                          </div>
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+            </div>
+            {opsMode !== 'transfer' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Warehouse</label><select className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm" value={opsForm.warehouse_id} onChange={(e) => setOpsForm({ ...opsForm, warehouse_id: e.target.value })}><option value="">Select warehouse</option>{warehouses.filter((w) => w.is_active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>}
+            {opsMode === 'transfer' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">From</label><select className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm" value={opsForm.from_warehouse_id} onChange={(e) => setOpsForm({ ...opsForm, from_warehouse_id: e.target.value })}><option value="">Select source</option>{warehouses.filter((w) => w.is_active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>}
+            {opsMode === 'transfer' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">To</label><select className="h-11 rounded-xl border border-border/60 bg-background px-3 text-sm" value={opsForm.to_warehouse_id} onChange={(e) => setOpsForm({ ...opsForm, to_warehouse_id: e.target.value })}><option value="">Select destination</option>{warehouses.filter((w) => w.is_active).map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select></div>}
+            <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">{opsMode === 'adjust' ? 'Quantity Delta (+/-)' : 'Quantity'}</label><Input type="number" value={opsMode === 'adjust' ? opsForm.quantity_delta : opsForm.quantity} onChange={(e) => setOpsForm({ ...opsForm, [opsMode === 'adjust' ? 'quantity_delta' : 'quantity']: Number(e.target.value || 0) })} /></div>
+            {opsMode === 'adjust' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Reason</label><Input value={opsForm.reason} onChange={(e) => setOpsForm({ ...opsForm, reason: e.target.value })} /></div>}
+            {opsMode === 'receive' && <div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Reference</label><Input value={opsForm.reference_id} onChange={(e) => setOpsForm({ ...opsForm, reference_id: e.target.value })} /></div>}
+            <div className="grid gap-2 md:col-span-2"><label className="text-xs font-bold uppercase text-muted-foreground">Notes</label><Input value={opsForm.notes} onChange={(e) => setOpsForm({ ...opsForm, notes: e.target.value })} /></div>
+          </div>
+          <ModalFooter>
+            <Button variant="outline" onClick={() => setOpsOpen(false)} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Cancel</Button>
+            <Button variant="outline" onClick={submitOps} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Apply</Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
 
       <Modal open={thresholdOpen} onOpenChange={setThresholdOpen}><ModalContent className="max-w-md"><ModalHeader><ModalTitle>Update Low Stock Threshold</ModalTitle></ModalHeader><div className="space-y-3 py-2">{thresholdRecord && <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm"><div className="font-semibold">{thresholdRecord.sku}</div><div className="text-xs text-muted-foreground">{thresholdRecord.product_name}</div></div>}<div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Threshold</label><Input type="number" min={0} value={thresholdValue} onChange={(e) => setThresholdValue(Number(e.target.value || 0))} /></div></div><ModalFooter><Button variant="outline" onClick={() => setThresholdOpen(false)} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Cancel</Button><Button variant="outline" onClick={saveThreshold} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Update</Button></ModalFooter></ModalContent></Modal>
     </div>

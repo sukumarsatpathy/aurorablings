@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from core.media import build_media_url
 from .models import (
     Warehouse, WarehouseStock, StockLedger,
     StockReservation, MovementType, ReferenceType,
@@ -46,8 +47,23 @@ class VariantOptionSerializer(serializers.Serializer):
     sku = serializers.CharField()
     name = serializers.CharField(allow_blank=True)
     product_name = serializers.CharField(source="product.name")
+    category_name = serializers.CharField(source="product.category.name", read_only=True)
+    product_image = serializers.SerializerMethodField()
     is_active = serializers.BooleanField()
     price = serializers.DecimalField(max_digits=12, decimal_places=2, source="effective_price", read_only=True)
+
+    def get_product_image(self, obj) -> str | None:
+        product = getattr(obj, "product", None)
+        if not product:
+            return None
+
+        media_items = list(product.media.all())
+        if not media_items:
+            return None
+
+        primary = next((item for item in media_items if item.is_primary), None)
+        image = (primary or media_items[0]).image
+        return build_media_url(image, request=self.context.get("request"))
 
 
 class StockLedgerSerializer(serializers.ModelSerializer):

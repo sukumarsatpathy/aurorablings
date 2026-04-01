@@ -33,6 +33,8 @@ export interface InventoryVariantOption {
   sku: string;
   name: string;
   product_name: string;
+  category_name?: string;
+  product_image?: string | null;
   is_active: boolean;
 }
 

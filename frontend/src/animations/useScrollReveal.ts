@@ -10,8 +10,10 @@ interface ScrollRevealOptions {
   duration?: number;
   stagger?: number;
   threshold?: number;
-   scrub?: boolean | number;
+  scrub?: boolean | number;
   once?: boolean;
+  start?: string;
+  end?: string;
 }
 
 export const useScrollReveal = <T extends HTMLElement>(
@@ -26,6 +28,8 @@ export const useScrollReveal = <T extends HTMLElement>(
     threshold = 0.1,
     scrub = false,
     once = false,
+    start,
+    end,
   } = options;
 
   useLayoutEffect(() => {
@@ -86,8 +90,8 @@ export const useScrollReveal = <T extends HTMLElement>(
         ...activeVars,
         scrollTrigger: {
           trigger: element,
-          start: `top bottom-=${threshold * 100}%`,
-          end: `bottom top+=${threshold * 100}%`,
+          start: start ?? `top bottom-=${threshold * 100}%`,
+          end: end ?? `bottom top+=${threshold * 100}%`,
           toggleActions: once 
             ? 'play none none none' 
             : 'play reverse play reverse', // This handles the "disappear on scroll up"
@@ -97,5 +101,5 @@ export const useScrollReveal = <T extends HTMLElement>(
     }, ref);
 
     return () => ctx.revert();
-  }, [ref, type, delay, duration, stagger, threshold, scrub, once]);
+  }, [ref, type, delay, duration, stagger, threshold, scrub, once, start, end]);
 };

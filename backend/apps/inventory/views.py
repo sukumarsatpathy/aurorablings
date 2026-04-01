@@ -174,8 +174,13 @@ class VariantOptionsView(APIView):
             search=request.query_params.get("search"),
             active_only=active_only,
         )
+        serializer = VariantOptionSerializer(
+            variants,
+            many=True,
+            context={"request": request},
+        )
         return success_response(
-            data=VariantOptionSerializer(variants, many=True).data,
+            data=serializer.data,
             request_id=getattr(request, "request_id", None),
         )
 
