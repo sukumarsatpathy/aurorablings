@@ -4,22 +4,12 @@
   height: 100%;
   overflow: hidden;
   border-radius: 18px;
-  display: flex;
-  flex-direction: column;
-  justify-content: center;
-  padding: 1.75rem;
   min-height: 0;
   background-color: #f5f0eb;
-  transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
 .cardTall {
   min-height: 224px;
-}
-
-
-.card:hover .image {
-  transform: scale(1.05);
 }
 
 .imageWrapper {
@@ -35,49 +25,70 @@
   transition: transform 0.6s cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+.card:hover .image {
+  transform: scale(1.05);
+}
+
 .overlay {
   position: absolute;
   inset: 0;
-  background: rgba(0, 0, 0, 0.02);
+  background: rgba(0, 0, 0, 0.04);
   pointer-events: none;
 }
 
-.content {
-  position: relative;
+.contentOverlay {
+  position: absolute;
+  inset: 0;
   z-index: 10;
-  max-width: 300px;
 }
 
-.badge {
-  color: #1a1a1a;
-  margin-bottom: 0.75rem;
+.badgeBold,
+.badgeText,
+.title,
+.subtitle,
+.cta {
+  position: absolute;
+  margin: 0;
+  max-width: 78%;
+  text-shadow: 0 1px 2px rgba(255, 255, 255, 0.35);
+}
+
+.badgeBold {
+  font-size: 1.05rem;
+  font-weight: 800;
+  line-height: 1.1;
+}
+
+.badgeText {
+  font-size: 0.98rem;
+  font-weight: 500;
+  line-height: 1.1;
 }
 
 .title {
-  font-size: 2.25rem;
+  font-size: 2.1rem;
   font-weight: 400;
-  line-height: 1.1;
-  color: #1a1a1a;
-  margin-bottom: 0.5rem;
+  line-height: 1.05;
   letter-spacing: -0.02em;
 }
 
+.subtitle {
+  font-size: 1rem;
+  font-weight: 500;
+}
+
 .cta {
-  margin-top: 1.5rem;
+  margin-top: 0;
 }
 
 @media (max-width: 768px) {
-  .card {
-    padding: 1.25rem;
-    min-height: 0;
-  }
-
-  .cardTall {
-    min-height: 224px;
-  }
-
-
   .title {
-    font-size: 1.75rem;
+    font-size: 1.55rem;
+  }
+
+  .subtitle,
+  .badgeText,
+  .badgeBold {
+    font-size: 0.9rem;
   }
 }

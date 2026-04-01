@@ -75,11 +75,27 @@ const AdminBannersPage = () => {
     const newBanner = {
       id: 'temp-' + Date.now(), // Temporary ID for preview mapping
       title: '',
+      subtitle: '',
       badge_bold: '',
       badge_text: '',
       cta_label: 'SHOP NOW',
       cta_url: '#',
       bg_color: '#f5f0eb',
+      title_color: '#1A1A1A',
+      subtitle_color: '#1A1A1A',
+      badge_color: '#1A1A1A',
+      cta_text_color: '#1A1A1A',
+      cta_border_color: '#1A1A1A',
+      title_x: 8,
+      title_y: 46,
+      subtitle_x: 8,
+      subtitle_y: 64,
+      cta_x: 8,
+      cta_y: 80,
+      badge_bold_x: 8,
+      badge_bold_y: 22,
+      badge_text_x: 22,
+      badge_text_y: 22,
       position: availablePosition,
       is_active: true,
       image: null
@@ -92,14 +108,9 @@ const AdminBannersPage = () => {
   const handleSave = async (formData) => {
     try {
       setSaving(true);
-      const trimmedTitle = (formData.title || '').trim();
       const trimmedUrl = (formData.cta_url || '').trim();
       if (!formData.position) {
         setError('Please select a grid position for this banner.');
-        return;
-      }
-      if (!trimmedTitle) {
-        setError('Banner title is required.');
         return;
       }
       if (!trimmedUrl) {

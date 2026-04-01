@@ -1,9 +1,9 @@
 .form {
   display: flex;
   flex-direction: column;
-  gap: 2rem;
+  gap: 1.5rem;
   background: white;
-  padding: 2rem;
+  padding: 1.5rem;
   border-radius: 1rem;
   border: 1px solid #e5e7eb;
 }
@@ -12,73 +12,185 @@
   display: flex;
   justify-content: space-between;
   align-items: center;
-  border-bottom: 1px solid #f3f4f6;
-  padding-bottom: 1rem;
+  border-bottom: 1px solid #f1f5f9;
+  padding-bottom: 0.9rem;
 }
 
 .title {
-  font-size: 1.25rem;
-  font-weight: 600;
-  color: #111827;
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: #0f172a;
 }
 
 .actions {
   display: flex;
-  gap: 0.75rem;
+  gap: 0.6rem;
 }
 
 .saveBtn {
-  background: #1a1a1a;
+  background: #0f172a;
   color: white;
-  padding: 0.5rem 1.25rem;
-  border-radius: 0.5rem;
-  font-weight: 500;
+  padding: 0.55rem 1.15rem;
+  border-radius: 0.6rem;
+  font-weight: 600;
   cursor: pointer;
   border: none;
 }
 
 .cancelBtn {
   background: white;
-  color: #4b5563;
-  padding: 0.5rem 1.25rem;
-  border-radius: 0.5rem;
-  border: 1px solid #d1d5db;
-  font-weight: 500;
+  color: #475569;
+  padding: 0.55rem 1.15rem;
+  border-radius: 0.6rem;
+  border: 1px solid #cbd5e1;
+  font-weight: 600;
   cursor: pointer;
 }
 
 .grid {
   display: flex;
   flex-direction: column;
-  gap: 1.5rem;
+  gap: 1rem;
 }
 
 .row {
   display: grid;
   grid-template-columns: 1fr 1fr;
-  gap: 1rem;
+  gap: 0.85rem;
 }
 
 .section {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  gap: 0.4rem;
 }
 
 .label {
-  font-size: 0.875rem;
-  font-weight: 500;
-  color: #374151;
+  font-size: 0.84rem;
+  font-weight: 700;
+  color: #334155;
 }
 
 .input {
-  padding: 0.625rem;
-  border: 1px solid #d1d5db;
-  border-radius: 0.5rem;
-  font-size: 0.875rem;
+  height: 2.35rem;
+  padding: 0 0.75rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.6rem;
+  font-size: 0.86rem;
+  color: #0f172a;
 }
 
 .input:focus {
-  outline: 2px solid #1a1a1a;
-  border-color: transparent;
+  outline: none;
+  border-color: #0f172a;
+  box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.12);
+}
+
+.editorHead {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.linkBtn {
+  border: none;
+  background: #eef2ff;
+  color: #3730a3;
+  border-radius: 999px;
+  padding: 0.25rem 0.75rem;
+  cursor: pointer;
+  font-size: 0.78rem;
+  font-weight: 600;
+}
+
+.editorHint {
+  color: #64748b;
+  font-size: 0.75rem;
+}
+
+.layoutCanvas {
+  position: relative;
+  height: 260px;
+  border-radius: 0.9rem;
+  border: 1px solid #d1d5db;
+  background-size: cover;
+  background-position: center;
+  overflow: hidden;
+}
+
+.canvasOverlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(180deg, rgba(255, 255, 255, 0.04), rgba(15, 23, 42, 0.12));
+  pointer-events: none;
+}
+
+.layer {
+  position: absolute;
+  transform: translate(-5%, -50%);
+  z-index: 3;
+  font-size: 0.85rem;
+  font-weight: 700;
+  line-height: 1.2;
+  cursor: grab;
+  user-select: none;
+  padding: 0.2rem 0.4rem;
+  border-radius: 0.4rem;
+  background: rgba(255, 255, 255, 0.76);
+  border: 1px dashed rgba(15, 23, 42, 0.2);
+  max-width: 70%;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.layerButton {
+  border-style: solid;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.coordGrid {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  gap: 0.75rem;
+}
+
+.coordCard {
+  border: 1px solid #e2e8f0;
+  border-radius: 0.7rem;
+  padding: 0.6rem;
+  background: #f8fafc;
+}
+
+.coordTitle {
+  font-size: 0.75rem;
+  font-weight: 700;
+  color: #334155;
+  margin-bottom: 0.45rem;
+}
+
+.coordRow {
+  display: flex;
+  align-items: center;
+  gap: 0.45rem;
+  margin-bottom: 0.35rem;
+}
+
+.coordLabel {
+  font-size: 0.72rem;
+  min-width: 1.4rem;
+  color: #64748b;
+}
+
+@media (max-width: 1200px) {
+  .coordGrid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+
+@media (max-width: 768px) {
+  .row {
+    grid-template-columns: 1fr;
+  }
 }
