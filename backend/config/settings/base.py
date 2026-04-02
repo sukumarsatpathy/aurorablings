@@ -57,6 +57,7 @@ INSTALLED_APPS = [
     'apps.health',
     'apps.banners',
     'apps.address',
+    'apps.privacy',
     'audit',
 ]
 
@@ -274,6 +275,7 @@ CORS_ALLOW_CREDENTIALS = True
 
 # Backend base URL (used for media absolute URLs in API responses)
 BACKEND_URL = env("BACKEND_URL", default="http://localhost:8000")
+PRIVACY_STORE_IP_ADDRESS = env.bool("PRIVACY_STORE_IP_ADDRESS", default=False)
 
 # Notification dashboard controls
 NOTIFICATION_MAX_RETRY = env.int("NOTIFICATION_MAX_RETRY", default=3)

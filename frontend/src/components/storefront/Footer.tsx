@@ -52,6 +52,10 @@ export const Footer: React.FC = () => {
       .slice(0, 14);
   }, [catalogCategories]);
 
+  const openCookieSettings = () => {
+    window.dispatchEvent(new Event('aurora:open-cookie-settings'));
+  };
+
   return (
     <footer className="mt-16 border-t border-border/60 bg-[#f5f8f2]">
       <div className="border-b border-border/60 py-10 bg-[#f5f8f2]">
@@ -116,6 +120,11 @@ export const Footer: React.FC = () => {
                 <li><Link to="/return-and-refund-policy/" className="hover:text-primary transition-colors">Return & Refund Policy</Link></li>
                 <li><Link to="/privacy-policy/" className="hover:text-primary transition-colors">Privacy Policy</Link></li>
                 <li><Link to="/shipping-policy" className="hover:text-primary transition-colors">Shipping Policy</Link></li>
+                <li>
+                  <button type="button" className="cookie-settings-link" onClick={openCookieSettings}>
+                    Cookie Settings
+                  </button>
+                </li>
               </ul>
             </div>
 

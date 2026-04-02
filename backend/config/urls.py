@@ -13,6 +13,7 @@ urlpatterns = [
     path("health/", include("apps.health.deploy_urls", namespace="public_health")),
     path("api/settings/public", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings"),
     path("api/settings/public/", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings-slash"),
+    path("api/privacy/", include(("apps.privacy.urls", "privacy"), namespace="privacy-public")),
     path("api/notify/", include("apps.notifications.notify_urls")),
     path("api/address/", include("apps.address.api.urls", namespace="address")),
 
@@ -32,6 +33,7 @@ urlpatterns = [
         path("notifications/", include("apps.notifications.urls",   namespace="notifications")),
         path("admin/notifications/", include("apps.notifications.admin_urls", namespace="admin_notifications")),
         path("notify/", include("apps.notifications.notify_urls")),
+        path("privacy/", include("apps.privacy.urls", namespace="privacy")),
         path("address/", include("apps.address.api.urls", namespace="address-v1")),
         path("features/",      include("apps.features.urls",       namespace="features")),
         path("logistics/",     include("apps.shipping.urls",       namespace="shipping")),

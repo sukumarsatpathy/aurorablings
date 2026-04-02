@@ -48,6 +48,7 @@ import AdminBannersPage from './pages/admin/AdminBannersPage/AdminBannersPage';
 import apiClient from './services/api/client';
 import { SessionTimeoutManager } from './components/auth/SessionTimeoutManager';
 import { useBranding } from './hooks/useBranding';
+import { CookieConsentRoot } from './privacy/CookieConsentRoot';
 
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 const isPrivilegedRole = (role?: string) => {
@@ -239,6 +240,7 @@ function AppContent() {
   return (
     <>
       <SessionTimeoutManager preferredTitle={branding.tabTitle} />
+      <CookieConsentRoot />
       <Routes>
         {/* Storefront Routes */}
         <Route path="/" element={<MainLayout><HomePage /></MainLayout>} />

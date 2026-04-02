@@ -60,11 +60,11 @@ export const PremiumCursor: React.FC = () => {
     <>
       <div
         ref={ringRef}
-        className="pointer-events-none fixed left-0 top-0 z-[300] h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/40 opacity-35"
+        className="pointer-events-none fixed left-0 top-0 z-[1200] h-8 w-8 -translate-x-1/2 -translate-y-1/2 rounded-full border border-primary/40 opacity-35"
       />
       <div
         ref={dotRef}
-        className="pointer-events-none fixed left-0 top-0 z-[301] h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/80"
+        className="pointer-events-none fixed left-0 top-0 z-[1201] h-1.5 w-1.5 -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/80"
       />
     </>
   );
