@@ -20,6 +20,7 @@ export const TermsAndConditionsPage: React.FC = () => {
           <p className="mt-3 text-muted-foreground max-w-3xl">
             Welcome to Aurora Blings. By accessing our website and placing an order, you agree to the following terms.
           </p>
+          <p className={bodyTextClass}>Last Updated: April 2026</p>
         </div>
 
         <div className="rounded-3xl border border-border bg-white/85 backdrop-blur-sm p-6 md:p-10 space-y-9">
@@ -34,36 +35,29 @@ export const TermsAndConditionsPage: React.FC = () => {
           <section>
             <h2 className={sectionTitleClass}>2. Products & Pricing</h2>
             <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
-              <li>All products listed are subject to availability.</li>
-              <li>We strive to display accurate product details, colors, and images. Slight variations may occur due to lighting or screen settings.</li>
-              <li>Prices are subject to change without prior notice.</li>
+              <li>All products are subject to availability.</li>
+              <li>Slight variations in color/design may occur.</li>
+              <li>Prices may change without prior notice.</li>
             </ul>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>3. Orders & Payments</h2>
             <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
-              <li>Once an order is placed, you will receive a confirmation.</li>
-              <li>
-                We reserve the right to cancel any order due to product unavailability, payment issues, or suspicious/fraudulent activity.
-              </li>
-              <li>Payments are processed securely through third-party payment gateways.</li>
+              <li>Order confirmation will be sent after successful placement.</li>
+              <li>We reserve the right to cancel/refuse any order.</li>
+              <li>Payments are processed securely via trusted payment gateways.</li>
+              <li>Aurora Blings does not store payment details.</li>
             </ul>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>4. Shipping & Delivery</h2>
-            <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
-              <li>Orders will be processed and shipped within the specified timeframe mentioned on the website.</li>
-              <li>Delivery timelines may vary based on location and courier services.</li>
-              <li>
-                Aurora Blings is not responsible for delays caused by courier partners. Please review our{' '}
-                <Link to="/shipping-policy/" className="text-primary hover:underline">
-                  Shipping Policy
-                </Link>{' '}
-                for complete details.
-              </li>
-            </ul>
+            <p className={bodyTextClass}>Orders are processed and shipped as per timelines mentioned on the website.</p>
+            <p className={bodyTextClass}>
+              While we work with reliable courier partners, delays may occur. Aurora Blings will assist customers in resolving
+              delivery-related issues.
+            </p>
           </section>
 
           <section>
@@ -73,64 +67,67 @@ export const TermsAndConditionsPage: React.FC = () => {
               <Link to="/return-and-refund-policy/" className="text-primary hover:underline">
                 Return & Refund Policy
               </Link>{' '}
-              for detailed information. By placing an order, you agree to the terms mentioned in that policy.
+              .
             </p>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>6. Intellectual Property</h2>
             <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
-              <li>All content on this website, including images, logos, text, and designs, is the property of Aurora Blings.</li>
-              <li>Unauthorized use or reproduction is strictly prohibited.</li>
+              <li>All content (images, logos, designs) is owned by Aurora Blings.</li>
+              <li>Unauthorized use is strictly prohibited.</li>
             </ul>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>7. Limitation of Liability</h2>
             <p className={bodyTextClass}>
-              Aurora Blings shall not be held liable for any indirect, incidental, or consequential damages arising from the use of our products or website.
+              Aurora Blings shall not be liable for indirect or consequential damages arising from website or product usage.
             </p>
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>8. User Conduct</h2>
+            <h2 className={sectionTitleClass}>8. User Responsibilities</h2>
             <p className={bodyTextClass}>You agree not to:</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Use the website for any illegal or unauthorized purpose.</li>
-              <li>Attempt to harm, disrupt, or misuse the website.</li>
+              <li>Use the website for illegal purposes.</li>
+              <li>Attempt to harm or disrupt the platform.</li>
             </ul>
+            <p className={bodyTextClass}>You are responsible for maintaining the confidentiality of your account credentials.</p>
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>10. Cookies and Tracking</h2>
+            <h2 className={sectionTitleClass}>9. Cookies</h2>
+            <p className={bodyTextClass}>We use cookies to enhance user experience. Continued use implies consent.</p>
+          </section>
+
+          <section>
+            <h2 className={sectionTitleClass}>10. Termination</h2>
             <p className={bodyTextClass}>
-              We may use cookies or similar tracking technologies to enhance your browsing experience, understand how you interact with our website, and improve our services.
-              By continuing to use this website, you consent to our use of cookies in accordance with our{' '}
-              <Link to="/privacy-policy/" className="text-primary hover:underline">
-                Privacy Policy
-              </Link>
-              .
+              We may suspend or terminate access if terms are violated.
             </p>
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>11. Termination</h2>
+            <h2 className={sectionTitleClass}>11. Force Majeure</h2>
             <p className={bodyTextClass}>
-              We reserve the right to terminate or suspend your access to the website and its services at any time, without prior notice, if we believe you have violated
-              these Terms and Conditions or engaged in any inappropriate or unlawful activity.
+              Aurora Blings shall not be liable for delays caused by events beyond our control, including natural disasters, strikes,
+              or government restrictions.
             </p>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>12. Governing Law</h2>
-            <p className={bodyTextClass}>These Terms & Conditions are governed by the laws of India.</p>
+            <p className={bodyTextClass}>These terms are governed by the laws of India.</p>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>13. Contact Us</h2>
-            <p className={bodyTextClass}>For any questions regarding these Terms & Conditions, please contact us:</p>
+            <p className={bodyTextClass}>Aurora Blings</p>
+            <p className={bodyTextClass}>Puri, Odisha, India</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
               <li>Email: connect@aurorablings.com</li>
+              <li>Phone/WhatsApp: 7847090866</li>
               <li>Instagram: @aurora_blings</li>
             </ul>
           </section>

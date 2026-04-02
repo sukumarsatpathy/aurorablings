@@ -27,23 +27,24 @@ export const ShippingPolicyPage: React.FC = () => {
             <h2 className={sectionTitleClass}>1. Order Processing Time</h2>
             <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
               <li>All orders are processed within 1-3 business days after confirmation.</li>
-              <li>Orders placed on weekends or holidays will be processed on the next working day.</li>
+              <li>Orders placed on weekends or public holidays will be processed on the next working day.</li>
             </ul>
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>2. Shipping Time</h2>
+            <h2 className={sectionTitleClass}>2. Shipping &amp; Delivery Time</h2>
             <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
-              <li>Estimated delivery time: 3-7 business days depending on your location in India.</li>
-              <li>Delivery timelines may vary due to external factors such as courier delays, weather, or high demand.</li>
+              <li>Estimated delivery time is 3-7 business days across India.</li>
+              <li>Delivery timelines may vary due to courier delays, weather conditions, or high order volumes.</li>
             </ul>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>3. Shipping Charges</h2>
             <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
-              <li>Shipping charges will be calculated at checkout.</li>
-              <li>We may offer free shipping on selected orders or promotions.</li>
+              <li>Shipping charges are calculated at checkout.</li>
+              <li>Standard shipping charges may apply (Rs. 49-Rs. 99).</li>
+              <li>Free shipping may be offered on orders above Rs. 799 during promotions.</li>
             </ul>
           </section>
 
@@ -57,30 +58,48 @@ export const ShippingPolicyPage: React.FC = () => {
 
           <section>
             <h2 className={sectionTitleClass}>5. Delivery Issues</h2>
-            <p className={bodyTextClass}>Aurora Blings is not responsible for:</p>
+            <p className={bodyTextClass}>
+              While we work with trusted courier partners, delays may occasionally occur. Aurora Blings will actively assist customers
+              in resolving delivery issues.
+            </p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Delays caused by courier partners</li>
-              <li>Incorrect or incomplete shipping address provided by the customer</li>
-              <li>Failed delivery attempts due to unavailability</li>
+              <li>Please ensure the shipping address is accurate.</li>
+              <li>Please ensure someone is available at delivery time.</li>
             </ul>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>6. Lost or Damaged Packages</h2>
             <ul className={`${bodyTextClass} list-disc pl-5 space-y-2`}>
-              <li>If your order is lost or arrives damaged, please contact us within 48 hours of delivery.</li>
-              <li>You must provide an unboxing video as proof for any damage claims.</li>
+              <li>If your order is lost or arrives damaged, contact us within 48 hours of delivery.</li>
+              <li>Provide an unboxing video as proof.</li>
+              <li>We will investigate and provide a suitable resolution.</li>
             </ul>
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>7. Contact Us</h2>
-            <p className={bodyTextClass}>For any shipping-related queries, please contact us:</p>
+            <h2 className={sectionTitleClass}>7. Cancellation &amp; Refunds</h2>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Email: connect@aurorablings.com</li>
-              <li>Instagram: @aurora_blings</li>
+              <li>Orders can be cancelled within X hours of placing the order.</li>
+              <li>Refunds (if applicable) will be processed within 5-7 business days.</li>
+              <li>For detailed information, please refer to our Return &amp; Refund Policy.</li>
             </ul>
-            <p className={bodyTextClass}>Thank you for choosing Aurora Blings.</p>
+          </section>
+
+          <section>
+            <h2 className={sectionTitleClass}>8. Shipping Coverage</h2>
+            <p className={bodyTextClass}>Currently, we ship across India only.</p>
+          </section>
+
+          <section>
+            <h2 className={sectionTitleClass}>Contact Us</h2>
+            <p className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
+              Aurora Blings<br/>
+              Puri, Odisha, India<br/>
+              Email: connect@aurorablings.com<br/>
+              Phone/WhatsApp: 7847090866<br/>
+              Instagram: @aurora_blings
+            </p>
           </section>
         </div>
       </div>

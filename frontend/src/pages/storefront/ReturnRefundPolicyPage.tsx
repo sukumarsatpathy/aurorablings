@@ -26,76 +26,81 @@ export const ReturnRefundPolicyPage: React.FC = () => {
           <section>
             <h2 className={sectionTitleClass}>1. Returns</h2>
             <p className={bodyTextClass}>
-              Due to hygiene reasons and the delicate nature of jewellery, we do not accept returns on any products once delivered.
+              Due to hygiene reasons and the delicate nature of jewellery, returns are not accepted once the product is delivered.
             </p>
-            <p className={bodyTextClass}>However, we do offer replacements under certain conditions (see below).</p>
+            <p className={bodyTextClass}>However, we do offer replacements under specific conditions (see below).</p>
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>2. Damaged or Incorrect Products</h2>
+            <h2 className={sectionTitleClass}>2. Damaged, Defective, or Incorrect Products</h2>
             <p className={bodyTextClass}>If you receive:</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
               <li>A damaged product</li>
               <li>A defective item</li>
               <li>A wrong product</li>
             </ul>
-            <p className={bodyTextClass}>Please contact us within 48 hours of delivery.</p>
-            <p className={bodyTextClass}>You must share:</p>
+            <p className={bodyTextClass}>You must notify us within 48 hours of delivery and provide:</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
               <li>Clear unboxing video (mandatory)</li>
               <li>Photos of the product</li>
             </ul>
-            <p className={bodyTextClass}>Without an unboxing video, we may not be able to process your request.</p>
+            <p className={bodyTextClass}>Requests without an unboxing video may not be eligible.</p>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>3. Replacement Policy</h2>
             <p className={bodyTextClass}>Once verified, we will:</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Offer a replacement of the same product (if available)</li>
-              <li>OR provide store credit (if the product is out of stock)</li>
+              <li>Offer a replacement of the same product (subject to availability), OR</li>
+              <li>Provide store credit if the product is out of stock</li>
             </ul>
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>4. Refunds</h2>
-            <p className={bodyTextClass}>We do not offer refunds in the following cases:</p>
+            <h2 className={sectionTitleClass}>4. Refund Policy</h2>
+            <p className={bodyTextClass}>Refunds are not applicable in the following cases:</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
               <li>Change of mind</li>
-              <li>Minor color/finish variations (due to lighting/photography)</li>
+              <li>Minor color/finish variations</li>
               <li>Delays caused by courier partners</li>
             </ul>
             <p className={bodyTextClass}>Refunds will only be processed if:</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
               <li>Replacement is not possible</li>
-              <li>The issue is verified from our side</li>
-              <li>The original shipping cost, if applicable, is not refundable under any circumstances</li>
+              <li>The issue is verified by our team</li>
+            </ul>
+            <p className={bodyTextClass}>Refund Details:</p>
+            <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
+              <li>Refunds will be processed within 5-7 business days</li>
+              <li>Refunds will be credited to the original payment method</li>
+              <li>Shipping charges (if any) are non-refundable</li>
             </ul>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>5. Cancellation Policy</h2>
             <p className={bodyTextClass}>Orders can be cancelled within 12 hours of placing the order.</p>
-            <p className={bodyTextClass}>After that, cancellations may not be possible.</p>
+            <p className={bodyTextClass}>After this period, cancellation requests may not be accepted.</p>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>6. Shipping Issues</h2>
-            <p className={bodyTextClass}>We are not responsible for:</p>
-            <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Delays caused by courier companies</li>
-              <li>Incorrect address provided by the customer</li>
-            </ul>
+            <p className={bodyTextClass}>
+              While we work with reliable courier partners, delays may occur due to unforeseen circumstances. Aurora Blings will assist
+              customers in resolving delivery-related issues.
+            </p>
           </section>
 
           <section>
             <h2 className={sectionTitleClass}>7. Contact Us</h2>
-            <p className={bodyTextClass}>For any issues, contact us at:</p>
+            <p className={bodyTextClass}>Aurora Blings</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
+              <li>Puri, Odisha, India</li>
               <li>Email: connect@aurorablings.com</li>
+              <li>Phone/WhatsApp: 7847090866</li>
               <li>Instagram: @aurora_blings</li>
             </ul>
-            <p className={bodyTextClass}>By placing an order with Aurora Blings, you agree to this Return & Refund Policy.</p>
+            <p className={bodyTextClass}>By placing an order, you agree to this policy.</p>
           </section>
         </div>
       </div>
