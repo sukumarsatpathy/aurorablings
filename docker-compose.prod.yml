@@ -28,7 +28,8 @@ services:
   backend:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    command: gunicorn --bind 0.0.0.0:8000 config.wsgi:application
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["gunicorn", "-c", "config/gunicorn.conf.py", "config.wsgi:application"]
     volumes:
       - /srv/aurora/shared/static:/app/staticfiles
       - /srv/aurora/shared/media:/app/media
@@ -42,6 +43,7 @@ services:
       - SQL_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      - RUN_MIGRATIONS=true
     depends_on:
       db:
         condition: service_healthy
@@ -52,12 +54,13 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+      start_period: 60s
 
   celery_worker:
-    # Replaces 'build' with the pre-built backend image
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    command: celery -A config worker --loglevel=info
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["celery", "-A", "config", "worker", "--loglevel=info"]
     volumes:
       - /srv/aurora/shared/media:/app/media
       - /srv/aurora/shared/logs:/app/logs
@@ -70,17 +73,20 @@ services:
       - SQL_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # RUN_MIGRATIONS intentionally omitted
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      backend:
+        condition: service_healthy
 
   celery_beat:
-    # Replaces 'build' with the pre-built backend image
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    command: celery -A config beat --loglevel=info
+    entrypoint: ["/app/entrypoint.sh"]
+    command: ["celery", "-A", "config", "beat", "--loglevel=info"]
     volumes:
       - /srv/aurora/shared/logs:/app/logs
     env_file:
@@ -92,18 +98,21 @@ services:
       - SQL_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
+      # RUN_MIGRATIONS intentionally omitted
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
+      backend:
+        condition: service_healthy
 
   frontend:
-    # Replaces 'build' with your pre-built frontend image
     image: ghcr.io/sukumarsatpathy/aurorablings/frontend:latest
     restart: always
     depends_on:
-      - backend
+      backend:
+        condition: service_healthy
 
   nginx_proxy:
     image: nginx:stable-alpine
@@ -119,8 +128,10 @@ services:
       - /srv/aurora/shared/media:/app/media:ro
       - /srv/aurora/shared/logs/nginx:/var/log/nginx
     depends_on:
-      - backend
-      - frontend
+      backend:
+        condition: service_healthy
+      frontend:
+        condition: service_started
 
 volumes:
   postgres_data:
