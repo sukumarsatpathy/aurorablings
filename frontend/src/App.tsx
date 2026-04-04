@@ -44,11 +44,15 @@ import { NotifyRequests } from './pages/admin/NotifyRequests';
 import { Enquiries } from './pages/admin/Enquiries';
 import { NotificationDashboard } from './pages/admin/NotificationDashboard';
 import { NotificationLogs } from './pages/admin/NotificationLogs';
+import TrackingSettings from './pages/admin/TrackingSettings';
+import GTMSettings from './pages/admin/GTMSettings';
 import AdminBannersPage from './pages/admin/AdminBannersPage/AdminBannersPage';
 import apiClient from './services/api/client';
 import { SessionTimeoutManager } from './components/auth/SessionTimeoutManager';
 import { useBranding } from './hooks/useBranding';
 import { CookieConsentRoot } from './privacy/CookieConsentRoot';
+import trackingLoader from './services/trackingLoader';
+import trackingApi from './services/trackingApi';
 
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 const isPrivilegedRole = (role?: string) => {
@@ -68,6 +72,16 @@ const readCachedRole = (): string => {
     return raw ? JSON.parse(raw)?.role || '' : '';
   } catch {
     return '';
+  }
+};
+
+const readCachedStaffFlag = (): boolean => {
+  try {
+    const raw = localStorage.getItem('auth_user');
+    const parsed = raw ? JSON.parse(raw) : null;
+    return parsed?.is_staff === true;
+  } catch {
+    return false;
   }
 };
 
@@ -188,6 +202,69 @@ function RequireAdminOrStaff({ children }: { children: ReactNode }) {
   return <>{children}</>;
 }
 
+function UnauthorizedPage() {
+  return (
+    <MainLayout>
+      <div className="mx-auto max-w-3xl px-4 py-16">
+        <div className="rounded-2xl border border-destructive/30 bg-destructive/10 p-8 shadow-soft">
+          <h1 className="text-2xl font-semibold text-destructive">Unauthorized</h1>
+          <p className="mt-2 text-sm text-destructive/90">
+            You do not have permission to access this page.
+          </p>
+        </div>
+      </div>
+    </MainLayout>
+  );
+}
+
+function RequireStaffOnly({ children }: { children: ReactNode }) {
+  const location = useLocation();
+  const token = localStorage.getItem('auth_token');
+  const [isStaff, setIsStaff] = useState<boolean>(() => readCachedStaffFlag());
+  const [checking, setChecking] = useState<boolean>(() => !readCachedStaffFlag());
+
+  useEffect(() => {
+    let mounted = true;
+    const resolveStaff = async () => {
+      if (!token) {
+        setChecking(false);
+        return;
+      }
+      if (isStaff) {
+        setChecking(false);
+        return;
+      }
+      try {
+        const response = await apiClient.get('/v1/auth/profile/');
+        const user = response?.data?.data || null;
+        if (user) localStorage.setItem('auth_user', JSON.stringify(user));
+        if (mounted) setIsStaff(user?.is_staff === true);
+      } catch {
+        if (mounted) setIsStaff(false);
+      } finally {
+        if (mounted) setChecking(false);
+      }
+    };
+    void resolveStaff();
+    return () => {
+      mounted = false;
+    };
+  }, [isStaff, token]);
+
+  if (!token) {
+    const next = `${location.pathname}${location.search}`;
+    return <Navigate to={`/login?next=${encodeURIComponent(next)}`} replace />;
+  }
+
+  if (checking) return null;
+
+  if (!isStaff) {
+    return <Navigate to="/unauthorized" replace />;
+  }
+
+  return <>{children}</>;
+}
+
 function DashboardHomeRedirect() {
   const token = localStorage.getItem('auth_token');
   if (!token) {
@@ -236,6 +313,25 @@ function AppContent() {
       }
     });
   }, [branding.faviconUrl]);
+
+  useEffect(() => {
+    let mounted = true;
+    const hydrateTracking = async () => {
+      try {
+        const config = await trackingApi.getGTMConfig();
+        if (!mounted) return;
+        if (config?.is_gtm_enabled && config?.gtm_container_id) {
+          trackingLoader.loadGTM(config.gtm_container_id);
+        }
+      } catch {
+        // GTM is optional and should never block app startup.
+      }
+    };
+    void hydrateTracking();
+    return () => {
+      mounted = false;
+    };
+  }, []);
 
   return (
     <>
@@ -288,6 +384,7 @@ function AppContent() {
         <Route path="/forgot-password" element={<ForgotPasswordEntry />} />
         <Route path="/reset-password" element={<ResetPasswordPage />} />
         <Route path="/auth/reset-password" element={<ResetPasswordPage />} />
+        <Route path="/unauthorized" element={<UnauthorizedPage />} />
         
         {/* Admin/Dashboard Routes */}
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
@@ -313,6 +410,15 @@ function AppContent() {
                 <Route path="coupons" element={<Coupons />} />
                 <Route path="audit-logs" element={<AuditLogs />} />
                 <Route path="settings" element={<Settings />} />
+                <Route
+                  path="gtm-settings"
+                  element={
+                    <RequireStaffOnly>
+                      <GTMSettings />
+                    </RequireStaffOnly>
+                  }
+                />
+                <Route path="tracking-settings" element={<TrackingSettings />} />
                 <Route path="banners" element={<AdminBannersPage />} />
                 <Route path="health" element={<HealthDashboard />} />
               </Routes>
