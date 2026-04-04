@@ -330,7 +330,7 @@ function AppContent() {
     let mounted = true;
     const hydrateTracking = async () => {
       try {
-        const config = await trackingApi.getGTMConfig();
+        const config = await trackingApi.getPublicGTMConfig();
         if (!mounted) return;
         if (config?.is_gtm_enabled && config?.gtm_container_id) {
           trackingLoader.loadGTM(config.gtm_container_id);

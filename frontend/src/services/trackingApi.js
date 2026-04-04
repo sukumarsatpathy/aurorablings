@@ -87,7 +87,7 @@ const upsertFeatureSetting = async (key, value, valueType, defaults = {}) => {
     category: defaults.category || 'advanced',
     label: defaults.label || key,
     description: defaults.description || '',
-    is_public: false,
+    is_public: Boolean(defaults.is_public),
     is_editable: true,
   };
 
@@ -101,6 +101,20 @@ const upsertFeatureSetting = async (key, value, valueType, defaults = {}) => {
       headers: authHeaders(),
     });
   }
+};
+
+const normalizePublicPayload = (payload) => payload?.data?.data || payload?.data || payload || {};
+
+export const getPublicGTMConfig = async () => {
+  const response = await apiClient.get('/v1/features/public-settings/');
+  const data = normalizePublicPayload(response);
+  const legacyId = data.gtm_id || '';
+  const legacyEnabled = data?.enabled?.gtm;
+  return {
+    gtm_container_id: String(data.gtm_container_id ?? legacyId ?? '').trim(),
+    is_gtm_enabled: toBooleanSetting(data.is_gtm_enabled ?? legacyEnabled ?? false),
+    last_updated: data.last_updated || data.updated_at || null,
+  };
 };
 
 export const getGTMConfig = async () => {
@@ -158,11 +172,13 @@ export const saveGTMConfig = async (config) => {
         category: 'advanced',
         label: 'GTM Container ID',
         description: 'Google Tag Manager container ID used for storefront tracking.',
+        is_public: true,
       }),
       upsertFeatureSetting(GTM_ENABLED_KEY, String(payload.is_gtm_enabled), 'boolean', {
         category: 'advanced',
         label: 'Enable GTM',
         description: 'Controls whether GTM script should be injected at runtime.',
+        is_public: true,
       }),
     ]);
 
@@ -177,6 +193,7 @@ const trackingApi = {
   getTrackingConfig,
   saveTrackingConfig,
   getGTMConfig,
+  getPublicGTMConfig,
   saveGTMConfig,
 };
 

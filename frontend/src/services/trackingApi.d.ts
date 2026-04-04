@@ -19,6 +19,11 @@ export function getGTMConfig(): Promise<{
   is_gtm_enabled: boolean;
   last_updated?: string | null;
 }>;
+export function getPublicGTMConfig(): Promise<{
+  gtm_container_id: string;
+  is_gtm_enabled: boolean;
+  last_updated?: string | null;
+}>;
 export function saveGTMConfig(config: {
   gtm_container_id: string;
   is_gtm_enabled: boolean;
@@ -32,6 +37,7 @@ declare const trackingApi: {
   getTrackingConfig: typeof getTrackingConfig;
   saveTrackingConfig: typeof saveTrackingConfig;
   getGTMConfig: typeof getGTMConfig;
+  getPublicGTMConfig: typeof getPublicGTMConfig;
   saveGTMConfig: typeof saveGTMConfig;
 };
 

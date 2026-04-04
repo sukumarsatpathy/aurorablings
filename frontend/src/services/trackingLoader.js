@@ -36,7 +36,11 @@ const ensureScript = ({ id, src, async = true }) => {
   script.async = async;
   script.src = src;
   script.referrerPolicy = 'strict-origin-when-cross-origin';
-  document.head.appendChild(script);
+  if (document.head.firstChild) {
+    document.head.insertBefore(script, document.head.firstChild);
+  } else {
+    document.head.appendChild(script);
+  }
 };
 
 const ensureGTMNoScript = (gtmId) => {
@@ -80,14 +84,15 @@ export const loadGTM = (gtmId) => {
   if (!result.isValid) return false;
 
   const safeId = result.sanitized;
+  const sameContainerLoaded = loadedState.gtm && loadedState.ids.gtm === safeId;
 
   ensureDataLayer();
-  window.dataLayer.push({
-    event: 'gtm.init',
-    source: 'tracking-loader',
-    gtm_id: safeId,
-    ts: Date.now(),
-  });
+  if (!sameContainerLoaded) {
+    window.dataLayer.push({
+      'gtm.start': Date.now(),
+      event: 'gtm.js',
+    });
+  }
   ensureScript({
     id: SCRIPT_IDS.gtm,
     src: `https://www.googletagmanager.com/gtm.js?id=${encodeURIComponent(safeId)}`,
