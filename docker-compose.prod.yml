@@ -28,9 +28,8 @@ services:
   backend:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    # ENTRYPOINT is baked into the image at /app/scripts/entrypoint.sh
-    # No need to override entrypoint: here — Dockerfile already sets it
-    command: ["gunicorn", "-c", "config/gunicorn.conf.py", "config.wsgi:application"]
+    # --bind overrides whatever is in gunicorn.conf.py — ensures 0.0.0.0
+    command: ["gunicorn", "--bind", "0.0.0.0:8000", "-c", "config/gunicorn.conf.py", "config.wsgi:application"]
     volumes:
       - /srv/aurora/shared/static:/app/staticfiles
       - /srv/aurora/shared/media:/app/media
@@ -45,17 +44,19 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - RUN_MIGRATIONS=true
+      - SECURE_SSL_REDIRECT=False
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
+      # -L follows redirects in case SECURE_SSL_REDIRECT leaks through
       test: ["CMD", "curl", "-fL", "http://localhost:8000/health/server"]
-      interval: 30s
+      interval: 15s
       timeout: 10s
-      retries: 3
-      start_period: 60s
+      retries: 5
+      start_period: 90s   # covers wait + migrate + collectstatic time
 
   celery_worker:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
@@ -73,7 +74,8 @@ services:
       - SQL_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # RUN_MIGRATIONS intentionally omitted — worker skips migrate
+      - SECURE_SSL_REDIRECT=False
+      # RUN_MIGRATIONS intentionally omitted
     depends_on:
       db:
         condition: service_healthy
@@ -97,7 +99,8 @@ services:
       - SQL_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # RUN_MIGRATIONS intentionally omitted — beat skips migrate
+      - SECURE_SSL_REDIRECT=False
+      # RUN_MIGRATIONS intentionally omitted
     depends_on:
       db:
         condition: service_healthy

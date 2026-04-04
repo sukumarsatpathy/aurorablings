@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="${APP_ROOT:-/srv/aurorablings}"
+APP_ROOT="${APP_ROOT:-/srv/aurora}"          # ✅ was /srv/aurorablings
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
 RELEASES_DIR="${APP_ROOT}/releases"
 CURRENT_TARGET="$(readlink -f "${APP_ROOT}/current" 2>/dev/null || true)"
@@ -19,10 +19,14 @@ for release in "${releases[@]}"; do
     continue
   fi
 
+  # Never delete the currently active release
   if [[ -n "${CURRENT_TARGET}" && "$(readlink -f "${release}")" == "${CURRENT_TARGET}" ]]; then
+    echo "Skipping active release: ${release}"
     continue
   fi
 
   echo "Pruning old release: ${release}"
   rm -rf "${release}"
 done
+
+echo "Pruning complete. Kept last ${KEEP_RELEASES} releases."

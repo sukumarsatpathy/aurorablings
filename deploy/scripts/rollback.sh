@@ -1,15 +1,18 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-APP_ROOT="${APP_ROOT:-/srv/aurorablings}"
+APP_ROOT="${APP_ROOT:-/srv/aurora}"          # ✅ was /srv/aurorablings
 TARGET_RELEASE="${1:-}"
 RELEASES_DIR="${APP_ROOT}/releases"
+NETWORK_NAME="${NETWORK_NAME:-aurora_network}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 
 if [[ ! -d "${RELEASES_DIR}" ]]; then
   echo "Missing releases directory: ${RELEASES_DIR}" >&2
   exit 1
 fi
 
+# Pick previous release if none specified
 if [[ -z "${TARGET_RELEASE}" ]]; then
   mapfile -t releases < <(ls -1dt "${RELEASES_DIR}"/*)
   if (( ${#releases[@]} < 2 )); then
@@ -25,10 +28,21 @@ if [[ ! -d "${TARGET_PATH}" ]]; then
   exit 1
 fi
 
-ln -sfn "${TARGET_PATH}" "${APP_ROOT}/current"
-sudo systemctl restart aurorablings-gunicorn.service
-sudo systemctl restart aurorablings-celery-worker.service
-sudo systemctl restart aurorablings-celery-beat.service
-sudo systemctl reload nginx
+echo "Rolling back to: ${TARGET_RELEASE}"
 
-echo "Rolled back to ${TARGET_RELEASE}."
+# Point current symlink to the target release
+ln -sfn "${TARGET_PATH}" "${APP_ROOT}/current"
+
+# Re-ensure network exists before starting containers
+if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
+  echo "Re-creating Docker network: ${NETWORK_NAME}"
+  docker network create "${NETWORK_NAME}"
+fi
+
+# Restart Docker Compose stack from the target release
+pushd "${TARGET_PATH}" >/dev/null
+docker compose -f "${COMPOSE_FILE}" down --remove-orphans
+docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans --force-recreate
+popd >/dev/null
+
+echo "Rolled back to ${TARGET_RELEASE} successfully."
