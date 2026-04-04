@@ -108,6 +108,20 @@ if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
   docker network create "${NETWORK_NAME}"
 fi
 
+# ── FIX 4: Kill any stale containers holding ports 80 or 443 ─────────────────
+# Timestamp-based project names mean 'compose down' only stops the CURRENT
+# project. A previously failed deploy may still own port 80/443.
+echo "Releasing ports 80 and 443 from any stale containers..."
+for PORT in 80 443; do
+  STALE="$(docker ps -q --filter "publish=${PORT}" || true)"
+  if [[ -n "${STALE}" ]]; then
+    echo "  Port ${PORT} held by container(s): ${STALE} — stopping..."
+    docker stop ${STALE} || true
+    docker rm   ${STALE} || true
+  fi
+done
+# ──────────────────────────────────────────────────────────────────────────────
+
 echo "Pulling latest images..."
 docker compose -f "${COMPOSE_FILE}" pull
 
