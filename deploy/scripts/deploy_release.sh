@@ -1,10 +1,12 @@
 #!/usr/bin/env bash
-set -euo pipefail
+set -Eeuo pipefail
 
 APP_ROOT="${APP_ROOT:-/srv/aurora}"
 RELEASE_ID="${RELEASE_ID:-}"
 ARTIFACT_PATH="${ARTIFACT_PATH:-}"
 KEEP_RELEASES="${KEEP_RELEASES:-3}"
+NETWORK_NAME="${NETWORK_NAME:-aurora_network}"
+COMPOSE_FILE="${COMPOSE_FILE:-docker-compose.prod.yml}"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -12,12 +14,17 @@ while [[ $# -gt 0 ]]; do
     --release-id) RELEASE_ID="$2"; shift 2 ;;
     --artifact) ARTIFACT_PATH="$2"; shift 2 ;;
     --keep-releases) KEEP_RELEASES="$2"; shift 2 ;;
-    *) echo "Unknown arg: $1" >&2; exit 1 ;;
+    --network-name) NETWORK_NAME="$2"; shift 2 ;;
+    --compose-file) COMPOSE_FILE="$2"; shift 2 ;;
+    *)
+      echo "Unknown arg: $1" >&2
+      exit 1
+      ;;
   esac
 done
 
 if [[ -z "${RELEASE_ID}" || -z "${ARTIFACT_PATH}" ]]; then
-  echo "Usage: deploy_release.sh --release-id <id> --artifact <path> [--app-root /srv/aurora]" >&2
+  echo "Usage: deploy_release.sh --release-id <id> --artifact <path> [--app-root /srv/aurora] [--keep-releases 3] [--network-name aurora_network] [--compose-file docker-compose.prod.yml]" >&2
   exit 1
 fi
 
@@ -26,66 +33,159 @@ RELEASES_DIR="${APP_ROOT}/releases"
 RELEASE_DIR="${RELEASES_DIR}/${RELEASE_ID}"
 CURRENT_LINK="${APP_ROOT}/current"
 
-# 1. Prepare Release Directory
-echo "Preparing release: ${RELEASE_ID}..."
-mkdir -p "${RELEASES_DIR}" "${SHARED_DIR}"/{media,static,logs,run,tmp}
+log() {
+  echo
+  echo "=================================================="
+  echo "$1"
+  echo "=================================================="
+}
+
+fail() {
+  echo "ERROR: $1" >&2
+  exit 1
+}
+
+cleanup_on_error() {
+  echo
+  echo "Deployment failed. Showing compose status and recent logs..."
+  if [[ -d "${RELEASE_DIR}" && -f "${RELEASE_DIR}/${COMPOSE_FILE}" ]]; then
+    (
+      cd "${RELEASE_DIR}" || exit 0
+      docker compose -f "${COMPOSE_FILE}" ps || true
+      docker compose -f "${COMPOSE_FILE}" logs --tail=200 backend nginx_proxy frontend celery_worker celery_beat db redis || true
+    )
+  fi
+}
+trap cleanup_on_error ERR
+
+log "Validating inputs"
+
+[[ -f "${ARTIFACT_PATH}" ]] || fail "Artifact not found at ${ARTIFACT_PATH}"
+
+log "Preparing directories"
+
+mkdir -p "${RELEASES_DIR}"
+mkdir -p "${SHARED_DIR}/media" "${SHARED_DIR}/static" "${SHARED_DIR}/logs" "${SHARED_DIR}/run" "${SHARED_DIR}/tmp"
 mkdir -p "${RELEASE_DIR}"
+
+log "Extracting artifact"
 tar -xzf "${ARTIFACT_PATH}" -C "${RELEASE_DIR}"
 
-# 2. Link Shared Environment
+[[ -f "${RELEASE_DIR}/${COMPOSE_FILE}" ]] || fail "Compose file ${COMPOSE_FILE} not found in release directory"
+
+log "Linking shared environment"
+
 if [[ ! -f "${SHARED_DIR}/.env" ]]; then
-  echo "CRITICAL: Missing .env file in ${SHARED_DIR}/.env" >&2
-  exit 1
+  fail "Missing .env file at ${SHARED_DIR}/.env"
 fi
+
 ln -sfn "${SHARED_DIR}/.env" "${RELEASE_DIR}/.env"
 
-# 3. Docker Compose Deployment
-echo "Starting Docker Compose deployment..."
+# ── FIX 1: Ensure network exists BEFORE any compose operations ─────────────────
+log "Ensuring Docker external network exists"
+
+if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
+  echo "Creating network: ${NETWORK_NAME}"
+  docker network create "${NETWORK_NAME}"
+else
+  echo "Network already exists: ${NETWORK_NAME}"
+fi
+# ──────────────────────────────────────────────────────────────────────────────
+
+log "Updating current symlink for shared mount references"
+ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
+
+log "Starting Docker Compose deployment"
+
 pushd "${RELEASE_DIR}" >/dev/null
 
-# ✅ ADD THIS LINE: Ensure the 'current' link exists for Docker mounts
-ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
+echo "Using compose file: ${COMPOSE_FILE}"
+docker compose -f "${COMPOSE_FILE}" config >/dev/null
 
-# ✅ ADD THESE LINES: Stop all old containers before starting new ones
-echo "Stopping all old containers..."
-docker stop $(docker ps -aq) 2>/dev/null || true
-docker rm $(docker ps -aq) 2>/dev/null || true
+echo "Stopping only this project's old containers..."
+docker compose -f "${COMPOSE_FILE}" down --remove-orphans
 
-# Pull latest tagged images from registry (critical when using :latest tags)
-docker compose -f docker-compose.prod.yml pull backend frontend celery_worker celery_beat nginx_proxy db redis
+# ── FIX 2: Re-ensure network after 'down' (down detaches all containers, ──────
+#           making the network eligible for pruning if anything runs prune).
+#           We removed the premature network prune that was here before.
+if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
+  echo "Network was removed after compose down. Re-creating: ${NETWORK_NAME}"
+  docker network create "${NETWORK_NAME}"
+fi
+# ──────────────────────────────────────────────────────────────────────────────
 
-# Start new containers (replaces existing ones)
-docker compose -f docker-compose.prod.yml up -d --remove-orphans --force-recreate
+echo "Pulling latest images..."
+docker compose -f "${COMPOSE_FILE}" pull
 
-# 4. Post-Deployment Checks
-echo "Verifying deployment health..."
-# Wait for backend to be healthy
-MAX_RETRIES=10
+echo "Starting containers..."
+docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans --force-recreate
+
+# ── FIX 3: Prune unused networks AFTER containers are up ──────────────────────
+#           aurora_network now has live containers attached, so it is safe
+#           from pruning. Any truly orphaned networks will be cleaned up here.
+echo "Pruning unused Docker networks..."
+docker network prune -f || true
+# ──────────────────────────────────────────────────────────────────────────────
+
+echo "Current container status:"
+docker compose -f "${COMPOSE_FILE}" ps
+
+log "Running post-deployment health checks"
+
+BACKEND_CONTAINER_ID="$(docker compose -f "${COMPOSE_FILE}" ps -q backend)"
+[[ -n "${BACKEND_CONTAINER_ID}" ]] || fail "Backend container ID not found"
+
+MAX_RETRIES=18
+SLEEP_SECONDS=5
 COUNT=0
-until [[ $(docker inspect -f '{{.State.Health.Status}}' $(docker compose -f docker-compose.prod.yml ps -q backend)) == "healthy" ]]; do
-    if [ $COUNT -ge $MAX_RETRIES ]; then
-        echo "ERROR: Backend health check failed!" >&2
-        docker compose -f docker-compose.prod.yml logs backend
-        exit 1
-    fi
-    echo "Waiting for backend health... ($((COUNT+1))/$MAX_RETRIES)"
-    sleep 5
-    COUNT=$((COUNT+1))
+
+while true; do
+  HEALTH_STATUS="$(docker inspect -f '{{if .State.Health}}{{.State.Health.Status}}{{else}}no-healthcheck{{end}}' "${BACKEND_CONTAINER_ID}" 2>/dev/null || echo "unknown")"
+
+  if [[ "${HEALTH_STATUS}" == "healthy" ]]; then
+    echo "Backend is healthy."
+    break
+  fi
+
+  if [[ "${HEALTH_STATUS}" == "no-healthcheck" ]]; then
+    echo "No Docker healthcheck found for backend. Falling back to process-running check."
+    RUNNING_STATUS="$(docker inspect -f '{{.State.Status}}' "${BACKEND_CONTAINER_ID}" 2>/dev/null || echo "unknown")"
+    [[ "${RUNNING_STATUS}" == "running" ]] || fail "Backend container is not running"
+    echo "Backend container is running."
+    break
+  fi
+
+  if [[ "${COUNT}" -ge "${MAX_RETRIES}" ]]; then
+    echo "Backend health status: ${HEALTH_STATUS}"
+    docker compose -f "${COMPOSE_FILE}" logs --tail=200 backend
+    fail "Backend health check failed after ${MAX_RETRIES} attempts"
+  fi
+
+  COUNT=$((COUNT + 1))
+  echo "Waiting for backend health... attempt ${COUNT}/${MAX_RETRIES} (status: ${HEALTH_STATUS})"
+  sleep "${SLEEP_SECONDS}"
 done
 
-echo "Backend is healthy!"
+log "Optional nginx verification"
+NGINX_CONTAINER_ID="$(docker compose -f "${COMPOSE_FILE}" ps -q nginx_proxy || true)"
+if [[ -n "${NGINX_CONTAINER_ID}" ]]; then
+  NGINX_STATUS="$(docker inspect -f '{{.State.Status}}' "${NGINX_CONTAINER_ID}" 2>/dev/null || echo "unknown")"
+  echo "nginx_proxy container status: ${NGINX_STATUS}"
+fi
+
 popd >/dev/null
 
-# 5. Update Symlink
-echo "Updating current release symlink..."
-ln -sfn "${RELEASE_DIR}" "${CURRENT_LINK}"
+log "Cleaning up old Docker images"
+docker image prune -f --filter "until=168h" || true
 
-# 6. Cleanup
-echo "Cleaning up old releases..."
-# Prune old images to save space on Vultr
-docker image prune -f --filter "until=168h"
+log "Cleaning up old releases"
+if [[ -d "${RELEASES_DIR}" ]]; then
+  mapfile -t OLD_RELEASES < <(ls -dt "${RELEASES_DIR}"/* 2>/dev/null | tail -n +"$((KEEP_RELEASES + 1))" || true)
+  if [[ "${#OLD_RELEASES[@]}" -gt 0 ]]; then
+    printf '%s\n' "${OLD_RELEASES[@]}" | xargs -r rm -rf
+  fi
+fi
 
-# Keep only N recent releases in the file system
-ls -dt "${RELEASES_DIR}"/* | tail -n +"$((KEEP_RELEASES + 1))" | xargs -r rm -rf
-
-echo "Deployment ${RELEASE_ID} successful!"
+log "Deployment ${RELEASE_ID} completed successfully"
+echo "Current release: ${RELEASE_DIR}"
+echo "Current symlink: ${CURRENT_LINK} -> $(readlink -f "${CURRENT_LINK}")"

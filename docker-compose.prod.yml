@@ -126,3 +126,8 @@ volumes:
   postgres_data:
     external: true
     name: aurora_postgres_data
+
+networks:
+  default:
+    external: true
+    name: aurora_network
