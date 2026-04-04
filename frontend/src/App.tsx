@@ -75,11 +75,23 @@ const readCachedRole = (): string => {
   }
 };
 
+const hasGtmAdminAccess = (user: any): boolean => {
+  const role = normalizeRole(user?.role);
+  return (
+    user?.is_staff === true ||
+    user?.is_superuser === true ||
+    role === 'admin' ||
+    role === 'staff' ||
+    role === 'super_admin' ||
+    role === 'superadmin'
+  );
+};
+
 const readCachedStaffFlag = (): boolean => {
   try {
     const raw = localStorage.getItem('auth_user');
     const parsed = raw ? JSON.parse(raw) : null;
-    return parsed?.is_staff === true;
+    return hasGtmAdminAccess(parsed);
   } catch {
     return false;
   }
@@ -238,7 +250,7 @@ function RequireStaffOnly({ children }: { children: ReactNode }) {
         const response = await apiClient.get('/v1/auth/profile/');
         const user = response?.data?.data || null;
         if (user) localStorage.setItem('auth_user', JSON.stringify(user));
-        if (mounted) setIsStaff(user?.is_staff === true);
+        if (mounted) setIsStaff(hasGtmAdminAccess(user));
       } catch {
         if (mounted) setIsStaff(false);
       } finally {
