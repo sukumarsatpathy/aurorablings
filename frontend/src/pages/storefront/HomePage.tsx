@@ -20,7 +20,7 @@ export const HomePage: React.FC = () => {
   useScrollReveal(categoryRef, {
     type: 'fade-up',
     threshold: 0.01,
-    end: 'bottom top',
+    once: true,
   });
   useScrollReveal(dualBannerRef, { type: 'fade-up', duration: 1.15, threshold: 0.2, once: true });
   useScrollReveal(dealRef, { type: 'scale', delay: 0.2, duration: 1.15, threshold: 0.14, once: true });
