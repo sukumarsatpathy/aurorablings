@@ -19,7 +19,7 @@ if [[ "${RUN_MIGRATIONS:-false}" == "true" ]]; then
 fi
 
 # Hand off to whatever command: was passed in compose
-# backend  → gunicorn -c config/gunicorn.conf.py config.wsgi:application
-# worker   → celery -A config worker --loglevel=info
-# beat     → celery -A config beat --loglevel=info
+# backend      → gunicorn -c config/gunicorn.conf.py config.wsgi:application
+# celery_worker → celery -A config worker --loglevel=info
+# celery_beat   → celery -A config beat --loglevel=info
 exec "$@"

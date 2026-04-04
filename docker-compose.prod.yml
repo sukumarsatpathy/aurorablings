@@ -28,7 +28,8 @@ services:
   backend:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    entrypoint: ["/app/entrypoint.sh"]
+    # ENTRYPOINT is baked into the image at /app/scripts/entrypoint.sh
+    # No need to override entrypoint: here — Dockerfile already sets it
     command: ["gunicorn", "-c", "config/gunicorn.conf.py", "config.wsgi:application"]
     volumes:
       - /srv/aurora/shared/static:/app/staticfiles
@@ -59,7 +60,6 @@ services:
   celery_worker:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    entrypoint: ["/app/entrypoint.sh"]
     command: ["celery", "-A", "config", "worker", "--loglevel=info"]
     volumes:
       - /srv/aurora/shared/media:/app/media
@@ -73,7 +73,7 @@ services:
       - SQL_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # RUN_MIGRATIONS intentionally omitted
+      # RUN_MIGRATIONS intentionally omitted — worker skips migrate
     depends_on:
       db:
         condition: service_healthy
@@ -85,7 +85,6 @@ services:
   celery_beat:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    entrypoint: ["/app/entrypoint.sh"]
     command: ["celery", "-A", "config", "beat", "--loglevel=info"]
     volumes:
       - /srv/aurora/shared/logs:/app/logs
@@ -98,7 +97,7 @@ services:
       - SQL_PORT=5432
       - REDIS_HOST=redis
       - REDIS_PORT=6379
-      # RUN_MIGRATIONS intentionally omitted
+      # RUN_MIGRATIONS intentionally omitted — beat skips migrate
     depends_on:
       db:
         condition: service_healthy
