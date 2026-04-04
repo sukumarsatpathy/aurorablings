@@ -105,15 +105,24 @@ const upsertFeatureSetting = async (key, value, valueType, defaults = {}) => {
 
 const normalizePublicPayload = (payload) => payload?.data?.data || payload?.data || payload || {};
 
+const getSettingValueFromArray = (settings, key) => {
+  if (!Array.isArray(settings)) return undefined;
+  const match = settings.find((entry) => String(entry?.key || '').trim() === key);
+  return match?.value;
+};
+
 export const getPublicGTMConfig = async () => {
   const response = await apiClient.get('/v1/features/public-settings/');
   const data = normalizePublicPayload(response);
-  const legacyId = data.gtm_id || '';
-  const legacyEnabled = data?.enabled?.gtm;
+  const objectShape = data?.settings && typeof data.settings === 'object' ? data.settings : data;
+  const legacyId = objectShape?.gtm_id || '';
+  const legacyEnabled = objectShape?.enabled?.gtm;
+  const gtmFromSettingsArray = getSettingValueFromArray(data?.settings, GTM_CONTAINER_KEY);
+  const enabledFromSettingsArray = getSettingValueFromArray(data?.settings, GTM_ENABLED_KEY);
   return {
-    gtm_container_id: String(data.gtm_container_id ?? legacyId ?? '').trim(),
-    is_gtm_enabled: toBooleanSetting(data.is_gtm_enabled ?? legacyEnabled ?? false),
-    last_updated: data.last_updated || data.updated_at || null,
+    gtm_container_id: String(objectShape?.gtm_container_id ?? legacyId ?? gtmFromSettingsArray ?? '').trim(),
+    is_gtm_enabled: toBooleanSetting(objectShape?.is_gtm_enabled ?? legacyEnabled ?? enabledFromSettingsArray ?? false),
+    last_updated: objectShape?.last_updated || objectShape?.updated_at || data?.last_updated || data?.updated_at || null,
   };
 };
 
