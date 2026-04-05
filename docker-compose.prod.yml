@@ -44,6 +44,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - RUN_MIGRATIONS=true
+      - RUN_COLLECTSTATIC=true
       - SECURE_SSL_REDIRECT=False
     depends_on:
       db:
@@ -87,7 +88,12 @@ services:
   celery_beat:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    command: ["celery", "-A", "config", "beat", "--loglevel=info"]
+    command: [
+      "celery", "-A", "config", "beat",
+      "--loglevel=info",
+      "--pidfile=",
+      "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"
+    ]
     volumes:
       - /srv/aurora/shared/logs:/app/logs
     env_file:
