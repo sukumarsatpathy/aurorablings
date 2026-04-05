@@ -120,3 +120,24 @@ class CatalogUploadSecurityTests(APITestCase):
         delete_response = self.client.delete(f"{self.categories_url}{category_id}/")
         self.assertEqual(delete_response.status_code, status.HTTP_200_OK)
         self.assertFalse(Path(image_path).exists())
+
+
+class CatalogCategoryListTests(APITestCase):
+    def test_latest_query_returns_newest_categories_first(self):
+        older = Category.all_objects.create(name="Older Category", slug="older-category", is_active=True)
+        newer = Category.all_objects.create(name="Newer Category", slug="newer-category", is_active=True)
+
+        older.sort_order = 0
+        newer.sort_order = 99
+        older.save(update_fields=["sort_order", "updated_at"])
+        newer.save(update_fields=["sort_order", "updated_at"])
+
+        sorted_response = self.client.get("/api/v1/catalog/categories/")
+        self.assertEqual(sorted_response.status_code, status.HTTP_200_OK)
+        sorted_names = [item["name"] for item in sorted_response.data["data"]]
+        self.assertEqual(sorted_names[:2], [older.name, newer.name])
+
+        latest_response = self.client.get("/api/v1/catalog/categories/?latest=true")
+        self.assertEqual(latest_response.status_code, status.HTTP_200_OK)
+        latest_names = [item["name"] for item in latest_response.data["data"]]
+        self.assertEqual(latest_names[:2], [newer.name, older.name])

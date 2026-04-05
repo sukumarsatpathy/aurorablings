@@ -34,9 +34,12 @@ from .models import (
 #  Category
 # ─────────────────────────────────────────────────────────────
 
-def get_all_categories(*, active_only: bool = True) -> QuerySet:
+def get_all_categories(*, active_only: bool = True, latest_first: bool = False) -> QuerySet:
     qs = Category.all_objects if not active_only else Category.objects
-    return qs.select_related("parent").prefetch_related("children")
+    qs = qs.select_related("parent").prefetch_related("children")
+    if latest_first:
+        qs = qs.order_by("-created_at")
+    return qs
 
 
 def get_category_by_id(category_id) -> Category | None:

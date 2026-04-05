@@ -51,13 +51,12 @@ const CategoryShowcase: React.FC = () => {
         const loadCategories = async () => {
             try {
                 setLoading(true);
-                const res = await catalogService.listCategories();
+                const res = await catalogService.listCategories({ latest: true, page_size: 8 });
                 const raw = extractRows(res);
 
                 // Map API categories to UI format
                 const mapped: Category[] = raw
                     .filter(c => c.is_active)
-                    .slice(0, 8) // Limit to first 8 for showcase
                     .map((c, idx) => ({
                         id: c.id,
                         title: c.name,

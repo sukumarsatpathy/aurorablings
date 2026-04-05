@@ -161,8 +161,8 @@ const catalogService = {
     return response.data;
   },
 
-  listCategories: async () => {
-    const response = await apiClient.get('/v1/catalog/categories/');
+  listCategories: async (params?: { latest?: boolean; page_size?: number; page?: number }) => {
+    const response = await apiClient.get('/v1/catalog/categories/', { params });
     return response.data;
   },
 

@@ -64,7 +64,11 @@ class CategoryViewSet(BaseViewSet):
         return [IsAuthenticated(), IsStaffOrAdmin()]
 
     def list(self, request):
-        qs = selectors.get_all_categories(active_only=not request.user.is_staff)
+        latest = str(request.query_params.get("latest", "")).strip().lower() in {"1", "true", "yes", "on"}
+        qs = selectors.get_all_categories(
+            active_only=not request.user.is_staff,
+            latest_first=latest,
+        )
         return self.paginate(qs, CategorySerializer)
 
     def retrieve(self, request, pk=None):
