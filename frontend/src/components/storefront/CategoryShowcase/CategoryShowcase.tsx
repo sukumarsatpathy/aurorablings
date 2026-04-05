@@ -17,7 +17,7 @@ interface Category {
     color: 'pink' | 'green';
 }
 
-const INTERVAL = 3000;
+const INTERVAL = 2500;
 const CARD_GAP = 24;
 
 const getVisibleCount = () => {
@@ -27,19 +27,11 @@ const getVisibleCount = () => {
     return 4;
 };
 
-const extractRows = (payload: any): any[] => {
-    if (Array.isArray(payload?.data)) return payload.data;
-    if (Array.isArray(payload?.data?.results)) return payload.data.results;
-    if (Array.isArray(payload?.results)) return payload.results;
-    if (Array.isArray(payload)) return payload;
-    return [];
-};
-
 const CategoryShowcase: React.FC = () => {
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
     const [current, setCurrent] = useState(0);
-    const [isPaused, setIsPaused] = useState(false);
+    const [isResetting, setIsResetting] = useState(false);
     const [cardPxWidth, setCardPxWidth] = useState(0);
     const [visibleCount, setVisibleCount] = useState(getVisibleCount);
 
@@ -51,8 +43,7 @@ const CategoryShowcase: React.FC = () => {
         const loadCategories = async () => {
             try {
                 setLoading(true);
-                const res = await catalogService.listCategories({ latest: true, page_size: 8 });
-                const raw = extractRows(res);
+                const raw = await catalogService.listAllCategories({ latest: true });
 
                 // Map API categories to UI format
                 const mapped: Category[] = raw
@@ -97,7 +88,9 @@ const CategoryShowcase: React.FC = () => {
                 }
             );
 
-            const validCards = cardsRef.current.filter(c => c !== null);
+            const validCards = cardsRef.current
+                .slice(0, categories.length)
+                .filter(c => c !== null);
             if (validCards.length > 0) {
                 gsap.fromTo(validCards,
                     { rotateY: -90, opacity: 0, scale: 0.8 },
@@ -125,7 +118,8 @@ const CategoryShowcase: React.FC = () => {
     }, [categories]);
 
     const total = categories.length;
-    const maxIndex = Math.max(0, total - visibleCount);
+    const shouldLoop = total > visibleCount;
+    const trackCategories = shouldLoop ? [...categories, ...categories] : categories;
 
     useEffect(() => {
         const measure = () => {
@@ -140,26 +134,38 @@ const CategoryShowcase: React.FC = () => {
         measure();
         window.addEventListener('resize', measure);
         return () => window.removeEventListener('resize', measure);
-    }, []);
+    }, [categories.length]);
 
     useEffect(() => {
-        setCurrent((c) => Math.min(c, maxIndex));
-    }, [maxIndex]);
-
-    const goTo = useCallback((idx: number) => {
-        setCurrent(Math.max(0, Math.min(idx, maxIndex)));
-    }, [maxIndex]);
-
-    const next = useCallback(() => {
-        if (total === 0) return;
-        goTo(current >= maxIndex ? 0 : current + 1);
-    }, [current, goTo, maxIndex, total]);
+        if (!shouldLoop) {
+            setCurrent(0);
+            setIsResetting(false);
+        } else {
+            setCurrent((c) => Math.min(c, total));
+        }
+    }, [shouldLoop, total]);
 
     useEffect(() => {
-        if (isPaused || total === 0) return;
-        const timer = setInterval(next, INTERVAL);
-        return () => clearInterval(timer);
-    }, [isPaused, next, total]);
+        if (!shouldLoop || cardPxWidth === 0) return;
+        const timer = window.setTimeout(() => {
+            setCurrent((value) => value + 1);
+        }, INTERVAL);
+        return () => window.clearTimeout(timer);
+    }, [current, shouldLoop, cardPxWidth]);
+
+    const handleTransitionEnd = useCallback(() => {
+        if (!shouldLoop || current < total) return;
+        setIsResetting(true);
+        setCurrent(0);
+    }, [current, shouldLoop, total]);
+
+    useEffect(() => {
+        if (!isResetting) return;
+        const frame = window.requestAnimationFrame(() => {
+            setIsResetting(false);
+        });
+        return () => window.cancelAnimationFrame(frame);
+    }, [isResetting]);
 
     const offset = cardPxWidth > 0 ? current * (cardPxWidth + CARD_GAP) : 0;
     const fallbackWidth = `calc((100% - ${CARD_GAP * (visibleCount - 1)}px) / ${visibleCount})`;
@@ -206,21 +212,22 @@ const CategoryShowcase: React.FC = () => {
                         {/* Carousel */}
                         <div
                             className="relative z-[1] lg:-ml-[30%] lg:mt-23 p-6 pt-7 bg-white rounded-[30px]"
-                            onMouseEnter={() => setIsPaused(true)}
-                            onMouseLeave={() => setIsPaused(false)}
                         >
                             <div className="overflow-hidden" ref={trackRef}>
                                 <div
-                                    className="flex transition-transform duration-500 ease-[cubic-bezier(0.4,0,0.2,1)]"
+                                    className="flex ease-[cubic-bezier(0.4,0,0.2,1)]"
+                                    onTransitionEnd={handleTransitionEnd}
                                     style={{
                                         gap: `${CARD_GAP}px`,
                                         transform: `translateX(-${offset}px)`,
                                         perspective: '2000px',
+                                        transitionDuration: isResetting ? '0ms' : '500ms',
+                                        transitionProperty: 'transform',
                                     }}
                                 >
-                                    {categories.map((cat, idx) => (
+                                    {trackCategories.map((cat, idx) => (
                                         <div
-                                            key={cat.id}
+                                            key={`${cat.id}-${idx}`}
                                             ref={el => { cardsRef.current[idx] = el; }}
                                             className="flex-shrink-0"
                                             style={{
