@@ -71,9 +71,7 @@ jobs:
       - name: Build and Push Frontend Image
         uses: docker/build-push-action@v5
         with:
-          # Change context back to the root (dot)
           context: .
-          # Point exactly to the frontend Dockerfile
           file: ./frontend/Dockerfile
           push: true
           tags: ghcr.io/sukumarsatpathy/aurorablings/frontend:latest
@@ -123,42 +121,43 @@ jobs:
           APP_ROOT: ${{ secrets.PROD_APP_ROOT }}
           RELEASE_ID: ${{ needs.build-test-package.outputs.release_id }}
         run: |
-          # 1. Upload the file specifically to /tmp/release.tgz
-          scp -v -o ConnectTimeout=120 \
+          scp -o ConnectTimeout=120 \
               -o StrictHostKeyChecking=accept-new \
               -i ~/.ssh/id_ed25519 \
               release.tgz $HOST:/tmp/release.tgz
-          
-          # 2. Execute the script using the absolute path to the uploaded file
+
           ssh -o ConnectTimeout=60 $HOST "bash -s" <<EOF
           set -ex
-          
-          # Create a temporary folder for extraction
+
+          # ── Stop ALL running containers before deploy ──────────────────────
+          # Timestamp-based project names mean each deploy is a new Compose
+          # project. Without this, every failed/previous deploy keeps running.
+          echo "Stopping all running containers..."
+          RUNNING=\$(docker ps -q || true)
+          if [ -n "\$RUNNING" ]; then
+            docker stop \$RUNNING || true
+            docker rm   \$RUNNING || true
+          fi
+          # ──────────────────────────────────────────────────────────────────
+
           EXTRACT_DIR=\$(mktemp -d)
-          
-          # ✅ FIX: Explicitly use the /tmp/release.tgz path we just uploaded to
           tar -xzf /tmp/release.tgz -C "\$EXTRACT_DIR"
-          
-          # Find the deployment script inside the extracted files
+
           SCRIPT_PATH=\$(find "\$EXTRACT_DIR" -name "deploy_release.sh" | head -n 1)
-          
           if [ -z "\$SCRIPT_PATH" ]; then
             echo "Error: deploy_release.sh not found in the artifact"
             ls -R "\$EXTRACT_DIR"
             exit 1
           fi
-          
+
           chmod +x "\$SCRIPT_PATH"
-          
-          # Run the script, passing the correct absolute path to the artifact
+
           bash "\$SCRIPT_PATH" \
             --app-root "$APP_ROOT" \
             --release-id "$RELEASE_ID" \
             --artifact "/tmp/release.tgz" \
             --keep-releases 3
-          
-          # Cleanup
-          rm -rf "\$EXTRACT_DIR"
-          # Optional: Keep /tmp/release.tgz if your deploy_release.sh needs it later, 
-          # but usually the script handles its own cleanup.
+
+          # Cleanup tmp files
+          rm -rf "\$EXTRACT_DIR" /tmp/release.tgz
           EOF
