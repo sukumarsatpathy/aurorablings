@@ -80,7 +80,7 @@ export const ShippingPolicyPage: React.FC = () => {
           <section>
             <h2 className={sectionTitleClass}>7. Cancellation &amp; Refunds</h2>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Orders can be cancelled within X hours of placing the order.</li>
+              <li>Orders can be cancelled within 12 hours of placing the order.</li>
               <li>Refunds (if applicable) will be processed within 5-7 business days.</li>
               <li>For detailed information, please refer to our Return &amp; Refund Policy.</li>
             </ul>
@@ -94,7 +94,7 @@ export const ShippingPolicyPage: React.FC = () => {
           <section>
             <h2 className={sectionTitleClass}>Contact Us</h2>
             <p className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              Aurora Blings<br/>
+              Aurora Blings By Bimba Dhar Dash<br/>
               Puri, Odisha, India<br/>
               Email: connect@aurorablings.com<br/>
               Phone/WhatsApp: 7847090866<br/>

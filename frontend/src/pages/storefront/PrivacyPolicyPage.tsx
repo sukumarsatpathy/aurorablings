@@ -165,13 +165,13 @@ export const PrivacyPolicyPage: React.FC = () => {
 
           <section>
             <h2 className={sectionTitleClass}>15. Contact Us</h2>
-            <p className={bodyTextClass}>Aurora Blings</p>
-            <p className={bodyTextClass}>Puri, Odisha, India</p>
-            <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Email: connect@aurorablings.com</li>
-              <li>Phone/WhatsApp: 7847090866</li>
-              <li>Instagram: @aurora_blings</li>
-            </ul>
+            <p className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
+              Aurora Blings By Bimba Dhar Dash<br/>
+              Puri, Odisha, India<br/>
+              Email: connect@aurorablings.com<br/>
+              Phone/WhatsApp: 7847090866<br/>
+              Instagram: @aurora_blings
+            </p>
           </section>
         </div>
       </div>

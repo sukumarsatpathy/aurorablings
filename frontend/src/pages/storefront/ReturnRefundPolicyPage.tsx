@@ -48,13 +48,13 @@ export const ReturnRefundPolicyPage: React.FC = () => {
           </section>
 
           <section>
-            <h2 className={sectionTitleClass}>3. Replacement Policy</h2>
-            <p className={bodyTextClass}>Once verified, we will:</p>
-            <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Offer a replacement of the same product (subject to availability), OR</li>
-              <li>Provide store credit if the product is out of stock</li>
-            </ul>
-          </section>
+              <h2 className={sectionTitleClass}>3. Replacement Policy</h2>
+              <p className={bodyTextClass}>Once verified, we will:</p>
+              <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
+                <li>Offer a replacement of the same product (subject to availability), OR</li>
+                <li>Deliver a replacement for damaged or incorrect products within 10 days</li>
+              </ul>
+            </section>
 
           <section>
             <h2 className={sectionTitleClass}>4. Refund Policy</h2>
@@ -71,7 +71,7 @@ export const ReturnRefundPolicyPage: React.FC = () => {
             </ul>
             <p className={bodyTextClass}>Refund Details:</p>
             <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Refunds will be processed within 5-7 business days</li>
+              <li>Refunds will be processed and credited within 5-7 business days</li>
               <li>Refunds will be credited to the original payment method</li>
               <li>Shipping charges (if any) are non-refundable</li>
             </ul>
@@ -93,13 +93,13 @@ export const ReturnRefundPolicyPage: React.FC = () => {
 
           <section>
             <h2 className={sectionTitleClass}>7. Contact Us</h2>
-            <p className={bodyTextClass}>Aurora Blings</p>
-            <ul className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
-              <li>Puri, Odisha, India</li>
-              <li>Email: connect@aurorablings.com</li>
-              <li>Phone/WhatsApp: 7847090866</li>
-              <li>Instagram: @aurora_blings</li>
-            </ul>
+            <p className="mt-3 text-sm md:text-base leading-7 text-muted-foreground list-disc pl-5 space-y-2">
+              Aurora Blings By Bimba Dhar Dash<br/>
+              Puri, Odisha, India<br/>
+              Email: connect@aurorablings.com<br/>
+              Phone/WhatsApp: 7847090866<br/>
+              Instagram: @aurora_blings
+            </p>
             <p className={bodyTextClass}>By placing an order, you agree to this policy.</p>
           </section>
         </div>
