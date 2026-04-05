@@ -22,6 +22,15 @@ interface ProductListItem {
   is_featured?: boolean;
 }
 
+const shuffleArray = <T,>(items: T[]): T[] => {
+  const next = [...items];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
+};
+
 const extractRows = (payload: unknown): ProductListItem[] => {
   if (Array.isArray(payload)) {
     return payload as ProductListItem[];
@@ -68,12 +77,13 @@ export const NewArrivalsSection: React.FC = () => {
   const [animatedProducts, setAnimatedProducts] = useState<DealProduct[]>([]);
   const [isTransitioning, setIsTransitioning] = useState(false);
   const gridRef = React.useRef<HTMLDivElement>(null);
+  const isInitialRenderRef = React.useRef(true);
 
   useEffect(() => {
     const fetchProducts = async () => {
       try {
-        const res = await catalogService.listProducts();
-        setProducts(extractRows(res));
+        const res = await catalogService.listAllProducts();
+        setProducts(shuffleArray(extractRows(res)));
       } catch (error) {
         console.error('Failed to fetch new arrivals:', error);
         setProducts([]);
@@ -159,7 +169,8 @@ export const NewArrivalsSection: React.FC = () => {
 
   useEffect(() => {
     // Initial mount
-    if (animatedProducts.length === 0) {
+    if (isInitialRenderRef.current) {
+      isInitialRenderRef.current = false;
       setAnimatedProducts(mappedProducts);
       return;
     }
@@ -189,7 +200,7 @@ export const NewArrivalsSection: React.FC = () => {
         setAnimatedProducts(mappedProducts);
       },
     });
-  }, [mappedProducts]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [mappedProducts]);
 
   useEffect(() => {
     if (!shouldAnimate()) {

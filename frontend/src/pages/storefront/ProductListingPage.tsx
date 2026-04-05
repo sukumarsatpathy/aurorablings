@@ -46,10 +46,20 @@ interface CategoryListItem {
   slug?: string;
   image?: string | null;
   product_count?: number;
+  is_active?: boolean;
 }
 
 type ViewMode = 'blog' | 'list';
-type SortMode = 'low-high' | 'high-low';
+type SortMode = 'random' | 'low-high' | 'high-low';
+
+const shuffleArray = <T,>(items: T[]): T[] => {
+  const next = [...items];
+  for (let index = next.length - 1; index > 0; index -= 1) {
+    const swapIndex = Math.floor(Math.random() * (index + 1));
+    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
+  }
+  return next;
+};
 
 const extractRows = (payload: unknown): ProductListItem[] => {
   if (Array.isArray(payload)) return payload as ProductListItem[];
@@ -158,7 +168,7 @@ export const ProductListingPage: React.FC = () => {
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CategoryListItem[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('blog');
-  const [sortMode, setSortMode] = useState<SortMode>('low-high');
+  const [sortMode, setSortMode] = useState<SortMode>('random');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [currentPage, setCurrentPage] = useState(1);
   const { formatCurrency } = useCurrency();
@@ -173,8 +183,10 @@ export const ProductListingPage: React.FC = () => {
           catalogService.listAllProducts(),
           catalogService.listCategories(),
         ]);
-        setProducts(extractRows(productRes));
-        setCatalogCategories(extractRows(categoryRes) as CategoryListItem[]);
+        setProducts(shuffleArray(extractRows(productRes)));
+        setCatalogCategories(
+          (extractRows(categoryRes) as CategoryListItem[]).filter((item) => item.is_active !== false)
+        );
       } catch (error) {
         console.error('Failed to load products:', error);
         setProducts([]);
@@ -194,7 +206,10 @@ export const ProductListingPage: React.FC = () => {
           .filter(Boolean)
       )
     );
-    const dbNames = catalogCategories.map((item) => String(item.name || '').trim()).filter(Boolean);
+    const dbNames = catalogCategories
+      .filter((item) => item.is_active !== false)
+      .map((item) => String(item.name || '').trim())
+      .filter(Boolean);
     const names = dbNames.length > 0 ? dbNames : fallbackNames;
     return ['All', ...names];
   }, [products, catalogCategories]);
@@ -326,20 +341,22 @@ export const ProductListingPage: React.FC = () => {
         ? mappedProducts
         : mappedProducts.filter((p) => normalize(p.category_name) === normalize(selectedCategory));
 
-    const sorted = [...filtered].sort((a, b) => {
+    if (sortMode === 'random') {
+      return filtered;
+    }
+
+    return [...filtered].sort((a, b) => {
       const aPrice = toNumber(a.variants?.[0]?.effective_price || a.default_variant?.price || a.price_range?.min);
       const bPrice = toNumber(b.variants?.[0]?.effective_price || b.default_variant?.price || b.price_range?.min);
       return sortMode === 'low-high' ? aPrice - bPrice : bPrice - aPrice;
     });
-
-    return sorted;
   }, [mappedProducts, selectedCategory, sortMode]);
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [selectedCategory, sortMode, viewMode]);
+  }, [selectedCategory, sortMode]);
 
-  const pageSize = viewMode === 'blog' ? 15 : 10;
+  const pageSize = 25;
   const totalPages = Math.max(1, Math.ceil(filteredAndSorted.length / pageSize));
   const safePage = Math.min(currentPage, totalPages);
   const visible = filteredAndSorted.slice((safePage - 1) * pageSize, safePage * pageSize);
@@ -468,6 +485,7 @@ export const ProductListingPage: React.FC = () => {
               onChange={(e) => setSortMode(e.target.value as SortMode)}
               className="h-10 rounded-xl border border-border bg-white/80 backdrop-blur-sm px-3 text-sm"
             >
+              <option value="random">Random Order</option>
               <option value="low-high">Price Low to High</option>
               <option value="high-low">Price High to Low</option>
             </select>
