@@ -1,54 +1,44 @@
 #!/bin/sh
 set -e
 
-# Function to wait for a service to be available
+# ── Wait for dependencies ─────────────────────────────────────────────────────
 wait_for_service() {
-    local host="$1"
-    local port="$2"
-    local service_name="$3"
-
-    echo "Waiting for ${service_name} at ${host}:${port}..."
-    while ! nc -z "$host" "$port"; do
-      sleep 0.5
-    done
-    echo "${service_name} is up!"
+  local host="$1"
+  local port="$2"
+  local name="$3"
+  echo "Waiting for ${name} at ${host}:${port}..."
+  while ! nc -z "$host" "$port"; do
+    sleep 0.5
+  done
+  echo "${name} is up!"
 }
 
-# Wait for Postgres if configured
 if [ "$DATABASE" = "postgres" ]; then
-    wait_for_service "$SQL_HOST" "$SQL_PORT" "PostgreSQL"
+  wait_for_service "$SQL_HOST" "$SQL_PORT" "PostgreSQL"
 fi
 
-# Wait for Redis if configured
-if [ -n "$REDIS_HOST" ] && [ -n "$REDIS_PORT" ]; then
-    wait_for_service "$REDIS_HOST" "$REDIS_PORT" "Redis"
+if [ -n "${REDIS_HOST:-}" ] && [ -n "${REDIS_PORT:-}" ]; then
+  wait_for_service "$REDIS_HOST" "$REDIS_PORT" "Redis"
 fi
 
-# In production, we should NOT create migrations on the fly.
-# We fail fast if model changes are not yet migrated.
-LOCAL_APPS="accounts catalog inventory cart orders payments surcharge returns notifications features pricing"
-
-if [ "$DJANGO_DEBUG" = "True" ] || [ "$DJANGO_DEBUG" = "1" ]; then
-    echo "Running in DEBUG mode. Checking for missing migrations..."
-    python manage.py makemigrations --check --dry-run $LOCAL_APPS || {
-        echo "WARNING: Missing migrations detected in development!"
-    }
-else
-    echo "Running in PRODUCTION mode. Ensuring migrations are up to date..."
-    # In prod, we fail if migrations are missing to avoid schema inconsistencies.
-    # But usually, we just run migrate.
+# ── Migrations — only on backend, never on celery_worker or celery_beat ───────
+# Set RUN_MIGRATIONS=true only in the backend service in docker-compose.prod.yml
+if [ "${RUN_MIGRATIONS:-false}" = "true" ]; then
+  echo "Running in PRODUCTION mode. Ensuring migrations are up to date..."
+  echo "Applying database migrations..."
+  python manage.py migrate --noinput
 fi
 
-# Apply database migrations
-echo "Applying database migrations..."
-python manage.py migrate --noinput
-
-# Collect static files
-if [ "${RUN_COLLECTSTATIC:-1}" = "1" ]; then
+# ── Static files — only on backend ───────────────────────────────────────────
+# Set RUN_COLLECTSTATIC=true only in the backend service in docker-compose.prod.yml
+if [ "${RUN_COLLECTSTATIC:-false}" = "true" ]; then
   echo "Collecting static files..."
   python manage.py collectstatic --noinput --clear
 fi
 
-# Execute original passed command (e.g., gunicorn or celery)
+# ── Hand off to compose command: ─────────────────────────────────────────────
+# backend      → gunicorn --bind 0.0.0.0:8000 -c config/gunicorn.conf.py config.wsgi:application
+# celery_worker → celery -A config worker --loglevel=info
+# celery_beat   → celery -A config beat --loglevel=info --pidfile= --schedule=/app/logs/celerybeat-schedule
 echo "Starting application..."
 exec "$@"
