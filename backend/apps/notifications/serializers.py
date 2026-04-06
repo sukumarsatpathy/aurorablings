@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from .models import (
     ContactQuery,
+    NewsletterSubscriber,
     Notification,
     NotificationLog,
     NotificationProviderSettings,
@@ -110,6 +111,39 @@ class ContactFormSerializer(serializers.Serializer):
     phone = serializers.CharField(max_length=20, required=False, allow_blank=True, default="")
     message = serializers.CharField()
     turnstile_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+
+class NewsletterSubscriptionSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    source = serializers.CharField(max_length=50, required=False, allow_blank=True, default="footer")
+
+    def validate_email(self, value):
+        return value.strip().lower()
+
+    def validate_source(self, value):
+        return (value or "footer").strip().lower()[:50]
+
+
+class NewsletterSubscriberSerializer(serializers.ModelSerializer):
+    status = serializers.CharField(source="status_label", read_only=True)
+
+    class Meta:
+        model = NewsletterSubscriber
+        fields = [
+            "id",
+            "email",
+            "source",
+            "is_active",
+            "is_confirmed",
+            "status",
+            "subscribed_at",
+            "confirmed_at",
+            "unsubscribed_at",
+            "confirmation_email_sent_at",
+            "welcome_email_sent_at",
+            "updated_at",
+        ]
+        read_only_fields = fields
 
 
 class AdminContactQuerySerializer(serializers.ModelSerializer):

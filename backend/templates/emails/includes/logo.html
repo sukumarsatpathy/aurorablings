@@ -1,0 +1,7 @@
+{% with email_logo=branding_logo_url|default:logo_url %}
+    {% if email_logo %}
+        <img src="{{ email_logo }}" alt="Aurora Blings" style="height:40px;width:auto;display:block;margin:0 auto;">
+    {% else %}
+        <span style="font-size:22px; font-weight:700; color:#181C32;">Aurora Blings</span>
+    {% endif %}
+{% endwith %}

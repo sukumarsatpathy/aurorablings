@@ -292,6 +292,39 @@ class ContactQueryStatus(models.TextChoices):
     RESOLVED = "resolved", _("Resolved")
 
 
+class NewsletterSubscriber(models.Model):
+    email = models.EmailField(unique=True, db_index=True)
+    source = models.CharField(max_length=50, default="footer", blank=True)
+    is_active = models.BooleanField(default=True, db_index=True)
+    is_confirmed = models.BooleanField(default=False, db_index=True)
+    confirmation_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    unsubscribe_token = models.UUIDField(default=uuid.uuid4, editable=False, unique=True, db_index=True)
+    subscribed_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True)
+    unsubscribed_at = models.DateTimeField(null=True, blank=True)
+    confirmation_email_sent_at = models.DateTimeField(null=True, blank=True)
+    welcome_email_sent_at = models.DateTimeField(null=True, blank=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        ordering = ["-subscribed_at"]
+        indexes = [
+            models.Index(fields=["is_active", "subscribed_at"]),
+            models.Index(fields=["is_confirmed", "subscribed_at"]),
+        ]
+
+    @property
+    def status_label(self) -> str:
+        if not self.is_active:
+            return "Unsubscribed"
+        if self.is_confirmed:
+            return "Confirmed"
+        return "Pending Confirmation"
+
+    def __str__(self):
+        return self.email
+
+
 class ContactQuery(models.Model):
     id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
     name = models.CharField(max_length=150)

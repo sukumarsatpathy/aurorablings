@@ -200,7 +200,9 @@ def _build_template_context(raw_context: dict, event_type: str) -> dict:
     context.setdefault("site_url", frontend_url)
     context.setdefault("support_url", support_url)
     context.setdefault("support_email", support_email or "connect@aurorablings.com")
-    context.setdefault("logo_url", _resolve_logo_url(frontend_url=frontend_url, backend_url=backend_url))
+    resolved_logo_url = _resolve_logo_url(frontend_url=frontend_url, backend_url=backend_url)
+    context.setdefault("logo_url", resolved_logo_url)
+    context.setdefault("branding_logo_url", resolved_logo_url)
 
     customer_name = str(context.get("customer_name") or context.get("user_name") or "").strip()
     if customer_name and not context.get("user"):
@@ -233,6 +235,7 @@ def _build_template_context(raw_context: dict, event_type: str) -> dict:
         "support_url",
         "site_url",
         "logo_url",
+        "branding_logo_url",
     ]:
         if context.get(url_key):
             context[url_key] = _to_absolute_url(

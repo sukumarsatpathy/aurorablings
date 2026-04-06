@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users, Mail } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -21,17 +21,18 @@ const NAV_ITEMS = [
   { path: '/admin/categories', icon: FolderTree, label: 'Categories' },
   { path: '/admin/attributes', icon: Tags, label: 'Attributes' },
   { path: '/admin/products', icon: Box, label: 'Products' },
+  { path: '/admin/inventory', icon: Warehouse, label: 'Inventory' },
   { path: '/admin/reviews', icon: MessageSquare, label: 'Reviews' },
-  { path: '/admin/notifications', icon: BellRing, label: 'Notifications' },
   { path: '/admin/orders', icon: ShoppingBag, label: 'Orders' },
   { path: '/admin/customers', icon: Users, label: 'Users' },
-  { path: '/admin/shipments', icon: MapPin, label: 'Shipments' },
-  { path: '/admin/inventory', icon: Warehouse, label: 'Inventory' },
   { path: '/admin/returns', icon: RotateCcw, label: 'Return Exchange' },
   { path: '/admin/coupons', icon: TicketPercent, label: 'Coupons' },
   { path: '/admin/banners', icon: Monitor, label: 'Banners' },
   { path: '/admin/features', icon: Sparkles, label: 'Features' },
   { path: '/admin/settings', icon: Settings, label: 'Settings' },
+  { path: '/admin/shipments', icon: MapPin, label: 'Shipments' },
+  { path: '/admin/notifications', icon: BellRing, label: 'Notifications' },
+  { path: '/admin/newsletter', icon: Mail, label: 'Newsletter' },
   { path: '/admin/audit-logs', icon: ClipboardList, label: 'Audit Logs' },
 ];
 

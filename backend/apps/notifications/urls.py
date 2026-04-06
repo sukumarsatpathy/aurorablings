@@ -6,6 +6,9 @@ app_name = "notifications"
 urlpatterns = [
     # ── Customer ──────────────────────────────────────────────
     path("contact-form/",              views.ContactFormNotificationView.as_view(), name="contact-form"),
+    path("newsletter/",               views.NewsletterSubscriptionCreateView.as_view(), name="newsletter-subscribe"),
+    path("newsletter/confirm/<uuid:token>/", views.NewsletterSubscriptionConfirmView.as_view(), name="newsletter-confirm"),
+    path("newsletter/unsubscribe/<uuid:token>/", views.NewsletterSubscriptionUnsubscribeView.as_view(), name="newsletter-unsubscribe"),
     path("",                          views.MyNotificationListView.as_view(),  name="my-list"),
     path("<uuid:notif_id>/",          views.MyNotificationDetailView.as_view(), name="my-detail"),
     path("<uuid:notif_id>/retry/",    views.RetryNotificationView.as_view(),    name="retry"),

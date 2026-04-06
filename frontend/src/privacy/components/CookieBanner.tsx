@@ -18,14 +18,14 @@ export const CookieBanner = ({
         </p>
       </div>
       <div className="cookie-consent-actions">
-        <button type="button" className="cookie-btn cookie-btn-muted" onClick={onRejectAll}>
-          Reject All
-        </button>
         <button type="button" className="cookie-btn cookie-btn-outline" onClick={onManagePreferences}>
           Manage Preferences
         </button>
         <button type="button" className="cookie-btn cookie-btn-primary" onClick={onAcceptAll}>
           Accept All
+        </button>
+        <button type="button" className="cookie-btn cookie-btn-muted" onClick={onRejectAll}>
+          Reject All
         </button>
       </div>
     </aside>

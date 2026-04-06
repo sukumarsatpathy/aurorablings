@@ -242,10 +242,12 @@ def send_email(
 
 def send_welcome_email(user) -> bool:
     frontend_url = str(feature_services.get_setting("site.frontend_url", default="https://aurorablings.com") or "https://aurorablings.com").rstrip("/")
+    logo_url = _resolve_public_logo_url()
     context = {
         "user_name": user.first_name or "User",
         "activation_url": f"{frontend_url}/shop",
-        "logo_url": _resolve_public_logo_url(),
+        "logo_url": logo_url,
+        "branding_logo_url": logo_url,
         "year": datetime.now().year,
     }
     return send_email(

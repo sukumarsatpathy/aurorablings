@@ -9,6 +9,7 @@ from .models import (
     NotificationAttempt,
     NotificationStatus,
     NotifySubscription,
+    NewsletterSubscriber,
     ContactQuery,
     NotificationProviderSettings,
     EmailSettings,
@@ -176,6 +177,24 @@ class ContactQueryAdmin(admin.ModelAdmin):
 
         updated = queryset.update(is_read=True, status="resolved", read_at=timezone.now())
         self.message_user(request, f"{updated} query(s) marked as resolved.")
+
+
+@admin.register(NewsletterSubscriber)
+class NewsletterSubscriberAdmin(admin.ModelAdmin):
+    list_display = ["email", "source", "is_active", "is_confirmed", "subscribed_at", "confirmed_at", "updated_at"]
+    list_filter = ["is_active", "is_confirmed", "source", ("subscribed_at", admin.DateFieldListFilter)]
+    search_fields = ["email", "source"]
+    readonly_fields = [
+        "confirmation_token",
+        "unsubscribe_token",
+        "subscribed_at",
+        "confirmed_at",
+        "unsubscribed_at",
+        "confirmation_email_sent_at",
+        "welcome_email_sent_at",
+        "updated_at",
+    ]
+    ordering = ["-subscribed_at"]
 
 
 @admin.register(EmailSettings)

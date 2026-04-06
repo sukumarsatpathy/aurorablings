@@ -6,6 +6,8 @@ app_name = "admin_notifications"
 
 urlpatterns = [
     path("dashboard/", views.AdminNotificationDashboardView.as_view(), name="dashboard"),
+    path("newsletter/subscribers/", views.AdminNewsletterSubscriberListView.as_view(), name="newsletter-subscribers"),
+    path("newsletter/subscribers/export/", views.AdminNewsletterSubscriberExportView.as_view(), name="newsletter-subscribers-export"),
     path("logs/", views.AdminNotificationLogsView.as_view(), name="logs"),
     path("logs/<uuid:log_id>/", views.AdminNotificationLogDetailView.as_view(), name="log-detail"),
     path("logs/<uuid:log_id>/retry/", views.AdminNotificationLogRetryView.as_view(), name="log-retry"),

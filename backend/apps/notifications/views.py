@@ -40,12 +40,13 @@ from .models import (
     NotificationProviderSettings,
     NotificationTemplate,
     NotifySubscription,
+    NewsletterSubscriber,
     ContactQuery,
     ContactQueryStatus,
 )
 from .serializers import (
     NotificationSerializer, NotificationTemplateSerializer, TriggerEventSerializer,
-    ContactFormSerializer, AdminContactQuerySerializer,
+    ContactFormSerializer, AdminContactQuerySerializer, NewsletterSubscriptionSerializer, NewsletterSubscriberSerializer,
     NotifySubscriptionWriteSerializer, NotifySubscriptionSerializer, AdminNotifySubscriptionSerializer,
     NotificationLogListSerializer,
     NotificationLogDetailSerializer,
@@ -54,9 +55,88 @@ from .serializers import (
 from apps.catalog import selectors as catalog_selectors
 from .services.email_service import EmailService, EmailConfigError
 from .services import retry_service, stats_service, provider_health_service
+from .services.newsletter_service import (
+    subscribe_email as subscribe_newsletter_email,
+    confirm_subscription as confirm_newsletter_subscription,
+    unsubscribe_email as unsubscribe_newsletter_email,
+    render_result_page as render_newsletter_result_page,
+    export_subscribers_csv,
+    export_subscribers_excel,
+    export_subscribers_pdf,
+)
 from . import email_service as notification_email_service
 
 logger = get_logger(__name__)
+
+
+class NewsletterSubscriptionCreateView(APIView):
+    permission_classes = [AllowAny]
+    throttle_scope = "newsletter_subscribe"
+
+    def post(self, request):
+        serializer = NewsletterSubscriptionSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        result = subscribe_newsletter_email(
+            email=serializer.validated_data["email"],
+            source=serializer.validated_data.get("source", "footer"),
+        )
+        if not result.needs_confirmation:
+            return error_response(
+                message=result.message,
+                error_code="already_subscribed",
+                errors={"email": [result.message]},
+                status_code=status.HTTP_409_CONFLICT,
+            )
+
+        payload = NewsletterSubscriberSerializer(result.subscriber).data
+        return success_response(
+            data=payload,
+            message=result.message,
+            status_code=status.HTTP_201_CREATED if result.created else status.HTTP_200_OK,
+        )
+
+
+class NewsletterSubscriptionConfirmView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        subscriber = confirm_newsletter_subscription(token=str(token))
+        if not subscriber:
+            html = render_newsletter_result_page(
+                title="Confirmation link expired",
+                message="This confirmation link is invalid or has already been used.",
+                tone="error",
+            )
+            return HttpResponse(html, status=status.HTTP_404_NOT_FOUND)
+
+        html = render_newsletter_result_page(
+            title="Subscription confirmed",
+            message=f"{subscriber.email} is now subscribed to Aurora Blings updates.",
+            tone="success",
+        )
+        return HttpResponse(html)
+
+
+class NewsletterSubscriptionUnsubscribeView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request, token):
+        subscriber = unsubscribe_newsletter_email(token=str(token))
+        if not subscriber:
+            html = render_newsletter_result_page(
+                title="Unsubscribe link invalid",
+                message="We could not find an active subscription for this link.",
+                tone="error",
+            )
+            return HttpResponse(html, status=status.HTTP_404_NOT_FOUND)
+
+        html = render_newsletter_result_page(
+            title="You have been unsubscribed",
+            message=f"{subscriber.email} will no longer receive newsletter updates.",
+            tone="success",
+        )
+        return HttpResponse(html)
 
 
 class NotifySubscriptionCreateView(APIView):
@@ -267,6 +347,97 @@ class AdminTriggerEventView(APIView):
         )
 
 
+class AdminNewsletterSubscriberListView(APIView):
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        qs = NewsletterSubscriber.objects.all().order_by("-subscribed_at")
+
+        search = (request.query_params.get("search") or "").strip()
+        status_value = (request.query_params.get("status") or "").strip().lower()
+        source = (request.query_params.get("source") or "").strip().lower()
+        date_from = (request.query_params.get("date_from") or "").strip()
+        date_to = (request.query_params.get("date_to") or "").strip()
+
+        if search:
+            qs = qs.filter(email__icontains=search)
+        if source:
+            qs = qs.filter(source=source)
+        if status_value == "confirmed":
+            qs = qs.filter(is_active=True, is_confirmed=True)
+        elif status_value == "pending":
+            qs = qs.filter(is_active=True, is_confirmed=False)
+        elif status_value == "unsubscribed":
+            qs = qs.filter(is_active=False)
+        if date_from:
+            qs = qs.filter(subscribed_at__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(subscribed_at__date__lte=date_to)
+
+        total = qs.count()
+        page = max(int(request.query_params.get("page", 1) or 1), 1)
+        page_size = min(max(int(request.query_params.get("page_size", 20) or 20), 1), 100)
+        start = (page - 1) * page_size
+        end = start + page_size
+        rows = qs[start:end]
+
+        summary = {
+            "total": total,
+            "confirmed": qs.filter(is_active=True, is_confirmed=True).count(),
+            "pending": qs.filter(is_active=True, is_confirmed=False).count(),
+            "unsubscribed": qs.filter(is_active=False).count(),
+        }
+
+        return success_response(
+            data={
+                "items": NewsletterSubscriberSerializer(rows, many=True).data,
+                "pagination": {
+                    "page": page,
+                    "page_size": page_size,
+                    "total": total,
+                    "total_pages": (total + page_size - 1) // page_size,
+                },
+                "summary": summary,
+            }
+        )
+
+
+class AdminNewsletterSubscriberExportView(APIView):
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        qs = NewsletterSubscriber.objects.all().order_by("-subscribed_at")
+
+        search = (request.query_params.get("search") or "").strip()
+        status_value = (request.query_params.get("status") or "").strip().lower()
+        source = (request.query_params.get("source") or "").strip().lower()
+        date_from = (request.query_params.get("date_from") or "").strip()
+        date_to = (request.query_params.get("date_to") or "").strip()
+        export_format = (request.query_params.get("format") or "legacy").strip().lower()
+
+        if search:
+            qs = qs.filter(email__icontains=search)
+        if source:
+            qs = qs.filter(source=source)
+        if status_value == "confirmed":
+            qs = qs.filter(is_active=True, is_confirmed=True)
+        elif status_value == "pending":
+            qs = qs.filter(is_active=True, is_confirmed=False)
+        elif status_value == "unsubscribed":
+            qs = qs.filter(is_active=False)
+        if date_from:
+            qs = qs.filter(subscribed_at__date__gte=date_from)
+        if date_to:
+            qs = qs.filter(subscribed_at__date__lte=date_to)
+
+        rows = list(qs[:5000])
+        if export_format == "pdf":
+            return export_subscribers_pdf(rows)
+        if export_format in {"excel", "xls"}:
+            return export_subscribers_excel(rows)
+        return export_subscribers_csv(rows)
+
+
 class ContactFormNotificationView(APIView):
     permission_classes = [AllowAny]
     throttle_scope = "contact_form"
@@ -333,6 +504,7 @@ class ContactFormNotificationView(APIView):
             from apps.features import services as feature_services
 
             site_url = str(feature_services.get_setting("site.frontend_url", default="http://localhost:5173") or "http://localhost:5173").rstrip("/")
+            logo_url = notification_email_service._resolve_public_logo_url()
             html_body = render_to_string(
                 "emails/contact_form_acknowledgement.html",
                 context={
@@ -341,7 +513,8 @@ class ContactFormNotificationView(APIView):
                     "message": data["message"],
                     "support_email": support_email,
                     "site_url": site_url,
-                    "logo_url": notification_email_service._resolve_public_logo_url(),
+                    "logo_url": logo_url,
+                    "branding_logo_url": logo_url,
                     "year": timezone.now().year,
                 },
             )

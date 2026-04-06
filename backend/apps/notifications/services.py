@@ -8,6 +8,7 @@ from core.logging import get_logger
 from .events import NotificationEvent
 from .models import NotifySubscription
 from .services.notification_service import NotificationService, trigger_event, resend_failed_notification
+from .services.newsletter_service import subscribe_email, confirm_subscription, unsubscribe_email
 
 logger = get_logger(__name__)
 

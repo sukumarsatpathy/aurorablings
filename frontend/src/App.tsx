@@ -8,6 +8,7 @@ import { DashboardLayout } from './components/layouts/DashboardLayout';
 import { HomePage } from './pages/storefront/HomePage';
 import { ProductListingPage } from './pages/storefront/ProductListingPage';
 import { ProductDetailPage } from './pages/storefront/ProductDetailPage';
+import { AboutUsPage } from './pages/storefront/AboutUsPage';
 import { ContactUsPage } from './pages/storefront/ContactUsPage';
 import { TermsAndConditionsPage } from './pages/storefront/TermsAndConditionsPage';
 import { ReturnRefundPolicyPage } from './pages/storefront/ReturnRefundPolicyPage';
@@ -44,6 +45,7 @@ import { NotifyRequests } from './pages/admin/NotifyRequests';
 import { Enquiries } from './pages/admin/Enquiries';
 import { NotificationDashboard } from './pages/admin/NotificationDashboard';
 import { NotificationLogs } from './pages/admin/NotificationLogs';
+import { NewsletterSubscribers } from './pages/admin/NewsletterSubscribers';
 import TrackingSettings from './pages/admin/TrackingSettings';
 import GTMSettings from './pages/admin/GTMSettings';
 import AdminBannersPage from './pages/admin/AdminBannersPage/AdminBannersPage';
@@ -354,6 +356,8 @@ function AppContent() {
         <Route path="/" element={<MainLayout><HomePage /></MainLayout>} />
         <Route path="/products" element={<Navigate to="/products/" replace />} />
         <Route path="/products/" element={<MainLayout><ProductListingPage /></MainLayout>} />
+        <Route path="/about-us" element={<Navigate to="/about-us/" replace />} />
+        <Route path="/about-us/" element={<MainLayout><AboutUsPage /></MainLayout>} />
         <Route path="/shop" element={<Navigate to="/products/" replace />} />
         <Route path="/contact" element={<Navigate to="/contact-us/" replace />} />
         <Route path="/contact-us" element={<Navigate to="/contact-us/" replace />} />
@@ -417,6 +421,7 @@ function AppContent() {
                 <Route path="reviews" element={<Reviews />} />
                 <Route path="notifications" element={<NotificationDashboard />} />
                 <Route path="notifications/logs" element={<NotificationLogs />} />
+                <Route path="newsletter" element={<NewsletterSubscribers />} />
                 <Route path="notify-requests" element={<NotifyRequests />} />
                 <Route path="enquiries" element={<Enquiries />} />
                 <Route path="coupons" element={<Coupons />} />

@@ -169,6 +169,7 @@ REST_FRAMEWORK = {
         'auth_register': '15/hour',
         'auth_forgot_password': '10/hour',
         'contact_form': '20/hour',
+        'newsletter_subscribe': '30/hour',
         'review_submit': '20/hour',
         'review_write': '20/hour',
         'review_vote': '60/hour',

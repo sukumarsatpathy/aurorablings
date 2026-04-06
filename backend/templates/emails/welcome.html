@@ -17,11 +17,7 @@
 
                 <tr>
                     <td align="center" style="padding:30px 20px 10px;">
-                        {% if logo_url %}
-                            <img src="{{logo_url}}" alt="Aurora Blings" style="height:40px;">
-                        {% else %}
-                            <span style="font-size:22px; font-weight:700; color:#181C32;">Aurora Blings</span>
-                        {% endif %}
+                        {% include "emails/includes/logo.html" %}
                     </td>
                 </tr>
 
@@ -78,28 +74,7 @@ padding:12px 22px; border-radius:6px; display:inline-block; font-weight:600;">
 
                 <tr>
                     <td align="center" style="padding:25px 20px; background:#f9f9f9;">
-
-                        <p style="margin:0 0 10px; font-weight:600; color:#181C32;">
-                            Need help? We’re here for you 💬
-                        </p>
-
-                        <p style="margin:4px 0; font-size:13px;">
-                            WhatsApp: +91-7847090866
-                        </p>
-                        <p style="margin:4px 0; font-size:13px;">
-                            Email: <a href="mailto:connect@aurorablings.com" target="_blank">connect@aurorablings.com</a>
-                        </p>
-
-                        <p style="margin:4px 0; font-size:13px;">
-                            <a href="https://aurorablings.com" style="color:#517b4b; text-decoration:none;">
-                                www.aurorablings.com
-                            </a>
-                        </p>
-
-                        <p style="padding:20px; background:#f0f3f0; text-align:center; font-size:12px; color:#777;">
-                            © {{year}} Aurora Blings. All rights reserved.
-                        </p>
-
+                        {% include "emails/includes/footer.html" %}
                     </td>
                 </tr>
 
