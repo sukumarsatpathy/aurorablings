@@ -63,6 +63,7 @@ def _cart_response(cart, request=None, message=None, coupon_code: str = ""):
         cart=cart,
         coupon_code=coupon_code or None,
         user=request.user if request and request.user.is_authenticated else None,
+        request=request,
     )
     totals = pricing["cart_totals"]
     return success_response(
@@ -261,6 +262,7 @@ class CartValidateView(APIView):
             cart=cart,
             coupon_code=coupon_code or None,
             user=request.user if request.user.is_authenticated else None,
+            request=request,
         )
 
         return success_response(

@@ -9,6 +9,7 @@ from __future__ import annotations
 from decimal import Decimal
 from django.db.models import Sum, F, ExpressionWrapper, DecimalField
 from core.logging import get_logger
+from core.media import build_media_url
 
 from .models import Cart, CartItem, CartStatus
 
@@ -90,7 +91,7 @@ def get_cart_by_id(cart_id) -> Cart | None:
 #  Cart totals
 # ─────────────────────────────────────────────────────────────
 
-def calculate_cart_totals(cart: Cart) -> dict:
+def calculate_cart_totals(cart: Cart, *, request=None) -> dict:
     """
     Compute all cart totals in one DB round-trip.
 
@@ -135,11 +136,11 @@ def calculate_cart_totals(cart: Cart) -> dict:
         "subtotal":          subtotal,
         "original_subtotal": original_subtotal,
         "savings":           savings,
-        "items":             [_serialise_item(i) for i in items],
+        "items":             [_serialise_item(i, request=request) for i in items],
     }
 
 
-def _serialise_item(item: CartItem) -> dict:
+def _serialise_item(item: CartItem, *, request=None) -> dict:
     """Build a lightweight dict for a CartItem — avoids circular import with serializers."""
     variant = item.variant
     product = variant.product
@@ -147,7 +148,7 @@ def _serialise_item(item: CartItem) -> dict:
     # Primary image
     media_qs = product.media.all()
     primary  = next((m for m in media_qs if m.is_primary), None) or (media_qs[0] if media_qs else None)
-    thumbnail_url = primary.image.url if primary and primary.image else None
+    thumbnail_url = build_media_url(primary.image, request=request) if primary and primary.image else None
 
     # Attribute label (e.g. "Red / M")
     av_labels = " / ".join(

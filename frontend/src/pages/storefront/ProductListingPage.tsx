@@ -26,6 +26,7 @@ interface ProductListItem {
   name: string;
   slug?: string;
   short_description?: string;
+  created_at?: string;
   category_name?: string;
   category?: { name?: string; slug?: string };
   brand_name?: string | null;
@@ -51,6 +52,7 @@ interface CategoryListItem {
 
 type ViewMode = 'blog' | 'list';
 type SortMode = 'random' | 'low-high' | 'high-low';
+type StorefrontDealProduct = DealProduct & { created_at?: string };
 
 const shuffleArray = <T,>(items: T[]): T[] => {
   const next = [...items];
@@ -183,7 +185,7 @@ export const ProductListingPage: React.FC = () => {
           catalogService.listAllProducts(),
           catalogService.listCategories(),
         ]);
-        setProducts(shuffleArray(extractRows(productRes)));
+        setProducts(extractRows(productRes));
         setCatalogCategories(
           (extractRows(categoryRes) as CategoryListItem[]).filter((item) => item.is_active !== false)
         );
@@ -247,8 +249,8 @@ export const ProductListingPage: React.FC = () => {
     setSelectedCategory(loose || 'All');
   }, [searchParams, categories, categoryMetaByName]);
 
-  const mappedProducts = useMemo<DealProduct[]>(() => {
-    return products.map((item): DealProduct => {
+  const mappedProducts = useMemo<StorefrontDealProduct[]>(() => {
+    return products.map((item): StorefrontDealProduct => {
       const minPrice = toNumber(item.default_variant?.price ?? item.price_range?.min).toFixed(2);
       const maxPriceNum = toNumber(item.price_range?.max);
       const compareAtPrice = maxPriceNum > Number(minPrice) ? maxPriceNum.toFixed(2) : null;
@@ -281,6 +283,7 @@ export const ProductListingPage: React.FC = () => {
         name: item.name,
         slug: item.slug || item.id,
         short_description: item.short_description || '',
+        created_at: item.created_at,
         category_name: item.category_name || item.category?.name || 'General',
         brand_name: item.brand_name || null,
         is_featured: !!item.is_featured,
@@ -299,6 +302,8 @@ export const ProductListingPage: React.FC = () => {
       };
     });
   }, [products]);
+
+  const randomizedAllProducts = useMemo(() => shuffleArray(mappedProducts), [mappedProducts]);
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -338,11 +343,19 @@ export const ProductListingPage: React.FC = () => {
   const filteredAndSorted = useMemo(() => {
     const filtered =
       selectedCategory === 'All'
-        ? mappedProducts
+        ? randomizedAllProducts
         : mappedProducts.filter((p) => normalize(p.category_name) === normalize(selectedCategory));
 
     if (sortMode === 'random') {
-      return filtered;
+      if (selectedCategory === 'All') {
+        return filtered;
+      }
+
+      return [...filtered].sort((a, b) => {
+        const aCreatedAt = a.created_at ? new Date(a.created_at).getTime() : 0;
+        const bCreatedAt = b.created_at ? new Date(b.created_at).getTime() : 0;
+        return bCreatedAt - aCreatedAt;
+      });
     }
 
     return [...filtered].sort((a, b) => {
@@ -350,7 +363,7 @@ export const ProductListingPage: React.FC = () => {
       const bPrice = toNumber(b.variants?.[0]?.effective_price || b.default_variant?.price || b.price_range?.min);
       return sortMode === 'low-high' ? aPrice - bPrice : bPrice - aPrice;
     });
-  }, [mappedProducts, selectedCategory, sortMode]);
+  }, [mappedProducts, randomizedAllProducts, selectedCategory, sortMode]);
 
   useEffect(() => {
     setCurrentPage(1);

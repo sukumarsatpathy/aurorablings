@@ -9,6 +9,8 @@ urlpatterns = [
 
     # ── Payment lifecycle ─────────────────────────────────────
     path("initiate/",               views.InitiatePaymentView.as_view(),    name="initiate"),
+    path("create-order/",           views.CreatePaymentOrderView.as_view(),  name="create-order"),
+    path("verify/",                 views.VerifyPaymentView.as_view(),       name="verify"),
     path("status/<uuid:txn_id>/",   views.TransactionStatusView.as_view(),  name="status"),
     path("reconcile/",              views.ReconcilePaymentView.as_view(),    name="reconcile"),
     path("retry/",                  views.RetryPaymentView.as_view(),       name="retry"),

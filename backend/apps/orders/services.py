@@ -67,6 +67,14 @@ from .models import (
 
 logger = get_logger(__name__)
 
+ONLINE_PAYMENT_METHODS = {
+    PaymentMethod.CASHFREE,
+    PaymentMethod.RAZORPAY,
+    PaymentMethod.PHONEPE,
+    PaymentMethod.STRIPE,
+    PaymentMethod.UPI,
+}
+
 
 def _is_private_host(url: str) -> bool:
     host = (urlparse(url).hostname or "").lower()
@@ -132,6 +140,44 @@ def build_order_confirmation_email_context(*, order: Order, customer_name: str =
         "customer_name": customer_name,
         "order_url": f"/account/orders/{order.id}",
     }
+
+
+def _resolve_order_recipient(order: Order) -> tuple[str, str]:
+    recipient_email = (order.user.email if order.user_id and order.user else (order.guest_email or "")).strip()
+    shipping_name = ""
+    if isinstance(order.shipping_address, dict):
+        shipping_name = str(order.shipping_address.get("full_name", "") or "").strip()
+    customer_name = (
+        (order.user.get_full_name().strip() if order.user_id and order.user else "")
+        or shipping_name
+        or (recipient_email.split("@")[0] if recipient_email else "")
+        or "Customer"
+    )
+    return recipient_email, customer_name
+
+
+def _queue_order_confirmation_email(*, order: Order) -> None:
+    recipient_email, customer_name = _resolve_order_recipient(order)
+    if not recipient_email:
+        return
+
+    from apps.invoices.services.invoice_service import InvoiceService
+    from apps.notifications.events import NotificationEvent
+    from apps.notifications.tasks import trigger_event_task
+
+    trigger_event_task.delay(
+        event=NotificationEvent.ORDER_CREATED,
+        context={
+            **build_order_confirmation_email_context(
+                order=order,
+                customer_name=customer_name,
+            ),
+            "invoice_url": InvoiceService.build_public_invoice_url(order_id=str(order.id)),
+            "payment_status": order.payment_status,
+        },
+        user_id=str(order.user.id) if order.user else None,
+        recipient_email=recipient_email,
+    )
 
 
 @transaction.atomic
@@ -545,25 +591,12 @@ def place_order(
     except Exception:
         pass
 
-    # Fire ORDER_PLACED notification (async, non-blocking)
-    try:
-        from apps.notifications.tasks import trigger_event_task
-        from apps.notifications.events import NotificationEvent
-        from apps.invoices.services.invoice_service import InvoiceService
-        trigger_event_task.delay(
-            event=NotificationEvent.ORDER_CREATED,
-            context={
-                **build_order_confirmation_email_context(
-                    order=order,
-                    customer_name=(user.get_full_name().strip() if user else "Customer") or "Customer",
-                ),
-                "invoice_url": InvoiceService.build_public_invoice_url(order_id=str(order.id)),
-            },
-            user_id=str(user.id) if user else None,
-            recipient_email=guest_email,
-        )
-    except Exception:
-        pass   # notifications must never block order placement
+    # Queue order confirmation immediately only for offline flows.
+    if payment_method not in ONLINE_PAYMENT_METHODS:
+        try:
+            _queue_order_confirmation_email(order=order)
+        except Exception:
+            pass   # notifications must never block order placement
 
     return order
 
@@ -647,6 +680,7 @@ def mark_paid(
     changed_by=None,
 ) -> Order:
     """Record payment and advance order to PAID."""
+    was_paid = order.payment_status == PaymentStatus.PAID
     order.payment_status    = PaymentStatus.PAID
     order.payment_reference = payment_reference
     order.paid_at           = timezone.now()
@@ -676,6 +710,12 @@ def mark_paid(
             create_shipment_for_order.delay(str(order.id))
     except Exception:
         pass
+
+    if not was_paid:
+        try:
+            _queue_order_confirmation_email(order=order)
+        except Exception:
+            pass
     return order
 
 

@@ -3,6 +3,7 @@ from django.utils.html import format_html
 from .models import PaymentTransaction, WebhookLog, WebhookEvent, Refund, TransactionStatus
 
 STATUS_COLOURS = {
+    TransactionStatus.CREATED:   "#6366f1",
     TransactionStatus.PENDING:   "#d97706",
     TransactionStatus.SUCCESS:   "#16a34a",
     TransactionStatus.FAILED:    "#dc2626",

@@ -12,6 +12,7 @@ from django.utils.translation import gettext_lazy as _
 
 
 class TransactionStatus(models.TextChoices):
+    CREATED   = "created",   _("Created")
     PENDING   = "pending",   _("Pending")
     SUCCESS   = "success",   _("Success")
     FAILED    = "failed",    _("Failed")
@@ -44,6 +45,9 @@ class PaymentTransaction(models.Model):
                                       help_text="e.g. 'stripe', 'cashfree'")
     provider_ref   = models.CharField(max_length=255, blank=True, db_index=True,
                                       help_text="Provider's transaction/order ID")
+    razorpay_order_id = models.CharField(max_length=255, blank=True, db_index=True)
+    razorpay_payment_id = models.CharField(max_length=255, blank=True, db_index=True)
+    razorpay_signature = models.TextField(blank=True)
     status         = models.CharField(max_length=25, choices=TransactionStatus.choices,
                                       default=TransactionStatus.PENDING, db_index=True)
     total_amount   = models.DecimalField(max_digits=12, decimal_places=2, default=0)
@@ -83,7 +87,7 @@ class PaymentTransaction(models.Model):
     @property
     def can_retry(self) -> bool:
         return (
-            self.status in (TransactionStatus.FAILED, TransactionStatus.RETRY)
+            self.status in (TransactionStatus.CREATED, TransactionStatus.FAILED, TransactionStatus.RETRY)
             and self.retry_count < self.max_retries
         )
 

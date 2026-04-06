@@ -203,7 +203,8 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
   };
 
   const handleCardAddToCart = async () => {
-    const selected = product.variants?.[0];
+    const activeVariants = (product.variants || []).filter((variant) => variant.is_active !== false);
+    const selected = activeVariants.find((variant) => variant.is_default) || activeVariants[0];
     if (!selected) {
       setCardAddSuccess('');
       setCardAddError('Unable to add this item right now.');
@@ -219,13 +220,15 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
     const resolveVariantId = async (): Promise<string> => {
       if (selected.id && selected.id !== product.id) return selected.id;
 
-      const fromQuick = quickViewProduct?.variants?.find((variant) => variant.is_default) || quickViewProduct?.variants?.[0];
+      const quickVariants = (quickViewProduct?.variants || []).filter((variant) => variant.is_active !== false);
+      const fromQuick = quickVariants.find((variant) => variant.is_default) || quickVariants[0];
       if (fromQuick?.id) return fromQuick.id;
 
       try {
         const bySlug = await catalogService.getProductBySlug(product.slug);
         const extractedBySlug = extractProduct(bySlug);
-        const slugVariant = extractedBySlug?.variants?.find((variant) => variant.is_default) || extractedBySlug?.variants?.[0];
+        const slugVariants = (extractedBySlug?.variants || []).filter((variant) => variant.is_active !== false);
+        const slugVariant = slugVariants.find((variant) => variant.is_default) || slugVariants[0];
         if (slugVariant?.id) return slugVariant.id;
       } catch {
         // fallback below
@@ -234,7 +237,8 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
       try {
         const byId = await catalogService.getProduct(product.id);
         const extractedById = extractProduct(byId);
-        const idVariant = extractedById?.variants?.find((variant) => variant.is_default) || extractedById?.variants?.[0];
+        const idVariants = (extractedById?.variants || []).filter((variant) => variant.is_active !== false);
+        const idVariant = idVariants.find((variant) => variant.is_default) || idVariants[0];
         if (idVariant?.id) return idVariant.id;
       } catch {
         // final fallback below

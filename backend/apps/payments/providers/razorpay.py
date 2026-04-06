@@ -9,7 +9,15 @@ from typing import Any
 
 from django.conf import settings
 
-from .base import BasePaymentProvider, PaymentResult, WebhookResult, RefundResult, StatusResult
+from .base import (
+    BasePaymentProvider,
+    CheckoutOrderResult,
+    PaymentResult,
+    RefundResult,
+    StatusResult,
+    VerificationResult,
+    WebhookResult,
+)
 
 
 class RazorpayProvider(BasePaymentProvider):
@@ -85,6 +93,106 @@ class RazorpayProvider(BasePaymentProvider):
     def _auth_header(self) -> str:
         token = base64.b64encode(f"{self.key_id}:{self.key_secret}".encode("utf-8")).decode("utf-8")
         return f"Basic {token}"
+
+    def _get_client(self):
+        try:
+            import razorpay
+        except ImportError as exc:
+            raise RuntimeError(
+                "Razorpay SDK is not installed. Add 'razorpay' to backend requirements."
+            ) from exc
+        return razorpay.Client(auth=(self.key_id, self.key_secret))
+
+    def create_checkout_order(
+        self,
+        *,
+        order_id: str,
+        amount: Decimal,
+        currency: str,
+        customer_email: str,
+        customer_name: str,
+        customer_phone: str = "",
+        metadata: dict | None = None,
+    ) -> CheckoutOrderResult:
+        self._load_runtime_config()
+        if not self.key_id or not self.key_secret:
+            return CheckoutOrderResult(
+                success=False,
+                provider_ref="",
+                amount=amount,
+                currency=currency,
+                error="Razorpay credentials missing. Set key_id and key_secret in payment settings.",
+            )
+
+        try:
+            client = self._get_client()
+            amount_paise = int(Decimal(str(amount or 0)) * 100)
+            payload = {
+                "amount": amount_paise,
+                "currency": currency or "INR",
+                "receipt": order_id,
+                "notes": self.build_metadata(order_id, metadata),
+            }
+            data = client.order.create(data=payload)
+            provider_ref = str(data.get("id") or "").strip()
+            return CheckoutOrderResult(
+                success=True,
+                provider_ref=provider_ref,
+                amount=Decimal(str(data.get("amount") or amount_paise)) / Decimal("100"),
+                currency=str(data.get("currency") or currency or "INR").upper(),
+                key_id=self.key_id,
+                raw_response={**data, "key_id": self.key_id},
+            )
+        except Exception as exc:
+            return CheckoutOrderResult(
+                success=False,
+                provider_ref="",
+                amount=amount,
+                currency=currency,
+                error=str(exc),
+            )
+
+    def verify_payment_signature(
+        self,
+        *,
+        provider_order_id: str,
+        provider_payment_id: str,
+        signature: str,
+    ) -> VerificationResult:
+        self._load_runtime_config()
+        if not self.key_id or not self.key_secret:
+            return VerificationResult(
+                success=False,
+                provider_ref=provider_payment_id,
+                order_ref=provider_order_id,
+                error="Razorpay credentials missing. Set key_id and key_secret in payment settings.",
+            )
+
+        try:
+            client = self._get_client()
+            client.utility.verify_payment_signature(
+                {
+                    "razorpay_order_id": provider_order_id,
+                    "razorpay_payment_id": provider_payment_id,
+                    "razorpay_signature": signature,
+                }
+            )
+            return VerificationResult(
+                success=True,
+                provider_ref=provider_payment_id,
+                order_ref=provider_order_id,
+                raw_response={
+                    "razorpay_order_id": provider_order_id,
+                    "razorpay_payment_id": provider_payment_id,
+                },
+            )
+        except Exception as exc:
+            return VerificationResult(
+                success=False,
+                provider_ref=provider_payment_id,
+                order_ref=provider_order_id,
+                error=str(exc),
+            )
 
     def initiate(
         self,
@@ -199,6 +307,7 @@ class RazorpayProvider(BasePaymentProvider):
                 or entity.get("order_id")
                 or ""
             ).strip()
+            provider_order_id = str(entity.get("order_id") or "").strip()
             provider_ref = str(entity.get("id") or "").strip()
             amount = Decimal(str((entity.get("amount") or 0))) / Decimal("100")
             currency = str(entity.get("currency") or "INR").upper()
@@ -217,7 +326,10 @@ class RazorpayProvider(BasePaymentProvider):
                 status=status,
                 amount=amount,
                 currency=currency,
-                raw_data=data,
+                raw_data={
+                    **data,
+                    "_provider_order_id": provider_order_id,
+                },
             )
         except Exception as exc:
             return WebhookResult(
@@ -277,6 +389,38 @@ class RazorpayProvider(BasePaymentProvider):
                     status=status,
                     amount=amount,
                     raw_response=data,
+                )
+
+            if str(provider_ref).startswith("order_"):
+                resp = requests.get(
+                    f"{self.base_url}/orders/{provider_ref}/payments",
+                    headers={"Authorization": self._auth_header()},
+                    timeout=15,
+                )
+                resp.raise_for_status()
+                data = resp.json()
+                items = data.get("items") if isinstance(data, dict) else []
+                if not isinstance(items, list):
+                    items = []
+
+                latest = items[0] if items else {}
+                status = "pending"
+                payment_ref = provider_ref
+                amount = None
+                if latest:
+                    payment_ref = str(latest.get("id") or provider_ref).strip()
+                    amount = Decimal(str(latest.get("amount") or 0)) / Decimal("100")
+                    status_raw = str(latest.get("status") or "").lower()
+                    if status_raw == "captured":
+                        status = "success"
+                    elif status_raw == "failed":
+                        status = "failed"
+                return StatusResult(
+                    success=True,
+                    provider_ref=payment_ref,
+                    status=status,
+                    amount=amount,
+                    raw_response=data if isinstance(data, dict) else {"items": items},
                 )
 
             resp = requests.get(

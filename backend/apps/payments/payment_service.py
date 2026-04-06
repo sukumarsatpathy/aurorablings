@@ -18,12 +18,14 @@ logger = get_logger(__name__)
 # ─────────────────────────────────────────────────────────────
 # pending/retry/failed → success  (delayed webhook can arrive after a retry)
 _ALLOWED_SUCCESS_FROM = {
+    TransactionStatus.CREATED,
     TransactionStatus.PENDING,
     TransactionStatus.RETRY,
     TransactionStatus.FAILED,
 }
 # pending/retry → failed
 _ALLOWED_FAILED_FROM = {
+    TransactionStatus.CREATED,
     TransactionStatus.PENDING,
     TransactionStatus.RETRY,
 }
@@ -179,6 +181,11 @@ def handle_payment_success(*, payment_data: dict[str, Any], provider_name: str =
             raw["cf_payment_id"] = provider_ref
         txn.raw_response = raw
         txn.save(update_fields=["status", "raw_response", "updated_at"])
+    elif provider_name == "razorpay":
+        if provider_ref:
+            txn.provider_ref = provider_ref
+            txn.razorpay_payment_id = provider_ref
+        txn.save(update_fields=["status", "provider_ref", "razorpay_payment_id", "updated_at"])
     else:
         txn.provider_ref = provider_ref or txn.provider_ref
         txn.save(update_fields=["status", "provider_ref", "updated_at"])

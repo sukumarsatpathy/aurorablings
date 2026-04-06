@@ -40,6 +40,28 @@ class PaymentResult:
 
 
 @dataclass
+class CheckoutOrderResult:
+    """Returned by provider.create_checkout_order()"""
+    success: bool
+    provider_ref: str                      # provider order/reference id
+    amount: Decimal
+    currency: str
+    key_id: str | None = None
+    raw_response: dict = field(default_factory=dict)
+    error: str | None = None
+
+
+@dataclass
+class VerificationResult:
+    """Returned by provider.verify_payment_signature()"""
+    success: bool
+    provider_ref: str                      # provider payment id
+    order_ref: str                         # our order ID / reference
+    raw_response: dict = field(default_factory=dict)
+    error: str | None = None
+
+
+@dataclass
 class WebhookResult:
     """Returned by BasePaymentProvider.verify_webhook()"""
     verified:     bool
@@ -168,3 +190,25 @@ class BasePaymentProvider(abc.ABC):
             "platform": "aurora_blings",
             **(extra or {}),
         }
+
+    def create_checkout_order(
+        self,
+        *,
+        order_id: str,
+        amount: Decimal,
+        currency: str,
+        customer_email: str,
+        customer_name: str,
+        customer_phone: str = "",
+        metadata: dict | None = None,
+    ) -> CheckoutOrderResult:
+        raise NotImplementedError(f"{self.__class__.__name__} does not support checkout order creation.")
+
+    def verify_payment_signature(
+        self,
+        *,
+        provider_order_id: str,
+        provider_payment_id: str,
+        signature: str,
+    ) -> VerificationResult:
+        raise NotImplementedError(f"{self.__class__.__name__} does not support payment signature verification.")

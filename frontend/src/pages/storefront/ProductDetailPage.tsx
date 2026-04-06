@@ -143,10 +143,14 @@ export const ProductDetailPage: React.FC = () => {
     return ['https://placehold.co/1000x1000/f3f4f6/517b4b?text=Product'];
   }, [product]);
 
+  const activeVariants = useMemo(() => {
+    return (product?.variants || []).filter((variant) => variant.is_active !== false);
+  }, [product?.variants]);
+
   const defaultVariant = useMemo(() => {
-    if (!product?.variants?.length) return null;
-    return product.variants.find((v) => v.is_default) || product.variants[0];
-  }, [product]);
+    if (!activeVariants.length) return null;
+    return activeVariants.find((variant) => variant.is_default) || activeVariants[0];
+  }, [activeVariants]);
 
   useEffect(() => {
     if (!defaultVariant) return;
@@ -154,9 +158,9 @@ export const ProductDetailPage: React.FC = () => {
   }, [defaultVariant?.id]);
 
   const selectedVariant = useMemo(() => {
-    if (!product?.variants?.length) return null;
-    return product.variants.find((v) => v.id === selectedVariantId) || defaultVariant;
-  }, [product?.variants, selectedVariantId, defaultVariant]);
+    if (!activeVariants.length) return null;
+    return activeVariants.find((variant) => variant.id === selectedVariantId) || defaultVariant;
+  }, [activeVariants, selectedVariantId, defaultVariant]);
   const isInStock = Boolean((selectedVariant as any)?.is_in_stock || (selectedVariant?.stock_quantity || 0) > 0);
 
   const selectedPrice = Number((selectedVariant as any)?.effective_price || selectedVariant?.price || 0);
@@ -177,7 +181,7 @@ export const ProductDetailPage: React.FC = () => {
   }, [product?.info_items]);
 
   const sizeOptions = useMemo(() => {
-    const variants = product?.variants || [];
+    const variants = activeVariants;
     const preferredKeys = ['size', 'weight', 'volume', 'pack'];
     const found: Array<{ id: string; label: string }> = [];
 
@@ -198,7 +202,7 @@ export const ProductDetailPage: React.FC = () => {
       if (!dedup.has(entry.label)) dedup.set(entry.label, entry);
     }
     return Array.from(dedup.values());
-  }, [product?.variants]);
+  }, [activeVariants]);
 
   const notifyStorageKey = useMemo(
     () => (product?.id ? `notify_success:${product.id}` : ''),
@@ -273,8 +277,8 @@ export const ProductDetailPage: React.FC = () => {
       cartService.emitCartUpdated();
       setCartMessage('Added to cart');
       navigate('/cart');
-    } catch {
-      setCartMessage('Unable to add item to cart right now.');
+    } catch (err: any) {
+      setCartMessage(err?.response?.data?.message || 'Unable to add item to cart right now.');
     }
   };
 

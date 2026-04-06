@@ -13,8 +13,8 @@ class PricingService:
     """
 
     @staticmethod
-    def calculate(*, cart, coupon_code: str | None = None, user=None) -> dict:
-        totals = calculate_cart_totals(cart)
+    def calculate(*, cart, coupon_code: str | None = None, user=None, request=None) -> dict:
+        totals = calculate_cart_totals(cart, request=request)
         subtotal = totals["subtotal"]
 
         coupon_data = None

@@ -23,6 +23,7 @@ export interface CatalogVariant {
   display_compare_at_price?: string | null;
   stock_quantity: number;
   is_default: boolean;
+  is_active?: boolean;
   has_active_offer?: boolean;
   offer_price?: string | null;
   offer_starts_at?: string | null;

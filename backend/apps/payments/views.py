@@ -19,13 +19,14 @@ Admin:
 import logging
 import json
 
+from django.conf import settings
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsStaffOrAdmin
 from apps.orders.selectors import get_order_by_id
 from core.response import success_response, error_response
-from core.exceptions import NotFoundError, ValidationError
+from core.exceptions import AuroraBaseException, NotFoundError, ValidationError
 from core.logging import get_logger
 
 from . import services, selectors
@@ -36,6 +37,9 @@ from .serializers import (
     InitiatePaymentSerializer,
     RetryPaymentSerializer,
     ReconcilePaymentSerializer,
+    RazorpayCreateOrderResponseSerializer,
+    RazorpayCreateOrderSerializer,
+    RazorpayVerifyPaymentSerializer,
     RefundSerializer,
     RefundCreateSerializer,
     RefundRecordSerializer,
@@ -203,6 +207,127 @@ class InitiatePaymentView(APIView):
             data=PaymentTransactionSerializer(txn).data,
             message="Payment session created.",
             status_code=201,
+            request_id=getattr(request, "request_id", None),
+        )
+
+
+class CreatePaymentOrderView(APIView):
+    """
+    POST /payments/create-order/
+    Body: { order_id, amount, currency? }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        s = RazorpayCreateOrderSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        data = s.validated_data
+
+        order = get_order_by_id(data["order_id"], user=request.user)
+        if not order:
+            raise NotFoundError("Order not found.")
+
+        try:
+            txn = services.create_checkout_order(
+                order=order,
+                provider_name="razorpay",
+                amount=data["amount"],
+                currency=data.get("currency"),
+                initiated_by=request.user,
+            )
+        except AuroraBaseException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "razorpay_create_order_unexpected_error",
+                order_id=str(order.id),
+                user_id=str(request.user.id),
+                error=str(exc),
+            )
+            return error_response(
+                message=str(exc) if settings.DEBUG else "Unable to start Razorpay checkout right now.",
+                error_code="payment_order_creation_failed",
+                errors={"detail": str(exc)} if settings.DEBUG or (getattr(request, "user", None) and getattr(request.user, "is_staff", False)) else None,
+                status_code=502,
+                request_id=getattr(request, "request_id", None),
+            )
+        if txn.status == TransactionStatus.FAILED:
+            return error_response(
+                message=txn.last_error or "Unable to create Razorpay order.",
+                error_code="payment_order_creation_failed",
+                status_code=400,
+                request_id=getattr(request, "request_id", None),
+            )
+
+        payload = {
+            "transaction_id": txn.id,
+            "razorpay_order_id": txn.razorpay_order_id or txn.provider_ref,
+            "amount": txn.amount,
+            "currency": txn.currency,
+            "key_id": str((txn.raw_response or {}).get("key_id") or ""),
+        }
+        return success_response(
+            data=RazorpayCreateOrderResponseSerializer(payload).data,
+            message="Razorpay order created.",
+            status_code=201,
+            request_id=getattr(request, "request_id", None),
+        )
+
+
+class VerifyPaymentView(APIView):
+    """
+    POST /payments/verify/
+    Body: { razorpay_order_id, razorpay_payment_id, razorpay_signature }
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        s = RazorpayVerifyPaymentSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        data = s.validated_data
+
+        txn = selectors.get_transaction_by_razorpay_order_id(data["razorpay_order_id"])
+        if not txn:
+            raise NotFoundError("Payment transaction not found.")
+        if (
+            not request.user.role in ("admin", "staff")
+            and txn.order.user != request.user
+        ):
+            raise NotFoundError("Payment transaction not found.")
+
+        try:
+            verified_txn = services.verify_checkout_payment(
+                provider_name="razorpay",
+                razorpay_order_id=data["razorpay_order_id"],
+                razorpay_payment_id=data["razorpay_payment_id"],
+                razorpay_signature=data["razorpay_signature"],
+            )
+        except AuroraBaseException:
+            raise
+        except Exception as exc:  # noqa: BLE001
+            logger.exception(
+                "razorpay_verify_unexpected_error",
+                razorpay_order_id=data["razorpay_order_id"],
+                transaction_id=str(txn.id),
+                error=str(exc),
+            )
+            return error_response(
+                message=str(exc) if settings.DEBUG else "Unable to verify payment right now.",
+                error_code="payment_verification_failed",
+                errors={"detail": str(exc)} if settings.DEBUG or (getattr(request, "user", None) and getattr(request.user, "is_staff", False)) else None,
+                status_code=502,
+                request_id=getattr(request, "request_id", None),
+            )
+        if verified_txn.status == TransactionStatus.FAILED:
+            return error_response(
+                message=verified_txn.last_error or "Payment verification failed.",
+                error_code="payment_verification_failed",
+                status_code=400,
+                request_id=getattr(request, "request_id", None),
+            )
+        return success_response(
+            data=PaymentTransactionSerializer(verified_txn).data,
+            message="Payment verified.",
             request_id=getattr(request, "request_id", None),
         )
 

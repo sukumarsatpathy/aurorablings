@@ -61,6 +61,32 @@ def _normalize_customer_phone(raw: str) -> str:
     return digits
 
 
+def _get_order_customer_context(order) -> dict[str, str]:
+    customer = order.user
+    shipping_snapshot = order.shipping_address if isinstance(order.shipping_address, dict) else {}
+    customer_email = (
+        (customer.email if customer else "") or
+        str(order.guest_email or "").strip() or
+        str(shipping_snapshot.get("email") or "").strip()
+    )
+    customer_name = (
+        (customer.get_full_name() if customer and hasattr(customer, "get_full_name") else "") or
+        str(shipping_snapshot.get("full_name") or "").strip() or
+        "Guest Customer"
+    )
+    raw_phone = (
+        getattr(customer, "phone_number", "") if customer else ""
+    ) or (
+        getattr(customer, "phone", "") if customer else ""
+    ) or str(shipping_snapshot.get("phone") or "").strip()
+    customer_phone = _normalize_customer_phone(raw_phone)
+    return {
+        "email": customer_email,
+        "name": customer_name,
+        "phone": customer_phone,
+    }
+
+
 # ─────────────────────────────────────────────────────────────
 #  1.  Initiate Payment
 # ─────────────────────────────────────────────────────────────
@@ -94,33 +120,16 @@ def initiate_payment(
             f"Supported: {provider.supported_currencies}"
         )
 
-    customer = order.user
-    shipping_snapshot = order.shipping_address if isinstance(order.shipping_address, dict) else {}
-    customer_email = (
-        (customer.email if customer else "") or
-        str(order.guest_email or "").strip() or
-        str(shipping_snapshot.get("email") or "").strip()
-    )
-    customer_name = (
-        (customer.get_full_name() if customer and hasattr(customer, "get_full_name") else "") or
-        str(shipping_snapshot.get("full_name") or "").strip() or
-        "Guest Customer"
-    )
-    raw_phone = (
-        getattr(customer, "phone_number", "") if customer else ""
-    ) or (
-        getattr(customer, "phone", "") if customer else ""
-    ) or str(shipping_snapshot.get("phone") or "").strip()
-    customer_phone = _normalize_customer_phone(raw_phone)
+    customer_context = _get_order_customer_context(order)
 
     # Call provider
     result = provider.initiate(
         order_id=str(order.id),
         amount=order.grand_total,
         currency=currency,
-        customer_email=customer_email,
-        customer_name=customer_name,
-        customer_phone=customer_phone,
+        customer_email=customer_context["email"],
+        customer_name=customer_context["name"],
+        customer_phone=customer_context["phone"],
         return_url=return_url,
     )
 
@@ -147,6 +156,170 @@ def initiate_payment(
         provider=provider_name,
         transaction_id=str(txn.id),
         success=result.success,
+    )
+    return txn
+
+
+@transaction.atomic
+def create_checkout_order(
+    *,
+    order,
+    provider_name: str,
+    amount: Decimal | None = None,
+    currency: str | None = None,
+    initiated_by=None,
+) -> PaymentTransaction:
+    """
+    Create a provider-native checkout order for modal SDK flows.
+
+    For Razorpay this creates an `order_*` reference used by checkout.js.
+    """
+    provider = registry.get(provider_name)
+
+    currency = (currency or order.currency or "INR").upper()
+    expected_amount = Decimal(str(order.grand_total)).quantize(Decimal("0.01"))
+    requested_amount = Decimal(str(amount if amount is not None else expected_amount)).quantize(Decimal("0.01"))
+
+    if requested_amount != expected_amount:
+        raise ValidationError("Requested amount does not match order total.")
+    if currency != str(order.currency or "INR").upper():
+        raise ValidationError("Requested currency does not match order currency.")
+    if currency not in provider.supported_currencies:
+        raise ValidationError(
+            f"Provider '{provider_name}' does not support currency '{currency}'. "
+            f"Supported: {provider.supported_currencies}"
+        )
+
+    customer_context = _get_order_customer_context(order)
+    try:
+        result = provider.create_checkout_order(
+            order_id=str(order.id),
+            amount=requested_amount,
+            currency=currency,
+            customer_email=customer_context["email"],
+            customer_name=customer_context["name"],
+            customer_phone=customer_context["phone"],
+            metadata={"customer_email": customer_context["email"]},
+        )
+    except NotImplementedError as exc:
+        raise ValidationError(f"Provider '{provider_name}' does not support checkout order creation.") from exc
+    txn = PaymentTransaction.objects.create(
+        order=order,
+        provider=provider_name,
+        provider_ref=result.provider_ref,
+        razorpay_order_id=result.provider_ref if provider_name == "razorpay" else "",
+        status=TransactionStatus.CREATED if result.success else TransactionStatus.FAILED,
+        total_amount=requested_amount,
+        refunded_amount=Decimal("0"),
+        amount=requested_amount,
+        currency=currency,
+        last_error=result.error or "",
+        raw_response=result.raw_response,
+        initiated_by=initiated_by,
+    )
+    log_level = "info" if result.success else "warning"
+    getattr(logger, log_level)(
+        "payment_checkout_order_created",
+        provider=provider_name,
+        order_id=str(order.id),
+        transaction_id=str(txn.id),
+        provider_ref=result.provider_ref,
+        success=result.success,
+    )
+    return txn
+
+
+@transaction.atomic
+def verify_checkout_payment(
+    *,
+    provider_name: str,
+    razorpay_order_id: str,
+    razorpay_payment_id: str,
+    razorpay_signature: str,
+) -> PaymentTransaction:
+    provider = registry.get(provider_name)
+    try:
+        verification = provider.verify_payment_signature(
+            provider_order_id=razorpay_order_id,
+            provider_payment_id=razorpay_payment_id,
+            signature=razorpay_signature,
+        )
+    except NotImplementedError as exc:
+        raise ValidationError(f"Provider '{provider_name}' does not support payment verification.") from exc
+    from .selectors import get_transaction_by_razorpay_order_id
+
+    txn = get_transaction_by_razorpay_order_id(razorpay_order_id)
+    if txn is None:
+        raise NotFoundError("Payment transaction not found for the provided Razorpay order.")
+
+    txn.razorpay_order_id = razorpay_order_id
+    txn.razorpay_payment_id = razorpay_payment_id
+    txn.razorpay_signature = razorpay_signature
+    raw = txn.raw_response if isinstance(txn.raw_response, dict) else {}
+    raw.update(
+        {
+            "razorpay_order_id": razorpay_order_id,
+            "razorpay_payment_id": razorpay_payment_id,
+            "razorpay_signature_verified": verification.success,
+        }
+    )
+    txn.raw_response = raw
+    txn.last_error = "" if verification.success else (verification.error or "Razorpay signature verification failed.")
+
+    if verification.success:
+        txn.provider_ref = razorpay_payment_id or txn.provider_ref
+        txn.save(
+            update_fields=[
+                "provider_ref",
+                "razorpay_order_id",
+                "razorpay_payment_id",
+                "razorpay_signature",
+                "last_error",
+                "raw_response",
+                "updated_at",
+            ]
+        )
+        from .payment_service import handle_payment_success
+
+        handle_payment_success(
+            payment_data={
+                "order_id": str(txn.order_id),
+                "payment_id": razorpay_payment_id,
+                "amount": str(txn.total_amount),
+                "currency": txn.currency,
+            },
+            provider_name=provider_name,
+        )
+    else:
+        txn.save(
+            update_fields=[
+                "razorpay_order_id",
+                "razorpay_payment_id",
+                "razorpay_signature",
+                "last_error",
+                "raw_response",
+                "updated_at",
+            ]
+        )
+        from .payment_service import handle_payment_failed
+
+        handle_payment_failed(
+            payment_data={
+                "order_id": str(txn.order_id),
+                "payment_id": razorpay_payment_id,
+            },
+            provider_name=provider_name,
+        )
+
+    txn.refresh_from_db()
+    logger.info(
+        "payment_signature_verified",
+        provider=provider_name,
+        transaction_id=str(txn.id),
+        order_id=str(txn.order_id),
+        razorpay_order_id=razorpay_order_id,
+        razorpay_payment_id=razorpay_payment_id,
+        success=verification.success,
     )
     return txn
 
@@ -316,8 +489,8 @@ def _update_transaction_from_webhook(txn: PaymentTransaction, result: WebhookRes
     desired_status = status_map.get(result.status, TransactionStatus.PENDING)
 
     # ── State machine guard ───────────────────────────────────
-    allowed_success_from = {TransactionStatus.PENDING, TransactionStatus.RETRY, TransactionStatus.FAILED}
-    allowed_failed_from = {TransactionStatus.PENDING, TransactionStatus.RETRY}
+    allowed_success_from = {TransactionStatus.CREATED, TransactionStatus.PENDING, TransactionStatus.RETRY, TransactionStatus.FAILED}
+    allowed_failed_from = {TransactionStatus.CREATED, TransactionStatus.PENDING, TransactionStatus.RETRY}
 
     if desired_status == TransactionStatus.SUCCESS and txn.status == TransactionStatus.SUCCESS:
         # Idempotent: already succeeded
@@ -367,6 +540,27 @@ def _update_transaction_from_webhook(txn: PaymentTransaction, result: WebhookRes
             raw["cf_payment_id"] = result.provider_ref
         txn.raw_response = raw
         txn.save(update_fields=["status", "raw_response", "updated_at"])
+    elif txn.provider == "razorpay":
+        raw = txn.raw_response if isinstance(txn.raw_response, dict) else {}
+        provider_order_id = str((result.raw_data or {}).get("_provider_order_id") or txn.razorpay_order_id or "").strip()
+        if provider_order_id:
+            raw["razorpay_order_id"] = provider_order_id
+        if result.provider_ref:
+            raw["razorpay_payment_id"] = result.provider_ref
+        txn.provider_ref = result.provider_ref or txn.provider_ref
+        txn.razorpay_order_id = provider_order_id or txn.razorpay_order_id
+        txn.razorpay_payment_id = result.provider_ref or txn.razorpay_payment_id
+        txn.raw_response = raw
+        txn.save(
+            update_fields=[
+                "status",
+                "provider_ref",
+                "razorpay_order_id",
+                "razorpay_payment_id",
+                "raw_response",
+                "updated_at",
+            ]
+        )
     else:
         txn.provider_ref = result.provider_ref or txn.provider_ref
         txn.save(update_fields=["status", "provider_ref", "updated_at"])
@@ -517,8 +711,8 @@ def reconcile_transaction_status(*, transaction: PaymentTransaction) -> PaymentT
     new_status = status_map.get(status_result.status, TransactionStatus.PENDING)
 
     # ── State machine guard ───────────────────────────────────
-    allowed_success_from = {TransactionStatus.PENDING, TransactionStatus.RETRY, TransactionStatus.FAILED}
-    allowed_failed_from = {TransactionStatus.PENDING, TransactionStatus.RETRY}
+    allowed_success_from = {TransactionStatus.CREATED, TransactionStatus.PENDING, TransactionStatus.RETRY, TransactionStatus.FAILED}
+    allowed_failed_from = {TransactionStatus.CREATED, TransactionStatus.PENDING, TransactionStatus.RETRY}
 
     if new_status == TransactionStatus.SUCCESS and transaction.status == TransactionStatus.SUCCESS:
         return transaction  # idempotent
@@ -563,11 +757,23 @@ def reconcile_transaction_status(*, transaction: PaymentTransaction) -> PaymentT
             return transaction
 
     transaction.status = new_status
+    update_fields = ["status", "updated_at"]
     if isinstance(status_result.raw_response, dict) and status_result.raw_response:
         transaction.raw_response = status_result.raw_response
-        transaction.save(update_fields=["status", "raw_response", "updated_at"])
-    else:
-        transaction.save(update_fields=["status", "updated_at"])
+        update_fields.append("raw_response")
+    if transaction.provider == "razorpay":
+        if provider_ref.startswith("order_"):
+            transaction.razorpay_order_id = provider_ref
+        if status_result.provider_ref and status_result.provider_ref.startswith("pay_"):
+            transaction.provider_ref = status_result.provider_ref
+            transaction.razorpay_payment_id = status_result.provider_ref
+            update_fields.extend(["provider_ref", "razorpay_payment_id"])
+        elif provider_ref and provider_ref != transaction.provider_ref:
+            transaction.provider_ref = provider_ref
+            update_fields.append("provider_ref")
+        if transaction.razorpay_order_id:
+            update_fields.append("razorpay_order_id")
+    transaction.save(update_fields=list(dict.fromkeys(update_fields)))
 
     if new_status == TransactionStatus.SUCCESS and transaction.order.status in ("placed", "draft"):
         mark_paid(

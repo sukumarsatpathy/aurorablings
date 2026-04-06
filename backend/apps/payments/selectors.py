@@ -14,6 +14,19 @@ def get_transaction_by_id(txn_id) -> PaymentTransaction | None:
         return None
 
 
+def get_transaction_by_razorpay_order_id(razorpay_order_id: str) -> PaymentTransaction | None:
+    value = str(razorpay_order_id or "").strip()
+    if not value:
+        return None
+    return (
+        PaymentTransaction.objects
+        .select_related("order", "initiated_by")
+        .filter(razorpay_order_id=value)
+        .order_by("-created_at")
+        .first()
+    )
+
+
 def get_transactions_for_order(order_id) -> QuerySet:
     return (
         PaymentTransaction.objects

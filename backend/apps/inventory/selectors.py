@@ -237,6 +237,26 @@ def check_availability(variant_id, quantity: int, warehouse_id=None) -> dict:
             "quantity_available": int,
         }
     """
+    if warehouse_id is None:
+        aggregated = (
+            WarehouseStock.objects
+            .filter(variant_id=variant_id, warehouse__is_active=True)
+            .aggregate(
+                on_hand_total=Sum("on_hand"),
+                reserved_total=Sum("reserved"),
+                available_total=Sum("available"),
+            )
+        )
+        quantity_available = int(aggregated.get("available_total") or 0)
+        on_hand = int(aggregated.get("on_hand_total") or 0)
+        reserved = int(aggregated.get("reserved_total") or 0)
+        return {
+            "available": quantity_available >= quantity,
+            "on_hand": on_hand,
+            "reserved": reserved,
+            "quantity_available": quantity_available,
+        }
+
     stock = get_stock_for_variant(variant_id, warehouse_id)
     if not stock:
         return {"available": False, "on_hand": 0, "reserved": 0, "quantity_available": 0}

@@ -43,7 +43,7 @@ from apps.payments.webhooks.cashfree_webhook import (
     cashfree_webhook,
     process_cashfree_webhook_payload,
 )
-from apps.payments.providers.base import RefundResult, StatusResult
+from apps.payments.providers.base import CheckoutOrderResult, RefundResult, StatusResult, VerificationResult, WebhookResult
 from core.exceptions import ValidationError
 
 
@@ -390,6 +390,108 @@ class PaymentRetryTests(TestCase):
 
         with self.assertRaises(ValidationError):
             retry_payment(transaction=self.txn)
+
+
+class RazorpayCheckoutFlowTests(TestCase):
+    def setUp(self):
+        self.order = _make_order(payment_method=PaymentMethod.RAZORPAY)
+
+    @patch("apps.payments.services.registry")
+    def test_create_checkout_order_creates_created_transaction(self, mock_registry):
+        from apps.payments.services import create_checkout_order
+
+        mock_provider = MagicMock()
+        mock_provider.supported_currencies = ["INR"]
+        mock_provider.create_checkout_order.return_value = CheckoutOrderResult(
+            success=True,
+            provider_ref="order_test_123",
+            amount=Decimal("1000.00"),
+            currency="INR",
+            key_id="rzp_test_key",
+            raw_response={"id": "order_test_123", "key_id": "rzp_test_key"},
+        )
+        mock_registry.get.return_value = mock_provider
+
+        txn = create_checkout_order(
+            order=self.order,
+            provider_name="razorpay",
+            amount=Decimal("1000.00"),
+            currency="INR",
+        )
+
+        self.assertEqual(txn.status, TransactionStatus.CREATED)
+        self.assertEqual(txn.provider_ref, "order_test_123")
+        self.assertEqual(txn.razorpay_order_id, "order_test_123")
+
+    @patch("apps.payments.services.registry")
+    def test_verify_checkout_payment_marks_success_and_stores_ids(self, mock_registry):
+        from apps.payments.services import verify_checkout_payment
+
+        txn = _make_txn(
+            self.order,
+            provider="razorpay",
+            provider_ref="order_test_123",
+            razorpay_order_id="order_test_123",
+            status=TransactionStatus.CREATED,
+        )
+
+        mock_provider = MagicMock()
+        mock_provider.verify_payment_signature.return_value = VerificationResult(
+            success=True,
+            provider_ref="pay_test_123",
+            order_ref="order_test_123",
+            raw_response={},
+        )
+        mock_registry.get.return_value = mock_provider
+
+        verified_txn = verify_checkout_payment(
+            provider_name="razorpay",
+            razorpay_order_id="order_test_123",
+            razorpay_payment_id="pay_test_123",
+            razorpay_signature="sig_test_123",
+        )
+
+        self.assertEqual(verified_txn.status, TransactionStatus.SUCCESS)
+        self.assertEqual(verified_txn.provider_ref, "pay_test_123")
+        self.assertEqual(verified_txn.razorpay_order_id, "order_test_123")
+        self.assertEqual(verified_txn.razorpay_payment_id, "pay_test_123")
+        self.assertEqual(verified_txn.razorpay_signature, "sig_test_123")
+
+    @patch("apps.payments.services.registry")
+    def test_razorpay_webhook_updates_checkout_identifiers(self, mock_registry):
+        from apps.payments.services import handle_webhook
+
+        txn = _make_txn(
+            self.order,
+            provider="razorpay",
+            provider_ref="order_test_123",
+            razorpay_order_id="order_test_123",
+            status=TransactionStatus.CREATED,
+        )
+        mock_provider = MagicMock()
+        mock_provider.verify_webhook.return_value = WebhookResult(
+            verified=True,
+            provider_ref="pay_test_123",
+            order_ref=str(self.order.id),
+            status="success",
+            amount=Decimal("1000.00"),
+            currency="INR",
+            raw_data={"_provider_order_id": "order_test_123"},
+        )
+        mock_registry.get.return_value = mock_provider
+
+        log = handle_webhook(
+            provider_name="razorpay",
+            payload=b'{"event":"payment.captured"}',
+            headers={"x-razorpay-signature": "test"},
+        )
+
+        txn.refresh_from_db()
+        self.assertTrue(log.is_processed)
+        self.assertEqual(txn.status, TransactionStatus.SUCCESS)
+        self.assertEqual(txn.provider_ref, "pay_test_123")
+        self.assertEqual(txn.razorpay_order_id, "order_test_123")
+        self.assertEqual(txn.razorpay_payment_id, "pay_test_123")
 
 
 # ─────────────────────────────────────────────────────────────

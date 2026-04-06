@@ -8,6 +8,7 @@ class PaymentTransactionSerializer(serializers.ModelSerializer):
         model  = PaymentTransaction
         fields = [
             "id", "order", "provider", "provider_ref",
+            "razorpay_order_id", "razorpay_payment_id",
             "status", "total_amount", "refunded_amount", "amount", "currency",
             "payment_url", "client_secret",
             "retry_count", "max_retries", "can_retry",
@@ -38,6 +39,26 @@ class RetryPaymentSerializer(serializers.Serializer):
 
 class ReconcilePaymentSerializer(serializers.Serializer):
     order_id = serializers.UUIDField()
+
+
+class RazorpayCreateOrderSerializer(serializers.Serializer):
+    order_id = serializers.UUIDField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    currency = serializers.CharField(required=False, default="INR")
+
+
+class RazorpayCreateOrderResponseSerializer(serializers.Serializer):
+    transaction_id = serializers.UUIDField()
+    razorpay_order_id = serializers.CharField()
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2)
+    currency = serializers.CharField()
+    key_id = serializers.CharField()
+
+
+class RazorpayVerifyPaymentSerializer(serializers.Serializer):
+    razorpay_order_id = serializers.CharField()
+    razorpay_payment_id = serializers.CharField()
+    razorpay_signature = serializers.CharField()
 
 
 class RefundSerializer(serializers.Serializer):

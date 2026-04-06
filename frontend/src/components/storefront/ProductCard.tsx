@@ -30,7 +30,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
     try {
       const bySlug = await catalogService.getProductBySlug(product.id);
       const slugData = bySlug?.data && typeof bySlug.data === 'object' ? bySlug.data : bySlug;
-      const variants = Array.isArray(slugData?.variants) ? slugData.variants : [];
+      const variants = Array.isArray(slugData?.variants) ? slugData.variants.filter((variant: any) => variant.is_active !== false) : [];
       const selected = variants.find((variant: any) => variant.is_default) || variants[0];
       if (selected?.id) return String(selected.id);
     } catch {
@@ -39,7 +39,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
     const byId = await catalogService.getProduct(product.id);
     const idData = byId?.data && typeof byId.data === 'object' ? byId.data : byId;
-    const variants = Array.isArray(idData?.variants) ? idData.variants : [];
+    const variants = Array.isArray(idData?.variants) ? idData.variants.filter((variant: any) => variant.is_active !== false) : [];
     const selected = variants.find((variant: any) => variant.is_default) || variants[0];
     return selected?.id ? String(selected.id) : '';
   };
