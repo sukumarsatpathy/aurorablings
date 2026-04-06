@@ -90,7 +90,6 @@ export const Footer: React.FC = () => {
             <div>
               <h4 className="text-base font-bold text-foreground">Company</h4>
               <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-                <li><Link to="/about" className="hover:text-primary transition-colors">Our Story</Link></li>
                 <li><Link to="/contact-us/" className="hover:text-primary transition-colors">Contact Us</Link></li>
               </ul>
             </div>
@@ -100,16 +99,6 @@ export const Footer: React.FC = () => {
               <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
                 <li><Link to="/login" className="hover:text-primary transition-colors">SignIn</Link></li>
                 <li><Link to="/cart" className="hover:text-primary transition-colors">View Cart</Link></li>
-                <li><Link to="/shop" className="hover:text-primary transition-colors">Affiliate Program</Link></li>
-              </ul>
-            </div>
-
-            <div>
-              <h4 className="text-base font-bold text-foreground">Help</h4>
-              <ul className="mt-4 space-y-2 text-sm text-muted-foreground">
-                <li><Link to="/checkout" className="hover:text-primary transition-colors">Payments</Link></li>
-                <li><Link to="/shipping" className="hover:text-primary transition-colors">Shipping</Link></li>
-                <li><Link to="/track-order" className="hover:text-primary transition-colors">Order Tracking</Link></li>
               </ul>
             </div>
 
