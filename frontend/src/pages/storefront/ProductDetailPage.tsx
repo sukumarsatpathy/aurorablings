@@ -508,7 +508,7 @@ export const ProductDetailPage: React.FC = () => {
                       type="button"
                       onClick={handleNotifyMe}
                       disabled={notifyLoading}
-                      className="h-10 rounded-xl bg-primary text-primary-foreground hover:bg-primary/90"
+                      className="h-10 rounded-xl border border-amber-300 bg-amber-50 text-amber-700 hover:bg-amber-100"
                     >
                       {notifyLoading ? 'Submitting...' : 'Notify Me'}
                     </Button>

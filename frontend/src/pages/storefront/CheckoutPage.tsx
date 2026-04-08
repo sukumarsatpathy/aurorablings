@@ -5,7 +5,7 @@ import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Card } from '@/components/ui/Card';
 import { useCurrency } from '@/hooks/useCurrency';
-import cartService from '@/services/api/cart';
+import cartService, { type CartCouponSummary } from '@/services/api/cart';
 import ordersService from '@/services/api/orders';
 import apiClient from '@/services/api/client';
 import paymentsService from '@/services/api/payments';
@@ -13,6 +13,7 @@ import profileService, { type AddressData as ProfileAddressData } from '@/servic
 import { useAddressAutoFill } from '@/hooks/useAddressAutoFill';
 import { useTurnstileConfig } from '@/hooks/useTurnstileConfig';
 import { TurnstileWidget } from '@/components/security/TurnstileWidget';
+import { AvailableCouponsPanel } from '@/components/storefront/coupons/AvailableCouponsPanel';
 
 interface CheckoutCartItem {
   id: string;
@@ -198,6 +199,11 @@ export const CheckoutPage: React.FC = () => {
   const [couponError, setCouponError] = useState('');
   const [couponLoading, setCouponLoading] = useState(false);
   const [couponPanelOpen, setCouponPanelOpen] = useState(false);
+  const [couponListOpen, setCouponListOpen] = useState(false);
+  const [couponListLoading, setCouponListLoading] = useState(false);
+  const [couponListError, setCouponListError] = useState('');
+  const [availableCoupons, setAvailableCoupons] = useState<CartCouponSummary[]>([]);
+  const [applyingCouponCode, setApplyingCouponCode] = useState('');
   const [mobileOrderSummaryOpen, setMobileOrderSummaryOpen] = useState(false);
 
   const [shippingAddress, setShippingAddress] = useState({
@@ -255,6 +261,7 @@ export const CheckoutPage: React.FC = () => {
   const [orderError, setOrderError] = useState('');
   const [orderNotes, setOrderNotes] = useState('');
   const [contactEmail, setContactEmail] = useState('');
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
   const navigate = useNavigate();
 
   const isAuthenticated = Boolean(localStorage.getItem('auth_token'));
@@ -265,6 +272,34 @@ export const CheckoutPage: React.FC = () => {
     setAppliedCouponCode(couponCode);
     setCouponInput((prev) => prev || couponCode);
     setDiscountAmount(Number(data?.discount || 0));
+  };
+
+  const inputErrorClass = (key: string) =>
+    fieldErrors[key] ? 'border-red-500 focus-visible:ring-red-200 focus-visible:ring-2' : '';
+
+  const focusFieldByKey = (key: string) => {
+    const target = document.querySelector<HTMLElement>(`[data-field-key="${key}"]`);
+    if (!target) return;
+    target.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    if ('focus' in target) {
+      window.setTimeout(() => target.focus(), 120);
+    }
+  };
+
+  const applyValidationErrors = (errors: Record<string, string>, fallbackMessage: string) => {
+    setFieldErrors(errors);
+    setOrderError(fallbackMessage);
+    const firstKey = Object.keys(errors)[0];
+    if (firstKey) focusFieldByKey(firstKey);
+  };
+
+  const clearFieldError = (key: string) => {
+    setFieldErrors((prev) => {
+      if (!prev[key]) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
   };
 
   useEffect(() => {
@@ -298,6 +333,20 @@ export const CheckoutPage: React.FC = () => {
     const response = await cartService.getCart();
     syncCartPricing(response);
     return mapCheckoutItems(response);
+  };
+
+  const loadCoupons = async () => {
+    try {
+      setCouponListLoading(true);
+      setCouponListError('');
+      const response = await cartService.listCoupons();
+      setAvailableCoupons(Array.isArray(response?.data?.coupons) ? response.data.coupons : []);
+    } catch (error: any) {
+      setAvailableCoupons([]);
+      setCouponListError(error?.response?.data?.message || 'Unable to load coupons right now.');
+    } finally {
+      setCouponListLoading(false);
+    }
   };
 
   const loadPaymentMethods = async () => {
@@ -498,14 +547,10 @@ export const CheckoutPage: React.FC = () => {
     [subtotal, discountAmount, shippingCharge, taxAmount]
   );
   const showPaymentMethodSelection = paymentOptions.length > 1;
-  const orderActionLabel = isAuthenticated
-    ? 'Complete Purchase'
-    : authMode === 'create'
-      ? 'Create Account & Complete Order'
-      : 'Login for Prepaid Checkout';
+  const orderActionLabel = 'Proceed to Payment';
 
-  const handleApplyCoupon = async () => {
-    const code = couponInput.trim();
+  const handleApplyCoupon = async (codeOverride?: string) => {
+    const code = (codeOverride || couponInput).trim();
     if (!code) {
       setCouponError('Enter a coupon code.');
       return;
@@ -513,16 +558,27 @@ export const CheckoutPage: React.FC = () => {
 
     try {
       setCouponLoading(true);
+      setApplyingCouponCode(code.toUpperCase());
       setCouponError('');
       const response = await cartService.applyCoupon(code);
       setItems(mapCheckoutItems(response));
       syncCartPricing(response);
+      setCouponInput(code.toUpperCase());
+      if (couponListOpen) {
+        void loadCoupons();
+      }
     } catch (error: any) {
       setCouponError(error?.response?.data?.message || 'Unable to apply coupon.');
     } finally {
       setCouponLoading(false);
+      setApplyingCouponCode('');
     }
   };
+
+  useEffect(() => {
+    if (!couponListOpen) return;
+    void loadCoupons();
+  }, [couponListOpen, items.length, subtotal, appliedCouponCode]);
 
   useEffect(() => {
     let cancelled = false;
@@ -570,6 +626,18 @@ export const CheckoutPage: React.FC = () => {
     try {
       setAuthLoading(true);
       setAuthError('');
+      const validationErrors: Record<string, string> = {};
+      if (!loginForm.email.trim()) validationErrors['login.email'] = 'Email is required.';
+      if (!loginForm.password.trim()) validationErrors['login.password'] = 'Password is required.';
+      if (loginForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(loginForm.email.trim())) {
+        validationErrors['login.email'] = 'Please enter a valid email address.';
+      }
+      if (Object.keys(validationErrors).length) {
+        setFieldErrors((prev) => ({ ...prev, ...validationErrors }));
+        setAuthError('Please correct highlighted fields.');
+        focusFieldByKey(Object.keys(validationErrors)[0]);
+        return;
+      }
       if (turnstileEnabled && !loginTurnstileToken) {
         setAuthError('Please complete CAPTCHA verification.');
         return;
@@ -622,6 +690,20 @@ export const CheckoutPage: React.FC = () => {
     try {
       setAuthLoading(true);
       setAuthError('');
+      const validationErrors: Record<string, string> = {};
+      if (!registerForm.first_name.trim()) validationErrors['register.first_name'] = 'First name is required.';
+      if (!registerForm.last_name.trim()) validationErrors['register.last_name'] = 'Last name is required.';
+      if (!registerForm.email.trim()) validationErrors['register.email'] = 'Email is required.';
+      if (registerForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registerForm.email.trim())) {
+        validationErrors['register.email'] = 'Please enter a valid email address.';
+      }
+      if (!registerForm.password.trim()) validationErrors['register.password'] = 'Password is required.';
+      if (Object.keys(validationErrors).length) {
+        setFieldErrors((prev) => ({ ...prev, ...validationErrors }));
+        setAuthError('Please correct highlighted fields.');
+        focusFieldByKey(Object.keys(validationErrors)[0]);
+        return;
+      }
       if (turnstileEnabled && !registerTurnstileToken) {
         setAuthError('Please complete CAPTCHA verification.');
         return;
@@ -704,31 +786,38 @@ export const CheckoutPage: React.FC = () => {
     const normalizedPhone = String(shippingAddress.phone || '').replace(/\D/g, '');
     const normalizedPincode = String(shippingAddress.pincode || '').replace(/\D/g, '');
 
-    const missingFields: string[] = [];
-    if (!shippingAddress.full_name.trim()) missingFields.push('Full Name');
-    if (!normalizedEmail) missingFields.push('Email');
-    if (!normalizedPhone) missingFields.push('Phone');
-    if (!shippingAddress.line1.trim()) missingFields.push('Address Line 1');
-    if (!shippingAddress.city.trim()) missingFields.push('City');
-    if (!shippingAddress.state.trim()) missingFields.push('State');
-    if (!normalizedPincode) missingFields.push('ZIP / Pincode');
+    const validationErrors: Record<string, string> = {};
+    if (!shippingAddress.full_name.trim()) validationErrors['shipping.full_name'] = 'Full Name is required.';
+    if (!normalizedEmail) validationErrors['contact_email'] = 'Email is required.';
+    if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      validationErrors['contact_email'] = 'Please enter a valid email address.';
+    }
+    if (!normalizedPhone) validationErrors['shipping.phone'] = 'Phone number is required.';
+    if (normalizedPhone && normalizedPhone.length < 10) validationErrors['shipping.phone'] = 'Enter a valid phone number.';
+    if (!shippingAddress.line1.trim()) validationErrors['shipping.line1'] = 'Address Line 1 is required.';
+    if (!shippingAddress.city.trim()) validationErrors['shipping.city'] = 'City is required.';
+    if (!shippingAddress.state.trim()) validationErrors['shipping.state'] = 'State is required.';
+    if (!normalizedPincode) validationErrors['shipping.pincode'] = 'ZIP / Pincode is required.';
+    if (normalizedPincode && normalizedPincode.length !== 6) validationErrors['shipping.pincode'] = 'Enter a valid 6-digit pincode.';
 
-    if (missingFields.length > 0) {
-      setOrderError(`Please complete shipping details: ${missingFields.join(', ')}`);
+    if (!billingSameAsShipping) {
+      const billingPhone = String(billingAddress.phone || '').replace(/\D/g, '');
+      const billingPincode = String(billingAddress.pincode || '').replace(/\D/g, '');
+      if (!billingAddress.full_name.trim()) validationErrors['billing.full_name'] = 'Full Name is required.';
+      if (!billingPhone) validationErrors['billing.phone'] = 'Phone number is required.';
+      if (billingPhone && billingPhone.length < 10) validationErrors['billing.phone'] = 'Enter a valid phone number.';
+      if (!billingAddress.line1.trim()) validationErrors['billing.line1'] = 'Address Line 1 is required.';
+      if (!billingAddress.city.trim()) validationErrors['billing.city'] = 'City is required.';
+      if (!billingAddress.state.trim()) validationErrors['billing.state'] = 'State is required.';
+      if (!billingPincode) validationErrors['billing.pincode'] = 'ZIP / Pincode is required.';
+      if (billingPincode && billingPincode.length !== 6) validationErrors['billing.pincode'] = 'Enter a valid 6-digit pincode.';
+    }
+
+    if (Object.keys(validationErrors).length > 0) {
+      applyValidationErrors(validationErrors, 'Please correct highlighted fields before proceeding.');
       return;
     }
-    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
-      setOrderError('Please enter a valid email address.');
-      return;
-    }
-    if (normalizedPincode.length !== 6) {
-      setOrderError('Please enter a valid 6-digit pincode.');
-      return;
-    }
-    if (normalizedPhone.length < 10) {
-      setOrderError('Please enter a valid phone number.');
-      return;
-    }
+    setFieldErrors({});
     if (shouldCreateAccount) {
       if (!registerForm.first_name.trim() || !registerForm.last_name.trim() || !registerForm.email.trim() || !registerForm.password.trim()) {
         setOrderError('Please complete the account details to create your account during checkout.');
@@ -1033,12 +1122,46 @@ export const CheckoutPage: React.FC = () => {
                         placeholder="Enter coupon"
                         value={couponInput}
                         onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                        className="rounded-xl"
+                        className={`rounded-xl ${couponError ? 'border-red-500 focus-visible:ring-red-200 focus-visible:ring-2' : ''}`}
                       />
                       <Button type="button" variant="outline" onClick={() => void handleApplyCoupon()} disabled={couponLoading}>
                         {couponLoading ? 'Applying...' : 'Apply'}
                       </Button>
                     </div>
+                    {couponListOpen ? (
+                      <button
+                        type="button"
+                        onClick={() => setCouponListOpen(false)}
+                        className="text-xs font-semibold text-primary hover:underline"
+                      >
+                        Hide available coupons
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCouponListOpen(true);
+                          void loadCoupons();
+                        }}
+                        className="text-xs font-semibold text-primary hover:underline"
+                      >
+                        View all available coupons
+                      </button>
+                    )}
+                    {couponListOpen ? (
+                      <>
+                        <AvailableCouponsPanel
+                          coupons={availableCoupons}
+                          loading={couponListLoading}
+                          applyingCode={applyingCouponCode}
+                          onApply={(code) => {
+                            setCouponInput(code);
+                            void handleApplyCoupon(code);
+                          }}
+                        />
+                        {couponListError ? <p className="text-xs text-red-600">{couponListError}</p> : null}
+                      </>
+                    ) : null}
                     {couponError ? <p className="text-xs text-red-600">{couponError}</p> : null}
                   </div>
                 ) : null}
@@ -1082,17 +1205,29 @@ export const CheckoutPage: React.FC = () => {
                 {authMode === 'login' ? (
                   <div className="grid grid-cols-1 gap-3">
                     <Input
+                      data-field-key="login.email"
                       type="email"
                       placeholder="Email"
+                      className={inputErrorClass('login.email')}
                       value={loginForm.email}
-                      onChange={(e) => setLoginForm((prev) => ({ ...prev, email: e.target.value }))}
+                      onChange={(e) => {
+                        setLoginForm((prev) => ({ ...prev, email: e.target.value }));
+                        clearFieldError('login.email');
+                      }}
                     />
+                    {fieldErrors['login.email'] ? <p className="text-xs text-red-600">{fieldErrors['login.email']}</p> : null}
                     <Input
+                      data-field-key="login.password"
                       type="password"
                       placeholder="Password"
+                      className={inputErrorClass('login.password')}
                       value={loginForm.password}
-                      onChange={(e) => setLoginForm((prev) => ({ ...prev, password: e.target.value }))}
+                      onChange={(e) => {
+                        setLoginForm((prev) => ({ ...prev, password: e.target.value }));
+                        clearFieldError('login.password');
+                      }}
                     />
+                    {fieldErrors['login.password'] ? <p className="text-xs text-red-600">{fieldErrors['login.password']}</p> : null}
                     <TurnstileWidget
                       enabled={turnstileEnabled}
                       siteKey={turnstileSiteKey}
@@ -1106,23 +1241,41 @@ export const CheckoutPage: React.FC = () => {
                 ) : (
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                     <Input
+                      data-field-key="register.first_name"
                       type="text"
                       placeholder="First Name"
+                      className={inputErrorClass('register.first_name')}
                       value={registerForm.first_name}
-                      onChange={(e) => setRegisterForm((prev) => ({ ...prev, first_name: e.target.value }))}
+                      onChange={(e) => {
+                        setRegisterForm((prev) => ({ ...prev, first_name: e.target.value }));
+                        clearFieldError('register.first_name');
+                      }}
                     />
+                    {fieldErrors['register.first_name'] ? <p className="text-xs text-red-600 md:col-span-1">{fieldErrors['register.first_name']}</p> : null}
                     <Input
+                      data-field-key="register.last_name"
                       type="text"
                       placeholder="Last Name"
+                      className={inputErrorClass('register.last_name')}
                       value={registerForm.last_name}
-                      onChange={(e) => setRegisterForm((prev) => ({ ...prev, last_name: e.target.value }))}
+                      onChange={(e) => {
+                        setRegisterForm((prev) => ({ ...prev, last_name: e.target.value }));
+                        clearFieldError('register.last_name');
+                      }}
                     />
+                    {fieldErrors['register.last_name'] ? <p className="text-xs text-red-600 md:col-span-1">{fieldErrors['register.last_name']}</p> : null}
                     <Input
+                      data-field-key="register.email"
                       type="email"
                       placeholder="Email"
+                      className={inputErrorClass('register.email')}
                       value={registerForm.email}
-                      onChange={(e) => setRegisterForm((prev) => ({ ...prev, email: e.target.value }))}
+                      onChange={(e) => {
+                        setRegisterForm((prev) => ({ ...prev, email: e.target.value }));
+                        clearFieldError('register.email');
+                      }}
                     />
+                    {fieldErrors['register.email'] ? <p className="text-xs text-red-600 md:col-span-1">{fieldErrors['register.email']}</p> : null}
                     <Input
                       type="text"
                       placeholder="Phone"
@@ -1131,11 +1284,17 @@ export const CheckoutPage: React.FC = () => {
                     />
                     <div className="md:col-span-2">
                       <Input
+                        data-field-key="register.password"
                         type="password"
                         placeholder="Password"
+                        className={inputErrorClass('register.password')}
                         value={registerForm.password}
-                        onChange={(e) => setRegisterForm((prev) => ({ ...prev, password: e.target.value }))}
+                        onChange={(e) => {
+                          setRegisterForm((prev) => ({ ...prev, password: e.target.value }));
+                          clearFieldError('register.password');
+                        }}
                       />
+                      {fieldErrors['register.password'] ? <p className="mt-1 text-xs text-red-600">{fieldErrors['register.password']}</p> : null}
                     </div>
                     <div className="md:col-span-2">
                       <TurnstileWidget
@@ -1157,6 +1316,8 @@ export const CheckoutPage: React.FC = () => {
               </section>
             ) : null}
 
+            {isAuthenticated ? (
+              <>
             <section className="space-y-6 rounded-2xl border border-border/70 bg-white p-5 shadow-sm md:p-6">
               <div className="flex items-center gap-3 text-primary">
                 <h2 className="text-xl font-bold flex items-center gap-2">
@@ -1168,44 +1329,64 @@ export const CheckoutPage: React.FC = () => {
                 <div className="md:col-span-2 space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Full Name</label>
                   <Input
+                    data-field-key="shipping.full_name"
                     placeholder="Your name"
-                    className="rounded-xl shadow-none"
+                    className={`rounded-xl shadow-none ${inputErrorClass('shipping.full_name')}`}
                     value={shippingAddress.full_name}
-                    onChange={(e) => setShippingAddress((prev) => ({ ...prev, full_name: e.target.value }))}
+                    onChange={(e) => {
+                      setShippingAddress((prev) => ({ ...prev, full_name: e.target.value }));
+                      clearFieldError('shipping.full_name');
+                    }}
                   />
+                  {fieldErrors['shipping.full_name'] ? <p className="text-xs text-red-600">{fieldErrors['shipping.full_name']}</p> : null}
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Email</label>
                   <Input
+                    data-field-key="contact_email"
                     type="email"
                     placeholder="you@example.com"
-                    className="rounded-xl shadow-none"
+                    className={`rounded-xl shadow-none ${inputErrorClass('contact_email')}`}
                     value={contactEmail}
-                    onChange={(e) => setContactEmail(e.target.value)}
+                    onChange={(e) => {
+                      setContactEmail(e.target.value);
+                      clearFieldError('contact_email');
+                    }}
                   />
+                  {fieldErrors.contact_email ? <p className="text-xs text-red-600">{fieldErrors.contact_email}</p> : null}
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Phone</label>
                   <Input
+                    data-field-key="shipping.phone"
                     placeholder="9876543210"
-                    className="rounded-xl shadow-none"
+                    className={`rounded-xl shadow-none ${inputErrorClass('shipping.phone')}`}
                     value={shippingAddress.phone}
-                    onChange={(e) => setShippingAddress((prev) => ({ ...prev, phone: e.target.value }))}
+                    onChange={(e) => {
+                      setShippingAddress((prev) => ({ ...prev, phone: e.target.value }));
+                      clearFieldError('shipping.phone');
+                    }}
                   />
+                  {fieldErrors['shipping.phone'] ? <p className="text-xs text-red-600">{fieldErrors['shipping.phone']}</p> : null}
                 </div>
                 <div className="md:col-span-2 space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Address Line 1</label>
                   <Input
+                    data-field-key="shipping.line1"
                     placeholder="123 Aurora St."
-                    className="rounded-xl shadow-none"
+                    className={`rounded-xl shadow-none ${inputErrorClass('shipping.line1')}`}
                     value={shippingAddress.line1}
-                    onChange={(e) => setShippingAddress((prev) => ({ ...prev, line1: e.target.value }))}
+                    onChange={(e) => {
+                      setShippingAddress((prev) => ({ ...prev, line1: e.target.value }));
+                      clearFieldError('shipping.line1');
+                    }}
                   />
+                  {fieldErrors['shipping.line1'] ? <p className="text-xs text-red-600">{fieldErrors['shipping.line1']}</p> : null}
                 </div>
                 <div className="md:col-span-2 space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Address Line 2</label>
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Address Line 2 (Optional)</label>
                   <Input
-                    placeholder="Apartment, suite, landmark"
+                    placeholder="Apartment, suite, landmark (optional)"
                     className="rounded-xl shadow-none"
                     value={shippingAddress.line2}
                     onChange={(e) => setShippingAddress((prev) => ({ ...prev, line2: e.target.value }))}
@@ -1214,13 +1395,18 @@ export const CheckoutPage: React.FC = () => {
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">ZIP / Pincode</label>
                   <Input
+                    data-field-key="shipping.pincode"
                     placeholder="560001"
-                    className="rounded-xl shadow-none"
+                    className={`rounded-xl shadow-none ${inputErrorClass('shipping.pincode')}`}
                     value={shippingAddress.pincode}
                     onChange={(e) =>
-                      setShippingAddress((prev) => ({ ...prev, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))
+                      {
+                        setShippingAddress((prev) => ({ ...prev, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }));
+                        clearFieldError('shipping.pincode');
+                      }
                     }
                   />
+                  {fieldErrors['shipping.pincode'] ? <p className="text-xs text-red-600">{fieldErrors['shipping.pincode']}</p> : null}
                   {shippingAutoFill.isLoading ? <p className="text-xs text-muted-foreground">Detecting location...</p> : null}
                   {shippingAutoFill.locationLabel ? <p className="text-xs text-emerald-700">{shippingAutoFill.locationLabel}</p> : null}
                   {shippingAutoFill.error ? <p className="text-xs text-amber-700">{shippingAutoFill.error}</p> : null}
@@ -1264,22 +1450,32 @@ export const CheckoutPage: React.FC = () => {
                     ) : null}
                   </div>
                   <Input
+                    data-field-key="shipping.city"
                     placeholder="City"
-                    className="rounded-xl shadow-none"
+                    className={`rounded-xl shadow-none ${inputErrorClass('shipping.city')}`}
                     value={shippingAddress.city}
                     disabled={shippingFieldsLocked}
-                    onChange={(e) => setShippingAddress((prev) => ({ ...prev, city: e.target.value }))}
+                    onChange={(e) => {
+                      setShippingAddress((prev) => ({ ...prev, city: e.target.value }));
+                      clearFieldError('shipping.city');
+                    }}
                   />
+                  {fieldErrors['shipping.city'] ? <p className="text-xs text-red-600">{fieldErrors['shipping.city']}</p> : null}
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">State</label>
                   <Input
+                    data-field-key="shipping.state"
                     placeholder="State / Province"
-                    className="rounded-xl shadow-none"
+                    className={`rounded-xl shadow-none ${inputErrorClass('shipping.state')}`}
                     value={shippingAddress.state}
                     disabled={shippingFieldsLocked}
-                    onChange={(e) => setShippingAddress((prev) => ({ ...prev, state: e.target.value }))}
+                    onChange={(e) => {
+                      setShippingAddress((prev) => ({ ...prev, state: e.target.value }));
+                      clearFieldError('shipping.state');
+                    }}
                   />
+                  {fieldErrors['shipping.state'] ? <p className="text-xs text-red-600">{fieldErrors['shipping.state']}</p> : null}
                 </div>
                 <div className="space-y-2">
                   <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Country</label>
@@ -1308,18 +1504,31 @@ export const CheckoutPage: React.FC = () => {
 
               {!billingSameAsShipping ? (
                 <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                  <Input placeholder="Full Name" value={billingAddress.full_name} onChange={(e) => setBillingAddress((p) => ({ ...p, full_name: e.target.value }))} />
-                  <Input placeholder="Phone" value={billingAddress.phone} onChange={(e) => setBillingAddress((p) => ({ ...p, phone: e.target.value }))} />
-                  <div className="md:col-span-2"><Input placeholder="Address Line 1" value={billingAddress.line1} onChange={(e) => setBillingAddress((p) => ({ ...p, line1: e.target.value }))} /></div>
-                  <div className="md:col-span-2"><Input placeholder="Address Line 2" value={billingAddress.line2} onChange={(e) => setBillingAddress((p) => ({ ...p, line2: e.target.value }))} /></div>
+                  <div className="space-y-1">
+                    <Input data-field-key="billing.full_name" placeholder="Full Name" className={inputErrorClass('billing.full_name')} value={billingAddress.full_name} onChange={(e) => { setBillingAddress((p) => ({ ...p, full_name: e.target.value })); clearFieldError('billing.full_name'); }} />
+                    {fieldErrors['billing.full_name'] ? <p className="text-xs text-red-600">{fieldErrors['billing.full_name']}</p> : null}
+                  </div>
+                  <div className="space-y-1">
+                    <Input data-field-key="billing.phone" placeholder="Phone" className={inputErrorClass('billing.phone')} value={billingAddress.phone} onChange={(e) => { setBillingAddress((p) => ({ ...p, phone: e.target.value })); clearFieldError('billing.phone'); }} />
+                    {fieldErrors['billing.phone'] ? <p className="text-xs text-red-600">{fieldErrors['billing.phone']}</p> : null}
+                  </div>
+                  <div className="md:col-span-2 space-y-1">
+                    <Input data-field-key="billing.line1" placeholder="Address Line 1" className={inputErrorClass('billing.line1')} value={billingAddress.line1} onChange={(e) => { setBillingAddress((p) => ({ ...p, line1: e.target.value })); clearFieldError('billing.line1'); }} />
+                    {fieldErrors['billing.line1'] ? <p className="text-xs text-red-600">{fieldErrors['billing.line1']}</p> : null}
+                  </div>
+                  <div className="md:col-span-2"><Input placeholder="Address Line 2 (Optional)" value={billingAddress.line2} onChange={(e) => setBillingAddress((p) => ({ ...p, line2: e.target.value }))} /></div>
                   <div className="md:col-span-2 space-y-2">
                     <Input
+                      data-field-key="billing.pincode"
                       placeholder="Pincode"
+                      className={inputErrorClass('billing.pincode')}
                       value={billingAddress.pincode}
-                      onChange={(e) =>
-                        setBillingAddress((p) => ({ ...p, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }))
-                      }
+                      onChange={(e) => {
+                        setBillingAddress((p) => ({ ...p, pincode: e.target.value.replace(/\D/g, '').slice(0, 6) }));
+                        clearFieldError('billing.pincode');
+                      }}
                     />
+                    {fieldErrors['billing.pincode'] ? <p className="text-xs text-red-600">{fieldErrors['billing.pincode']}</p> : null}
                     {billingAutoFill.isLoading ? <p className="text-xs text-muted-foreground">Detecting location...</p> : null}
                     {billingAutoFill.locationLabel ? <p className="text-xs text-emerald-700">{billingAutoFill.locationLabel}</p> : null}
                     {billingAutoFill.error ? <p className="text-xs text-amber-700">{billingAutoFill.error}</p> : null}
@@ -1352,18 +1561,32 @@ export const CheckoutPage: React.FC = () => {
                       ) : null}
                     </div>
                     <Input
+                      data-field-key="billing.city"
                       placeholder="City"
+                      className={inputErrorClass('billing.city')}
                       value={billingAddress.city}
                       disabled={billingFieldsLocked}
-                      onChange={(e) => setBillingAddress((p) => ({ ...p, city: e.target.value }))}
+                      onChange={(e) => {
+                        setBillingAddress((p) => ({ ...p, city: e.target.value }));
+                        clearFieldError('billing.city');
+                      }}
                     />
+                    {fieldErrors['billing.city'] ? <p className="text-xs text-red-600">{fieldErrors['billing.city']}</p> : null}
                   </div>
-                  <Input
-                    placeholder="State"
-                    value={billingAddress.state}
-                    disabled={billingFieldsLocked}
-                    onChange={(e) => setBillingAddress((p) => ({ ...p, state: e.target.value }))}
-                  />
+                  <div className="space-y-1">
+                    <Input
+                      data-field-key="billing.state"
+                      placeholder="State"
+                      className={inputErrorClass('billing.state')}
+                      value={billingAddress.state}
+                      disabled={billingFieldsLocked}
+                      onChange={(e) => {
+                        setBillingAddress((p) => ({ ...p, state: e.target.value }));
+                        clearFieldError('billing.state');
+                      }}
+                    />
+                    {fieldErrors['billing.state'] ? <p className="text-xs text-red-600">{fieldErrors['billing.state']}</p> : null}
+                  </div>
                 </div>
               ) : null}
             </section>
@@ -1409,6 +1632,8 @@ export const CheckoutPage: React.FC = () => {
               />
               <p className="text-xs text-muted-foreground">{orderNotes.length}/500</p>
             </section>
+              </>
+            ) : null}
           </div>
 
           <div className="hidden lg:col-span-5 lg:block">
@@ -1469,12 +1694,46 @@ export const CheckoutPage: React.FC = () => {
                           placeholder="Enter coupon"
                           value={couponInput}
                           onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
-                          className="rounded-xl"
+                          className={`rounded-xl ${couponError ? 'border-red-500 focus-visible:ring-red-200 focus-visible:ring-2' : ''}`}
                         />
                         <Button type="button" variant="outline" onClick={() => void handleApplyCoupon()} disabled={couponLoading}>
                           {couponLoading ? 'Applying...' : 'Apply'}
                         </Button>
                       </div>
+                      {couponListOpen ? (
+                        <button
+                          type="button"
+                          onClick={() => setCouponListOpen(false)}
+                          className="text-xs font-semibold text-primary hover:underline"
+                        >
+                          Hide available coupons
+                        </button>
+                      ) : (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setCouponListOpen(true);
+                            void loadCoupons();
+                          }}
+                          className="text-xs font-semibold text-primary hover:underline"
+                        >
+                          View all available coupons
+                        </button>
+                      )}
+                      {couponListOpen ? (
+                        <>
+                          <AvailableCouponsPanel
+                            coupons={availableCoupons}
+                            loading={couponListLoading}
+                            applyingCode={applyingCouponCode}
+                            onApply={(code) => {
+                              setCouponInput(code);
+                              void handleApplyCoupon(code);
+                            }}
+                          />
+                          {couponListError ? <p className="text-xs text-red-600">{couponListError}</p> : null}
+                        </>
+                      ) : null}
                       {appliedCouponCode ? <p className="text-xs text-emerald-700">Applied coupon: {appliedCouponCode}</p> : null}
                       {couponError ? <p className="text-xs text-red-600">{couponError}</p> : null}
                     </>
@@ -1500,7 +1759,7 @@ export const CheckoutPage: React.FC = () => {
               <Button
                 size="lg"
                 className="w-full rounded-xl h-14 text-lg"
-                disabled={placingOrder || cartLoading || items.length === 0}
+                disabled={!isAuthenticated || placingOrder || cartLoading || items.length === 0}
                 onClick={() => void placeOrder()}
               >
                 {placingOrder ? 'Placing Order...' : orderActionLabel}
@@ -1523,7 +1782,7 @@ export const CheckoutPage: React.FC = () => {
           <Button
             size="lg"
             className="h-11 min-w-[188px] rounded-xl px-5 text-sm"
-            disabled={placingOrder || cartLoading || items.length === 0}
+            disabled={!isAuthenticated || placingOrder || cartLoading || items.length === 0}
             onClick={() => void placeOrder()}
           >
             {placingOrder ? 'Placing Order...' : orderActionLabel}

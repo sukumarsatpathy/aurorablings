@@ -6,8 +6,9 @@ import { useCurrency } from '@/hooks/useCurrency';
 import { gsap, shouldAnimate } from '@/animations/gsapConfig';
 import { useSectionTransition } from '@/animations/useSectionTransition';
 import { useStagger } from '@/animations/useStagger';
-import cartService from '@/services/api/cart';
+import cartService, { type CartCouponSummary } from '@/services/api/cart';
 import { useAddressAutoFill } from '@/hooks/useAddressAutoFill';
+import { AvailableCouponsPanel } from '@/components/storefront/coupons/AvailableCouponsPanel';
 
 interface CartItem {
   id: string;
@@ -43,8 +44,15 @@ export const CartPage: React.FC = () => {
   const [cartLoading, setCartLoading] = useState(true);
   const [couponOpen, setCouponOpen] = useState(false);
   const [couponCode, setCouponCode] = useState('');
-  const [couponPercent, setCouponPercent] = useState(0);
+  const [appliedCouponCode, setAppliedCouponCode] = useState('');
+  const [discountAmount, setDiscountAmount] = useState(0);
   const [couponError, setCouponError] = useState('');
+  const [couponApplyLoading, setCouponApplyLoading] = useState(false);
+  const [couponListOpen, setCouponListOpen] = useState(false);
+  const [couponListLoading, setCouponListLoading] = useState(false);
+  const [couponListError, setCouponListError] = useState('');
+  const [availableCoupons, setAvailableCoupons] = useState<CartCouponSummary[]>([]);
+  const [applyingCouponCode, setApplyingCouponCode] = useState('');
   const [shippingAddress, setShippingAddress] = useState({
     country: 'India',
     state: 'Odisha',
@@ -86,14 +94,39 @@ export const CartPage: React.FC = () => {
   useSectionTransition(rootRef);
   useStagger(listRef, { itemSelector: '[data-cart-item]', stagger: 0.06, y: 12, duration: 0.45 });
 
+  const syncCartPricing = (payload: any) => {
+    const data = payload?.data || {};
+    const nextCode = String(data?.coupon_code || '').trim();
+    setAppliedCouponCode(nextCode);
+    setCouponCode((prev) => prev || nextCode);
+    setDiscountAmount(Number(data?.discount || 0));
+  };
+
   const loadCart = async () => {
     try {
       const response = await cartService.getCart();
       setItems(mapCartItems(response));
+      syncCartPricing(response);
     } catch {
       setItems([]);
+      setAppliedCouponCode('');
+      setDiscountAmount(0);
     } finally {
       setCartLoading(false);
+    }
+  };
+
+  const loadCoupons = async () => {
+    try {
+      setCouponListLoading(true);
+      setCouponListError('');
+      const response = await cartService.listCoupons();
+      setAvailableCoupons(Array.isArray(response?.data?.coupons) ? response.data.coupons : []);
+    } catch (error: any) {
+      setAvailableCoupons([]);
+      setCouponListError(error?.response?.data?.message || 'Unable to load coupons right now.');
+    } finally {
+      setCouponListLoading(false);
     }
   };
 
@@ -113,8 +146,12 @@ export const CartPage: React.FC = () => {
   }, []);
 
   const subtotal = useMemo(() => items.reduce((acc, item) => acc + item.price * item.quantity, 0), [items]);
-  const discount = Number(((subtotal * couponPercent) / 100).toFixed(2));
-  const total = Math.max(0, subtotal + shippingCharge + taxAmount - discount);
+  const total = Math.max(0, subtotal + shippingCharge + taxAmount - discountAmount);
+
+  useEffect(() => {
+    if (!couponListOpen) return;
+    void loadCoupons();
+  }, [couponListOpen, items.length, subtotal, appliedCouponCode]);
 
   useEffect(() => {
     let isCancelled = false;
@@ -159,27 +196,48 @@ export const CartPage: React.FC = () => {
     };
   }, [items, shippingAddress.country, shippingAddress.state, shippingAddress.pincode]);
 
-  const applyCoupon = () => {
-    const normalized = couponCode.trim().toUpperCase();
-    const ruleMap: Record<string, number> = {
-      AURORA10: 10,
-      SAVE15: 15,
-      BLING20: 20,
-    };
-    const matched = ruleMap[normalized] || 0;
-    if (!matched) {
-      setCouponError('Invalid coupon code');
-      setCouponPercent(0);
+  const applyCoupon = async (codeOverride?: string) => {
+    const normalized = (codeOverride || couponCode).trim().toUpperCase();
+    if (!normalized) {
+      setCouponError('Enter a coupon code.');
       return;
     }
-    setCouponError('');
-    setCouponPercent(matched);
+
+    try {
+      setCouponApplyLoading(true);
+      setApplyingCouponCode(codeOverride ? normalized : '');
+      setCouponError('');
+      const response = await cartService.applyCoupon(normalized);
+      setItems(mapCartItems(response));
+      syncCartPricing(response);
+      setCouponCode(normalized);
+      if (couponListOpen) {
+        void loadCoupons();
+      }
+    } catch (error: any) {
+      setCouponError(error?.response?.data?.message || 'Invalid coupon code');
+    } finally {
+      setCouponApplyLoading(false);
+      setApplyingCouponCode('');
+    }
   };
 
-  const clearCoupon = () => {
-    setCouponCode('');
-    setCouponPercent(0);
-    setCouponError('');
+  const clearCoupon = async () => {
+    try {
+      setCouponApplyLoading(true);
+      setCouponError('');
+      const response = await cartService.removeCoupon();
+      setItems(mapCartItems(response));
+      syncCartPricing(response);
+      setCouponCode('');
+      if (couponListOpen) {
+        void loadCoupons();
+      }
+    } catch (error: any) {
+      setCouponError(error?.response?.data?.message || 'Unable to remove coupon.');
+    } finally {
+      setCouponApplyLoading(false);
+    }
   };
 
   const updateQuantity = async (id: string, delta: number) => {
@@ -348,28 +406,66 @@ export const CartPage: React.FC = () => {
                     onClick={() => setCouponOpen((prev) => !prev)}
                     className="font-semibold text-primary hover:underline"
                   >
-                    {couponPercent > 0 ? `${couponPercent}% Applied` : 'Apply Coupon'}
+                    {appliedCouponCode ? `${appliedCouponCode} Applied` : 'Apply Coupon'}
                   </button>
                 </div>
                 {couponOpen ? (
-                  <div className="rounded-xl border border-border bg-white p-2.5">
+                  <div className="rounded-xl border border-border bg-white p-2.5 space-y-2.5">
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
                         value={couponCode}
                         onChange={(event) => setCouponCode(event.target.value)}
                         placeholder="Enter coupon code"
-                        className="h-9 flex-1 rounded-lg border border-border px-3 text-sm"
+                        className={`h-9 flex-1 rounded-lg border px-3 text-sm ${couponError ? 'border-red-500 focus:ring-2 focus:ring-red-200' : 'border-border'}`}
                       />
-                      <Button type="button" onClick={applyCoupon} className="h-9 rounded-lg px-3 text-xs">
-                        Apply
+                      <Button
+                        type="button"
+                        onClick={() => void applyCoupon()}
+                        disabled={couponApplyLoading}
+                        className="h-9 rounded-lg px-3 text-xs"
+                      >
+                        {couponApplyLoading ? 'Applying...' : 'Apply'}
                       </Button>
-                      {couponPercent > 0 ? (
-                        <Button type="button" variant="outline" onClick={clearCoupon} className="h-9 rounded-lg px-3 text-xs">
-                          Clear
+                      {appliedCouponCode ? (
+                        <Button type="button" variant="outline" onClick={() => void clearCoupon()} className="h-9 rounded-lg px-3 text-xs">
+                          Reset
                         </Button>
                       ) : null}
                     </div>
+                    {couponListOpen ? (
+                      <button
+                        type="button"
+                        onClick={() => setCouponListOpen(false)}
+                        className="text-xs font-semibold text-primary hover:underline"
+                      >
+                        Hide available coupons
+                      </button>
+                    ) : (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCouponListOpen(true);
+                          void loadCoupons();
+                        }}
+                        className="text-xs font-semibold text-primary hover:underline"
+                      >
+                        View all available coupons
+                      </button>
+                    )}
+                    {couponListOpen ? (
+                      <>
+                        <AvailableCouponsPanel
+                          coupons={availableCoupons}
+                          loading={couponListLoading}
+                          applyingCode={applyingCouponCode}
+                          onApply={(code) => {
+                            void applyCoupon(code);
+                          }}
+                        />
+                        {couponListError ? <p className="text-xs text-red-600">{couponListError}</p> : null}
+                      </>
+                    ) : null}
                     {couponError ? <p className="mt-1.5 text-xs text-red-600">{couponError}</p> : null}
                   </div>
                 ) : null}
@@ -384,7 +480,81 @@ export const CartPage: React.FC = () => {
 
           <section className="lg:col-span-8">
             <div ref={listRef} className="rounded-3xl border border-border bg-white/85 backdrop-blur-sm overflow-hidden">
-              <div className="overflow-x-auto">
+              <div className="md:hidden divide-y divide-border/70">
+                {items.map((item) => (
+                  <article
+                    key={item.id}
+                    data-cart-item
+                    className="p-4"
+                  >
+                    <div className="flex gap-3">
+                      <Link
+                        to={item.productSlug ? `/product/${item.productSlug}` : '/products/'}
+                        className="shrink-0"
+                      >
+                        <img
+                          src={item.image}
+                          alt={item.name}
+                          className="h-24 w-20 rounded-2xl border border-border object-cover"
+                        />
+                      </Link>
+
+                      <div className="min-w-0 flex-1">
+                        <Link
+                          to={item.productSlug ? `/product/${item.productSlug}` : '/products/'}
+                          className="block"
+                        >
+                          <p className="line-clamp-2 text-sm font-semibold text-foreground">{item.name}</p>
+                          <p className="mt-1 text-xs text-muted-foreground">{item.variant}</p>
+                        </Link>
+
+                        <div className="mt-3 flex items-center justify-between gap-3">
+                          <div>
+                            <p className="text-sm font-semibold text-foreground">{formatCurrency(item.price)}</p>
+                            <p className="mt-0.5 text-xs text-muted-foreground">
+                              Total: {formatCurrency(item.price * item.quantity)}
+                            </p>
+                          </div>
+
+                          <div className="inline-flex items-center rounded-xl border border-border bg-white overflow-hidden">
+                            <button
+                              type="button"
+                              onClick={() => void updateQuantity(item.id, -1)}
+                              className="px-3 py-2 hover:bg-muted"
+                              aria-label={`Decrease quantity of ${item.name}`}
+                            >
+                              <Minus size={14} />
+                            </button>
+                            <span className="w-10 text-center text-sm font-semibold">{item.quantity}</span>
+                            <button
+                              type="button"
+                              onClick={() => void updateQuantity(item.id, 1)}
+                              className="px-3 py-2 hover:bg-muted"
+                              aria-label={`Increase quantity of ${item.name}`}
+                            >
+                              <Plus size={14} />
+                            </button>
+                          </div>
+                        </div>
+
+                        <div className="mt-3 flex items-center justify-between">
+                          <span className="text-xs text-muted-foreground">Qty: {item.quantity}</span>
+                          <button
+                            type="button"
+                            onClick={() => void removeItem(item.id)}
+                            className="inline-flex items-center gap-1 text-sm font-medium text-muted-foreground transition-colors hover:text-red-600"
+                          >
+                            <Trash2 size={16} />
+                            Remove
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </article>
+                ))}
+              </div>
+
+              <div className="hidden md:block overflow-x-auto">
                 <table className="w-full min-w-[760px]">
                   <thead>
                     <tr className="border-b border-border bg-white/90">
@@ -439,7 +609,7 @@ export const CartPage: React.FC = () => {
               </div>
             </div>
 
-            <div className="mt-5">
+            <div className="mt-5 hidden md:block">
               <Link to="/checkout">
                 <Button className="h-11 rounded-xl px-6 bg-primary text-primary-foreground hover:bg-primary/90">
                   Check Out <ArrowRight size={16} />
@@ -447,6 +617,20 @@ export const CartPage: React.FC = () => {
               </Link>
             </div>
           </section>
+        </div>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-white/95 px-4 py-3 shadow-[0_-10px_30px_rgba(15,23,42,0.08)] backdrop-blur md:hidden">
+        <div className="mx-auto flex max-w-3xl items-center justify-between gap-3">
+          <div className="min-w-0">
+            <p className="text-xs text-muted-foreground">{items.length} item{items.length === 1 ? '' : 's'}</p>
+            <p className="truncate text-base font-bold text-foreground">{formatCurrency(total)}</p>
+          </div>
+          <Link to="/checkout" className="shrink-0">
+            <Button className="h-11 rounded-xl px-5 bg-primary text-primary-foreground hover:bg-primary/90">
+              Check Out <ArrowRight size={16} />
+            </Button>
+          </Link>
         </div>
       </div>
     </div>

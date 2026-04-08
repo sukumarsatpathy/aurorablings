@@ -391,6 +391,26 @@ def apply_coupon(*, cart: Cart, coupon_code: str, user=None, request=None) -> Ca
     return cart
 
 
+@transaction.atomic
+def remove_coupon(*, cart: Cart, user=None, request=None) -> Cart:
+    previous_code = str(cart.coupon_code or "").strip()
+    cart.coupon_code = ""
+    cart.save(update_fields=["coupon_code", "updated_at"])
+    if previous_code:
+        logger.info("cart_coupon_removed", cart_id=str(cart.id), coupon_code=previous_code)
+        log_activity(
+            user=user if user and getattr(user, "is_authenticated", False) else None,
+            actor_type=ActorType.CUSTOMER if user and getattr(user, "is_authenticated", False) else ActorType.SYSTEM,
+            action=AuditAction.UPDATE,
+            entity_type="coupon",
+            entity_id=previous_code,
+            description=f"Removed coupon {previous_code} from cart",
+            metadata={"cart_id": str(cart.id), "coupon_code": previous_code},
+            request=request,
+        )
+    return cart
+
+
 # ─────────────────────────────────────────────────────────────
 #  Private helpers
 # ─────────────────────────────────────────────────────────────

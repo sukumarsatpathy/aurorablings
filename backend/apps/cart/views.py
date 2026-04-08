@@ -9,13 +9,17 @@ Cart identification via request:
 All endpoints return the full CartReadSerializer response on success so
 the client always has the latest cart state after any mutation.
 """
+from decimal import Decimal
+
 from rest_framework.permissions import AllowAny, IsAuthenticated
 from rest_framework.views import APIView
 
 from core.response import success_response, error_response
-from core.exceptions import NotFoundError
+from core.exceptions import NotFoundError, ValidationError as CoreValidationError
 from core.logging import get_logger
 from apps.pricing.services import PricingService
+from apps.pricing.models import Coupon
+from apps.pricing.coupons.services import CouponService
 
 from . import services, selectors
 from .serializers import (
@@ -94,6 +98,46 @@ def _cart_response(cart, request=None, message=None, coupon_code: str = ""):
         message=message,
         request_id=getattr(request, "request_id", None),
     )
+
+
+def _coupon_error_message(exc: Exception) -> str:
+    detail = getattr(exc, "detail", None)
+    if isinstance(detail, dict):
+        return "; ".join(str(value) for value in detail.values())
+    if isinstance(detail, (list, tuple)):
+        return "; ".join(str(value) for value in detail)
+    return str(detail or exc)
+
+
+def _serialize_coupon_option(*, coupon, cart, user, applied_code: str) -> dict:
+    is_eligible = True
+    disabled_reason = ""
+    estimated_discount = Decimal("0")
+
+    try:
+        CouponService.validate_coupon(coupon=coupon, user=user, cart=cart)
+        estimated_discount = CouponService.calculate_discount(coupon=coupon, cart=cart)
+    except CoreValidationError as exc:
+        is_eligible = False
+        disabled_reason = _coupon_error_message(exc)
+
+    return {
+        "id": str(coupon.id),
+        "code": coupon.code,
+        "discount_type": coupon.type,
+        "value": str(coupon.value),
+        "max_discount": str(coupon.max_discount) if coupon.max_discount is not None else None,
+        "min_order_amount": str(coupon.min_order_value),
+        "usage_limit": coupon.usage_limit,
+        "per_user_limit": coupon.per_user_limit,
+        "valid_from": coupon.start_date.isoformat(),
+        "valid_to": coupon.end_date.isoformat(),
+        "is_active": coupon.is_active,
+        "is_eligible": is_eligible,
+        "disabled_reason": disabled_reason,
+        "estimated_discount": str(estimated_discount),
+        "is_applied": coupon.code.upper() == applied_code.upper() if applied_code else False,
+    }
 
 
 # ─────────────────────────────────────────────────────────────
@@ -302,3 +346,49 @@ class CartApplyCouponView(APIView):
             request=request,
         )
         return _cart_response(cart, request, message="Coupon applied.", coupon_code=coupon_code)
+
+
+class CartRemoveCouponView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        cart = _resolve_cart(request)
+        if not cart:
+            raise NotFoundError("No active cart.")
+
+        services.remove_coupon(
+            cart=cart,
+            user=request.user if request.user.is_authenticated else None,
+            request=request,
+        )
+        return _cart_response(cart, request, message="Coupon removed.")
+
+
+class CartCouponListView(APIView):
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        cart = _resolve_cart(request)
+        if not cart:
+            return success_response(
+                data={
+                    "coupons": [],
+                    "applied_coupon_code": None,
+                },
+                request_id=getattr(request, "request_id", None),
+            )
+
+        queryset = Coupon.objects.filter(is_active=True).order_by("-created_at")
+        applied_code = str(getattr(cart, "coupon_code", "") or "").strip()
+        user = request.user if request.user.is_authenticated else None
+        coupons = [
+            _serialize_coupon_option(coupon=coupon, cart=cart, user=user, applied_code=applied_code)
+            for coupon in queryset
+        ]
+        return success_response(
+            data={
+                "coupons": coupons,
+                "applied_coupon_code": applied_code or None,
+            },
+            request_id=getattr(request, "request_id", None),
+        )

@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8" />
+    <title>{{ title }}</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <meta name="description" content="{{ description }}" />
+
+    <meta property="og:type" content="product" />
+    <meta property="og:site_name" content="{{ site_name }}" />
+    <meta property="og:title" content="{{ title }}" />
+    <meta property="og:description" content="{{ description }}" />
+    <meta property="og:url" content="{{ share_url }}" />
+    {% if image_url %}
+    <meta property="og:image" content="{{ image_url }}" />
+    <meta property="og:image:secure_url" content="{{ image_url }}" />
+    <meta property="og:image:alt" content="{{ image_alt }}" />
+    {% endif %}
+
+    <meta name="twitter:card" content="{% if image_url %}summary_large_image{% else %}summary{% endif %}" />
+    <meta name="twitter:title" content="{{ title }}" />
+    <meta name="twitter:description" content="{{ description }}" />
+    {% if image_url %}
+    <meta name="twitter:image" content="{{ image_url }}" />
+    <meta name="twitter:image:alt" content="{{ image_alt }}" />
+    {% endif %}
+
+    <link rel="canonical" href="{{ share_url }}" />
+    <meta http-equiv="refresh" content="0; url={{ share_url }}" />
+
+    <style>
+      body {
+        margin: 0;
+        font-family: Arial, sans-serif;
+        background: #f7f8f4;
+        color: #1f2937;
+        display: grid;
+        min-height: 100vh;
+        place-items: center;
+      }
+      .card {
+        width: min(560px, calc(100vw - 32px));
+        background: #ffffff;
+        border: 1px solid #e5e7eb;
+        border-radius: 24px;
+        padding: 24px;
+        box-shadow: 0 18px 48px rgba(15, 23, 42, 0.08);
+      }
+      .eyebrow {
+        color: #517b4b;
+        font-size: 12px;
+        font-weight: 700;
+        letter-spacing: 0.14em;
+        text-transform: uppercase;
+      }
+      h1 {
+        margin: 12px 0 8px;
+        font-size: 28px;
+        line-height: 1.15;
+      }
+      p {
+        margin: 0;
+        color: #4b5563;
+        line-height: 1.6;
+      }
+      a {
+        display: inline-block;
+        margin-top: 18px;
+        color: #517b4b;
+        font-weight: 700;
+        text-decoration: none;
+      }
+    </style>
+  </head>
+  <body>
+    <main class="card">
+      <div class="eyebrow">{{ brand_name }}</div>
+      <h1>{{ title }}</h1>
+      <p>{{ description }}</p>
+      <a href="{{ share_url }}">Open product</a>
+    </main>
+    <script>
+      window.location.replace("{{ share_url|escapejs }}");
+    </script>
+  </body>
+</html>

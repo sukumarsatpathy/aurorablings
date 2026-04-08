@@ -15,4 +15,6 @@ urlpatterns = [
     path("merge/",    views.CartMergeView.as_view(),    name="merge"),
     path("validate/", views.CartValidateView.as_view(), name="validate"),
     path("apply-coupon/", views.CartApplyCouponView.as_view(), name="apply-coupon"),
+    path("remove-coupon/", views.CartRemoveCouponView.as_view(), name="remove-coupon"),
+    path("coupons/", views.CartCouponListView.as_view(), name="coupon-list"),
 ]

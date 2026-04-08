@@ -7,9 +7,12 @@ from drf_spectacular.views import (
     SpectacularRedocView,
     SpectacularSwaggerView,
 )
+from apps.catalog import share_views as catalog_share_views
 from apps.features.views import PublicRuntimeSettingsView
 
 urlpatterns = [
+    path("product/<slug:product_ref>", catalog_share_views.product_share_view, name="product-share"),
+    path("product/<slug:product_ref>/", catalog_share_views.product_share_view, name="product-share-slash"),
     path("health/", include("apps.health.deploy_urls", namespace="public_health")),
     path("api/settings/public", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings"),
     path("api/settings/public/", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings-slash"),

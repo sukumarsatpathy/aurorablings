@@ -16,6 +16,33 @@ interface DealProductCardProps {
   product: DealProduct;
 }
 
+interface CardCartState {
+  itemId: string;
+  quantity: number;
+}
+
+interface CartSnapshotItem {
+  variant_id?: string;
+  id?: string;
+  quantity?: number;
+}
+
+let sharedCartSnapshotRequest: Promise<unknown> | null = null;
+
+const getSharedCartSnapshot = async (): Promise<unknown> => {
+  if (!sharedCartSnapshotRequest) {
+    sharedCartSnapshotRequest = cartService.getCart().finally(() => {
+      sharedCartSnapshotRequest = null;
+    });
+  }
+  return sharedCartSnapshotRequest;
+};
+
+const extractCartItems = (payload: unknown): CartSnapshotItem[] => {
+  const response = payload as { data?: { items?: CartSnapshotItem[] } } | null;
+  return Array.isArray(response?.data?.items) ? response.data.items : [];
+};
+
 const getBackendOrigin = (): string => {
   const baseURL = import.meta.env.VITE_API_BASE_URL as string | undefined;
   const explicitBackendOrigin = import.meta.env.VITE_BACKEND_ORIGIN as string | undefined;
@@ -77,6 +104,9 @@ const extractProduct = (payload: unknown): CatalogProductDetail | null => {
   return null;
 };
 
+const isUuid = (value: string): boolean =>
+  /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+
 export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [quickViewOpen, setQuickViewOpen] = useState(false);
@@ -94,14 +124,18 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
   const [notifySubmitted, setNotifySubmitted] = useState(false);
   const [notifyLoading, setNotifyLoading] = useState(false);
   const [notifyError, setNotifyError] = useState('');
-  const [cardAddSuccess, setCardAddSuccess] = useState('');
   const [cardAddError, setCardAddError] = useState('');
+  const [cardCartState, setCardCartState] = useState<CardCartState>({ itemId: '', quantity: 0 });
+  const [cardCartLoading, setCardCartLoading] = useState(false);
+  const [resolvedCardVariantId, setResolvedCardVariantId] = useState('');
   const { formatCurrency } = useCurrency();
 
   const firstVariant = product.variants?.[0];
   const activeVariants = (product.variants || []).filter((variant) => variant.is_active !== false);
+  const defaultCardVariant = activeVariants.find((variant) => variant.is_default) || activeVariants[0] || null;
   const hasMultipleVariants = activeVariants.length > 1;
   const cardInStock = Number(firstVariant?.stock_quantity || product.total_stock || 0) > 0;
+  const cardMaxQuantity = Math.max(0, Number(defaultCardVariant?.stock_quantity || product.total_stock || 0));
   const price = Number(firstVariant?.effective_price || product.default_variant?.price || '0');
   const originalPrice = Number(firstVariant?.display_compare_at_price || firstVariant?.compare_at_price || 0);
   const ratingValue = parseFloat(product.rating || '0');
@@ -204,23 +238,10 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
     }
   };
 
-  const handleCardAddToCart = async () => {
-    const activeVariants = (product.variants || []).filter((variant) => variant.is_active !== false);
-    const selected = activeVariants.find((variant) => variant.is_default) || activeVariants[0];
-    if (!selected) {
-      setCardAddSuccess('');
-      setCardAddError('Unable to add this item right now.');
-      return;
-    }
-    const inStock = Number(selected.stock_quantity || product.total_stock || 0) > 0;
-    if (!inStock) {
-      setCardAddSuccess('');
-      setCardAddError('');
-      return;
-    }
-
-    const resolveVariantId = async (): Promise<string> => {
-      if (selected.id && selected.id !== product.id) return selected.id;
+  const resolveCardVariantId = React.useCallback(async (): Promise<string> => {
+    const selected = defaultCardVariant;
+    if (!selected) return '';
+    if (selected.id && isUuid(selected.id) && selected.id !== product.id) return selected.id;
 
       const quickVariants = (quickViewProduct?.variants || []).filter((variant) => variant.is_active !== false);
       const fromQuick = quickVariants.find((variant) => variant.is_default) || quickVariants[0];
@@ -247,25 +268,118 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
       }
 
       return '';
-    };
+  }, [defaultCardVariant, product.id, product.slug, product.total_stock, quickViewProduct?.variants]);
+
+  const handleCardAddToCart = async () => {
+    const selected = defaultCardVariant;
+    if (!selected) {
+      setCardAddError('Unable to add this item right now.');
+      return;
+    }
+    const inStock = Number(selected.stock_quantity || product.total_stock || 0) > 0;
+    if (!inStock) {
+      setCardAddError('');
+      return;
+    }
 
     try {
+      setCardCartLoading(true);
       setCardAddError('');
-      const variantId = await resolveVariantId();
+      const variantId = resolvedCardVariantId || await resolveCardVariantId();
       if (!variantId) {
-        setCardAddSuccess('');
         setCardAddError('Unable to add this item right now.');
         return;
       }
 
+      const latestCartItems = extractCartItems(await cartService.getCart());
+      const existingCartItem = latestCartItems.find((item) => String(item?.variant_id || '') === variantId);
+      const existingQuantity = Math.max(0, Number(existingCartItem?.quantity || 0));
+
+      if (existingCartItem?.id) {
+        setCardCartState({
+          itemId: String(existingCartItem.id),
+          quantity: existingQuantity,
+        });
+      }
+
+      if (existingQuantity >= cardMaxQuantity) {
+        setCardAddError('');
+        return;
+      }
+
       await cartService.addItem(variantId, 1);
+      await syncCardCartState();
       cartService.emitCartUpdated();
-      setCardAddSuccess('Added');
       setCardAddError('');
-      window.setTimeout(() => setCardAddSuccess(''), 1200);
+    } catch (error: any) {
+      const available = Number(error?.response?.data?.errors?.available || 0);
+      const requestId = String(error?.response?.data?.request_id || '');
+      if (available > 0) {
+        await syncCardCartState();
+        setCardAddError('');
+        return;
+      }
+      setCardAddError(error?.response?.data?.message || (requestId ? `Unable to add this item right now. (${requestId})` : 'Unable to add this item right now.'));
+    } finally {
+      setCardCartLoading(false);
+    }
+  };
+
+  const syncCardCartState = React.useCallback(async () => {
+    if (hasMultipleVariants) {
+      setCardCartState({ itemId: '', quantity: 0 });
+      return;
+    }
+
+    const variantId = resolvedCardVariantId || await resolveCardVariantId();
+    if (!variantId) {
+      setCardCartState({ itemId: '', quantity: 0 });
+      return;
+    }
+
+    try {
+      const items = extractCartItems(await getSharedCartSnapshot());
+      if (!items.length) {
+        setCardCartState({ itemId: '', quantity: 0 });
+        return;
+      }
+
+      const matchingItem = items.find(
+        (item) => String(item?.variant_id || '') === variantId
+      );
+
+      if (!matchingItem) {
+        setCardCartState({ itemId: '', quantity: 0 });
+        return;
+      }
+
+      setCardCartState({
+        itemId: String(matchingItem.id || ''),
+        quantity: Math.max(0, Number(matchingItem.quantity || 0)),
+      });
     } catch {
-      setCardAddSuccess('');
-      setCardAddError('Unable to add this item right now.');
+      setCardCartState({ itemId: '', quantity: 0 });
+    }
+  }, [hasMultipleVariants, resolveCardVariantId, resolvedCardVariantId]);
+
+  const updateCardQuantity = async (nextQuantity: number) => {
+    if (!cardCartState.itemId) return;
+
+    try {
+      setCardCartLoading(true);
+      setCardAddError('');
+
+      if (nextQuantity <= 0) {
+        await cartService.removeItem(cardCartState.itemId);
+      } else {
+        await cartService.updateItem(cardCartState.itemId, nextQuantity);
+      }
+
+      cartService.emitCartUpdated();
+    } catch {
+      setCardAddError('Unable to update this item right now.');
+    } finally {
+      setCardCartLoading(false);
     }
   };
 
@@ -328,6 +442,37 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
     setNotifySubmitted(localStorage.getItem(notifyStorageKey) === '1');
     setNotifyError('');
   }, [notifyStorageKey]);
+
+  useEffect(() => {
+    let active = true;
+    const syncVariantId = async () => {
+      if (hasMultipleVariants) {
+        setResolvedCardVariantId('');
+        return;
+      }
+      const variantId = await resolveCardVariantId();
+      if (active) setResolvedCardVariantId(variantId);
+    };
+    void syncVariantId();
+    return () => {
+      active = false;
+    };
+  }, [hasMultipleVariants, resolveCardVariantId]);
+
+  useEffect(() => {
+    void syncCardCartState();
+  }, [syncCardCartState]);
+
+  useEffect(() => {
+    const onCartUpdated = () => {
+      void syncCardCartState();
+    };
+
+    window.addEventListener('aurora:cart-updated', onCartUpdated as EventListener);
+    return () => {
+      window.removeEventListener('aurora:cart-updated', onCartUpdated as EventListener);
+    };
+  }, [syncCardCartState]);
 
   return (
     <>
@@ -408,17 +553,41 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
                 <Button asChild className="h-9 rounded-xl bg-[#517b4b] text-white hover:bg-[#42663e]">
                   <Link to={`/product/${product.slug}`}>{cardInStock ? 'View Product' : 'Notify Me'}</Link>
                 </Button>
+              ) : cardCartState.quantity > 0 ? (
+                <div className="flex h-9 items-center overflow-hidden rounded-xl border border-[#517b4b]/20 bg-[#517b4b]/5">
+                  <button
+                    type="button"
+                    onClick={() => void updateCardQuantity(cardCartState.quantity - 1)}
+                    disabled={cardCartLoading}
+                    aria-label={`Decrease quantity of ${product.name}`}
+                    className="flex h-full w-11 items-center justify-center text-[#517b4b] transition-colors hover:bg-[#517b4b]/10 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <Minus size={16} />
+                  </button>
+                  <span className="flex-1 text-center text-sm font-semibold text-[#355532]">
+                    {cardCartLoading ? '...' : cardCartState.quantity}
+                  </span>
+                  <button
+                    type="button"
+                    onClick={() => void updateCardQuantity(cardCartState.quantity + 1)}
+                    disabled={cardCartLoading || cardCartState.quantity >= cardMaxQuantity}
+                    aria-label={`Increase quantity of ${product.name}`}
+                    className="flex h-full w-11 items-center justify-center text-[#517b4b] transition-colors hover:bg-[#517b4b]/10 disabled:cursor-not-allowed disabled:opacity-45"
+                  >
+                    <Plus size={16} />
+                  </button>
+                </div>
               ) : (
                 <Button
                   type="button"
                   onClick={() => void handleCardAddToCart()}
+                  disabled={cardCartLoading}
                   className="h-9 rounded-xl bg-[#517b4b] text-white hover:bg-[#42663e]"
                 >
-                  Add to Bag
+                  {cardCartLoading ? 'Adding...' : 'Add to Bag'}
                 </Button>
               )}
             </div>
-            {cardAddSuccess ? <span className="text-[11px] font-medium text-emerald-700">{cardAddSuccess}</span> : null}
             {cardAddError ? <span className="text-[11px] font-medium text-red-600">{cardAddError}</span> : null}
           </div>
         </div>

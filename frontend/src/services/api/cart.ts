@@ -2,6 +2,24 @@ import apiClient from './client';
 
 const CART_TOKEN_KEY = 'aurora_cart_token';
 
+export interface CartCouponSummary {
+  id: string;
+  code: string;
+  discount_type: string;
+  value: string;
+  max_discount: string | null;
+  min_order_amount: string;
+  usage_limit: number | null;
+  per_user_limit: number | null;
+  valid_from: string;
+  valid_to: string;
+  is_active: boolean;
+  is_eligible: boolean;
+  disabled_reason: string;
+  estimated_discount: string;
+  is_applied: boolean;
+}
+
 const isUUID = (value: string) =>
   /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
 
@@ -109,6 +127,27 @@ const cartService = {
       { headers: getCartHeaders() }
     );
     return response.data;
+  },
+
+  async removeCoupon() {
+    const response = await apiClient.post(
+      '/v1/cart/remove-coupon/',
+      {},
+      { headers: getCartHeaders() }
+    );
+    return response.data;
+  },
+
+  async listCoupons() {
+    const response = await apiClient.get('/v1/cart/coupons/', {
+      headers: getCartHeaders(),
+    });
+    return response.data as {
+      data?: {
+        coupons?: CartCouponSummary[];
+        applied_coupon_code?: string | null;
+      };
+    };
   },
 };
 
