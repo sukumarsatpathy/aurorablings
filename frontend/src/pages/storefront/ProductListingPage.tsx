@@ -411,6 +411,31 @@ export const ProductListingPage: React.FC = () => {
           <h1 className="mt-4 text-4xl md:text-5xl font-bold tracking-tight text-foreground">Shop</h1>
         </div>
 
+        <div className="sticky top-20 z-20 -mx-4 mb-5 border-y border-border/60 bg-white/90 px-4 py-3 backdrop-blur-sm md:static md:mx-0 md:mb-6 md:border-0 md:bg-transparent md:px-0 md:py-0">
+          <div className="flex items-center justify-between gap-3 md:hidden">
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-muted-foreground">Browse</p>
+              <p className="text-sm font-semibold text-foreground">
+                {selectedCategory === 'All' ? 'All Jewellery' : selectedCategory}
+              </p>
+            </div>
+            <div className="flex items-center gap-2">
+              <span className="rounded-full bg-muted px-3 py-1 text-xs font-semibold text-muted-foreground">
+                {filteredAndSorted.length} items
+              </span>
+              <select
+                value={sortMode}
+                onChange={(e) => setSortMode(e.target.value as SortMode)}
+                className="h-9 rounded-full border border-border bg-white px-3 text-xs font-semibold"
+              >
+                <option value="random">Newest</option>
+                <option value="low-high">Low to High</option>
+                <option value="high-low">High to Low</option>
+              </select>
+            </div>
+          </div>
+        </div>
+
         <div className="mb-6 overflow-x-auto no-scrollbar">
           <div className="inline-flex gap-4 min-w-full pb-1">
             {categoryCards.map((category, index) => {
@@ -451,7 +476,7 @@ export const ProductListingPage: React.FC = () => {
           </div>
         </div>
 
-        <div className="mb-8 rounded-3xl border border-border/80 bg-white/70 backdrop-blur-sm px-4 py-3 flex flex-col md:flex-row md:items-center justify-between gap-3">
+        <div className="mb-8 hidden rounded-3xl border border-border/80 bg-white/70 backdrop-blur-sm px-4 py-3 md:flex md:flex-row md:items-center justify-between gap-3">
           <div className="flex items-center gap-2">
             <button
               type="button"
@@ -510,7 +535,7 @@ export const ProductListingPage: React.FC = () => {
             No products found for this category.
           </div>
         ) : viewMode === 'blog' ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 xl:grid-cols-5 gap-x-5 gap-y-10">
+          <div className="grid grid-cols-2 gap-x-3 gap-y-5 md:grid-cols-3 md:gap-x-5 md:gap-y-10 xl:grid-cols-5">
             {visible.map((product) => (
               <DealProductCard key={product.id} product={product} />
             ))}

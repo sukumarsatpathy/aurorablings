@@ -68,7 +68,7 @@ class ProductVariantInline(admin.TabularInline):
     extra  = 1
     fields = [
         "sku", "price", "offer_price", "offer_starts_at", "offer_ends_at",
-        "compare_at_price", "stock_quantity", "is_default", "is_active",
+        "compare_at_price", "stock_quantity", "allow_backorder", "is_default", "is_active",
     ]
     show_change_link = True
 
@@ -137,10 +137,9 @@ class ProductAdmin(admin.ModelAdmin):
         qs = super().get_queryset(request)
         return qs.annotate(
             notify_waiting_total=Count(
-                "notify_subscriptions",
+                "stock_notify_requests",
                 filter=Q(
-                    notify_subscriptions__is_active=True,
-                    notify_subscriptions__is_notified=False,
+                    stock_notify_requests__is_notified=False,
                 ),
                 distinct=True,
             )
@@ -173,12 +172,34 @@ class ProductAdmin(admin.ModelAdmin):
 class ProductVariantAdmin(admin.ModelAdmin):
     list_display   = [
         "sku", "product", "price", "offer_price", "offer_starts_at", "offer_ends_at",
-        "compare_at_price", "stock_quantity", "is_default", "is_active",
+        "compare_at_price", "stock_quantity", "allow_backorder", "is_default", "is_active",
     ]
     list_filter    = ["is_active", "is_default", "product__category"]
     search_fields  = ["sku", "product__name"]
     inlines        = [VariantAttributeValueInline]
     readonly_fields = ["created_at", "updated_at"]
+    list_editable = ["stock_quantity"]
+    actions = ["increment_stock_by_ten", "decrement_stock_by_ten"]
+
+    @admin.action(description="Increase stock by 10 for selected variants")
+    def increment_stock_by_ten(self, request, queryset):
+        updated = 0
+        for variant in queryset:
+            variant.stock_quantity += 10
+            variant.full_clean()
+            variant.save(update_fields=["stock_quantity", "updated_at"])
+            updated += 1
+        self.message_user(request, f"Updated {updated} variant(s).")
+
+    @admin.action(description="Decrease stock by 10 for selected variants")
+    def decrement_stock_by_ten(self, request, queryset):
+        updated = 0
+        for variant in queryset:
+            variant.stock_quantity -= 10
+            variant.full_clean()
+            variant.save(update_fields=["stock_quantity", "updated_at"])
+            updated += 1
+        self.message_user(request, f"Updated {updated} variant(s).")
 
 
 # ─────────────────────────────────────────────────────────────

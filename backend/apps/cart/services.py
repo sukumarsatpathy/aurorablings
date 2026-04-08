@@ -47,7 +47,10 @@ from django.utils import timezone
 
 from core.exceptions import NotFoundError, ValidationError
 from core.logging import get_logger
+from audit.models import ActorType, AuditAction
+from audit.services.activity_logger import log_activity
 from apps.inventory.selectors import check_availability
+from apps.pricing.coupons.services import CouponService
 
 from .models import Cart, CartItem, CartStatus
 from .selectors import get_cart_for_user, get_cart_by_session
@@ -281,6 +284,8 @@ def clear_cart(*, cart: Cart) -> None:
     """Remove ALL items — cart remains ACTIVE (empty)."""
     count = cart.items.count()
     cart.items.all().delete()
+    cart.coupon_code = ""
+    cart.save(update_fields=["coupon_code", "updated_at"])
     cart.touch()
     logger.info("cart_cleared", cart_id=str(cart.id), items_removed=count)
 
@@ -361,8 +366,29 @@ def validate_cart(*, cart: Cart, warehouse_id=None) -> list[dict]:
 def convert_cart(*, cart: Cart) -> None:
     """Mark cart as CONVERTED after a successful order placement."""
     cart.status = CartStatus.CONVERTED
-    cart.save(update_fields=["status", "updated_at"])
+    cart.coupon_code = ""
+    cart.save(update_fields=["status", "coupon_code", "updated_at"])
     logger.info("cart_converted", cart_id=str(cart.id))
+
+
+@transaction.atomic
+def apply_coupon(*, cart: Cart, coupon_code: str, user=None, request=None) -> Cart:
+    coupon = CouponService.get_coupon(coupon_code)
+    CouponService.validate_coupon(coupon=coupon, user=user, cart=cart)
+    cart.coupon_code = coupon.code
+    cart.save(update_fields=["coupon_code", "updated_at"])
+    logger.info("cart_coupon_applied", cart_id=str(cart.id), coupon_code=coupon.code)
+    log_activity(
+        user=user if user and getattr(user, "is_authenticated", False) else None,
+        actor_type=ActorType.CUSTOMER if user and getattr(user, "is_authenticated", False) else ActorType.SYSTEM,
+        action=AuditAction.UPDATE,
+        entity_type="coupon",
+        entity_id=coupon.code,
+        description=f"Applied coupon {coupon.code} to cart",
+        metadata={"cart_id": str(cart.id), "coupon_code": coupon.code},
+        request=request,
+    )
+    return cart
 
 
 # ─────────────────────────────────────────────────────────────

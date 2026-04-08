@@ -40,6 +40,21 @@ def _is_verified_purchase(*, user_id, product_id) -> bool:
     ).exists()
 
 
+def get_review_eligibility(*, user, product_id) -> tuple[bool, str]:
+    existing = ProductReview.objects.filter(
+        product_id=product_id,
+        user=user,
+        is_soft_deleted=False,
+    ).first()
+    if existing:
+        return False, "You have already submitted a review for this product."
+
+    has_purchase = _is_verified_purchase(user_id=user.id, product_id=product_id)
+    if not has_purchase:
+        return False, "Reviews are available after a delivered purchase."
+    return True, ""
+
+
 def _run_abuse_checks(*, title: str, comment: str) -> None:
     # TODO: Plug in profanity filter provider once moderation service is selected.
     # TODO: Plug in spam scoring model before auto-approval workflows are introduced.
@@ -70,6 +85,10 @@ def submit_review(
     ).first()
     if existing:
         raise ConflictError("You have already submitted a review for this product.")
+
+    can_review, reason = get_review_eligibility(user=user, product_id=product.id)
+    if not can_review:
+        raise PermissionDeniedError(reason)
 
     _run_abuse_checks(title=title, comment=comment)
 

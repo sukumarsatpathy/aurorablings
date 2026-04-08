@@ -22,6 +22,10 @@ class OrderInvoiceDownloadView(APIView):
         if not order:
             raise NotFoundError("Order not found.")
 
+        requested_format = str(request.query_params.get("format", "") or "").strip().lower()
+        if requested_format == "html":
+            return InvoiceService.build_html_response(order=order)
+
         invoice = InvoiceService.get_or_generate_invoice(order=order, regenerate=False)
         if not invoice.file:
             invoice = InvoiceService.get_or_generate_invoice(order=order, regenerate=True)
@@ -50,6 +54,10 @@ class PublicOrderInvoiceDownloadView(APIView):
         order = order_selectors.get_order_by_id(order_id)
         if not order:
             raise NotFoundError("Order not found.")
+
+        requested_format = str(request.query_params.get("format", "") or "").strip().lower()
+        if requested_format == "html":
+            return InvoiceService.build_html_response(order=order)
 
         invoice = InvoiceService.get_or_generate_invoice(order=order, regenerate=False)
         if not invoice.file:

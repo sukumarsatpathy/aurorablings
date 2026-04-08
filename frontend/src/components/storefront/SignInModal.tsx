@@ -116,7 +116,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({
     setIsSubmitting(true);
 
     try {
-      await apiClient.post('/v1/auth/register/', {
+      const response = await apiClient.post('/v1/auth/register/', {
         first_name: firstName,
         last_name: lastName,
         email,
@@ -124,20 +124,18 @@ export const SignInModal: React.FC<SignInModalProps> = ({
         password,
         turnstile_token: turnstileToken,
       });
-      if (turnstileEnabled) {
-        setSuccessMessage('Account created successfully. Please sign in to continue.');
-        setPassword('');
-        setMode('login');
-        setTurnstileToken('');
-        setTurnstileResetKey((prev) => prev + 1);
-        return;
-      }
+      let payload = response.data?.data;
+      let access = payload?.access as string | undefined;
+      let refresh = payload?.refresh as string | undefined;
+      let user = payload?.user;
 
-      const response = await apiClient.post('/v1/auth/login/', { email, password, turnstile_token: turnstileToken });
-      const payload = response.data?.data;
-      const access = payload?.access as string | undefined;
-      const refresh = payload?.refresh as string | undefined;
-      const user = payload?.user;
+      if (!access) {
+        const loginResponse = await apiClient.post('/v1/auth/login/', { email, password, turnstile_token: turnstileToken });
+        payload = loginResponse.data?.data;
+        access = payload?.access as string | undefined;
+        refresh = payload?.refresh as string | undefined;
+        user = payload?.user;
+      }
 
       if (!access) {
         throw new Error('Account created, but auto-login failed.');

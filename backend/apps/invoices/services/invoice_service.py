@@ -9,6 +9,7 @@ from django.conf import settings
 from django.core import signing
 from django.core.files.base import ContentFile
 from django.core.files.storage import default_storage
+from django.http import HttpResponse
 from django.urls import reverse
 from django.utils import timezone
 
@@ -189,6 +190,12 @@ class InvoiceService:
         }
         invoice.save()
         return invoice
+
+    @classmethod
+    def build_html_response(cls, *, order) -> HttpResponse:
+        context = cls.build_invoice_context(order=order)
+        html = PDFService.render_invoice_html(context=context)
+        return HttpResponse(html, content_type="text/html; charset=utf-8")
 
     @classmethod
     def invoice_filename(cls, *, invoice: Invoice) -> str:

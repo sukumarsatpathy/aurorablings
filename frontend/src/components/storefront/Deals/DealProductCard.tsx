@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Eye, Heart, Star, Minus, Plus } from 'lucide-react';
+import { ShoppingCart, Eye, Star, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal, ModalContent, ModalHeader, ModalTitle } from '@/components/ui/Modal';
@@ -99,9 +99,11 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
   const { formatCurrency } = useCurrency();
 
   const firstVariant = product.variants?.[0];
+  const activeVariants = (product.variants || []).filter((variant) => variant.is_active !== false);
+  const hasMultipleVariants = activeVariants.length > 1;
+  const cardInStock = Number(firstVariant?.stock_quantity || product.total_stock || 0) > 0;
   const price = Number(firstVariant?.effective_price || product.default_variant?.price || '0');
   const originalPrice = Number(firstVariant?.display_compare_at_price || firstVariant?.compare_at_price || 0);
-  const packLabel = firstVariant?.sku?.trim() || product.default_variant?.sku || 'N/A';
   const ratingValue = parseFloat(product.rating || '0');
 
   const defaultQuickVariant = useMemo(() => {
@@ -330,11 +332,11 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
   return (
     <>
       <div
-        className="group bg-white rounded-[2rem] p-4 transition-all duration-300 border border-gray-100 flex flex-col h-full"
+        className="group bg-white rounded-[1.4rem] p-3 md:rounded-[2rem] md:p-4 transition-all duration-300 border border-gray-100 flex flex-col h-full"
         onMouseEnter={() => setIsHovered(true)}
         onMouseLeave={() => setIsHovered(false)}
       >
-        <div className="relative aspect-[1/1] mb-6 rounded-[1.5rem] overflow-hidden bg-[#eceff1] p-3">
+        <div className="relative aspect-[1/1] mb-4 md:mb-6 rounded-[1.1rem] md:rounded-[1.5rem] overflow-hidden bg-[#eceff1] p-2.5 md:p-3">
           <Link to={`/product/${product.slug}`} className="block h-full w-full rounded-[1.2rem] overflow-hidden">
             <img
               src={product.primary_image || '/placeholder-product.png'}
@@ -358,10 +360,7 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
             )}
           </Link>
 
-          <div className={`absolute right-4 bottom-4 flex flex-col gap-2 transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-            <Button size="icon" variant="ghost" className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5">
-              <Heart size={18} fill="transparent" />
-            </Button>
+          <div className={`absolute right-4 bottom-4 hidden md:flex flex-col gap-2 transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
             <Button size="icon" variant="ghost" onClick={openQuickView} className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5">
               <Eye size={18} />
             </Button>
@@ -377,25 +376,47 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
         </div>
 
         <div className="px-1 flex flex-col flex-grow">
-          <div className="flex justify-end items-start mb-2">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span className="truncate text-[10px] font-semibold uppercase tracking-[0.18em] text-muted-foreground">
+              {product.category_name}
+            </span>
             {ratingValue > 0 && <RatingStars rating={ratingValue} />}
           </div>
 
-          <Link to={`/product/${product.slug}`} className="block mb-3">
-            <h3 className="text-sm font-semibold text-gray-900 line-clamp-2 leading-snug hover:text-[#517b4b] transition-colors">
+          <Link to={`/product/${product.slug}`} className="block mb-2 md:mb-3">
+            <h3 className="text-sm font-semibold text-gray-900 line-clamp-2 leading-snug hover:text-[#517b4b] transition-colors md:text-[15px]">
               {product.name}
             </h3>
           </Link>
 
-          <div className="mt-auto pt-2 flex flex-col gap-1">
-            <div className="flex items-baseline justify-between gap-3">
-              <div className="flex items-baseline gap-2">
+          <div className="mt-auto pt-1 md:pt-2 flex flex-col gap-2">
+            <div className="flex items-center justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-1">
                 <span className="text-base font-bold text-[#517b4b]">{formatCurrency(price)}</span>
                 {originalPrice > price ? (
                   <span className="text-xs text-gray-400 line-through">{formatCurrency(originalPrice)}</span>
                 ) : null}
               </div>
-              <span className="text-sm text-gray-500">{packLabel}</span>
+              {originalPrice > price ? (
+                <Badge className="shrink-0 rounded-full border-none bg-[#517b4b]/10 px-2.5 py-1 text-[10px] font-semibold text-[#517b4b] shadow-none">
+                  Save {Math.round(((originalPrice - price) / originalPrice) * 100)}%
+                </Badge>
+              ) : null}
+            </div>
+            <div className="grid grid-cols-1 gap-2 md:hidden">
+              {hasMultipleVariants || !cardInStock ? (
+                <Button asChild className="h-9 rounded-xl bg-[#517b4b] text-white hover:bg-[#42663e]">
+                  <Link to={`/product/${product.slug}`}>{cardInStock ? 'View Product' : 'Notify Me'}</Link>
+                </Button>
+              ) : (
+                <Button
+                  type="button"
+                  onClick={() => void handleCardAddToCart()}
+                  className="h-9 rounded-xl bg-[#517b4b] text-white hover:bg-[#42663e]"
+                >
+                  Add to Bag
+                </Button>
+              )}
             </div>
             {cardAddSuccess ? <span className="text-[11px] font-medium text-emerald-700">{cardAddSuccess}</span> : null}
             {cardAddError ? <span className="text-[11px] font-medium text-red-600">{cardAddError}</span> : null}

@@ -59,9 +59,10 @@ def _coupon_code_from_request(request) -> str:
 
 def _cart_response(cart, request=None, message=None, coupon_code: str = ""):
     """Build a standardised cart success response including totals."""
+    resolved_coupon_code = coupon_code or getattr(cart, "coupon_code", "")
     pricing = PricingService.calculate(
         cart=cart,
-        coupon_code=coupon_code or None,
+        coupon_code=resolved_coupon_code or None,
         user=request.user if request and request.user.is_authenticated else None,
         request=request,
     )
@@ -77,7 +78,7 @@ def _cart_response(cart, request=None, message=None, coupon_code: str = ""):
             "subtotal":        str(totals["subtotal"]),
             "original_subtotal": str(totals["original_subtotal"]),
             "savings":         str(totals["savings"]),
-            "coupon_code":     pricing["coupon"]["code"] if pricing["coupon"] else None,
+            "coupon_code":     pricing["coupon"]["code"] if pricing["coupon"] else (resolved_coupon_code or None),
             "discount":        str(pricing["discount"]),
             "total":           str(pricing["total"]),
             "coupon":          (
@@ -276,3 +277,28 @@ class CartValidateView(APIView):
             message="Cart is valid." if not errors else "Cart has issues that need resolving.",
             request_id=getattr(request, "request_id", None),
         )
+
+
+class CartApplyCouponView(APIView):
+    permission_classes = [AllowAny]
+
+    def post(self, request):
+        cart = _resolve_cart(request)
+        if not cart:
+            raise NotFoundError("No active cart.")
+
+        coupon_code = str(request.data.get("coupon_code", "") or "").strip()
+        if not coupon_code:
+            return error_response(
+                message="Coupon code is required.",
+                error_code="coupon_code_required",
+                status_code=400,
+            )
+
+        services.apply_coupon(
+            cart=cart,
+            coupon_code=coupon_code,
+            user=request.user if request.user.is_authenticated else None,
+            request=request,
+        )
+        return _cart_response(cart, request, message="Coupon applied.", coupon_code=coupon_code)

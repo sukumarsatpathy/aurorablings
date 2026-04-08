@@ -85,15 +85,24 @@ class UpdateProfileSerializer(serializers.ModelSerializer):
 # ─────────────────────────────────────────────────────────────
 
 class AddressSerializer(serializers.ModelSerializer):
+    address_line1 = serializers.CharField(source="line1", required=False)
+    address_line2 = serializers.CharField(source="line2", required=False, allow_blank=True)
+
     class Meta:
         model  = Address
         fields = [
             "id", "address_type", "is_default",
-            "full_name", "line1", "line2",
+            "full_name", "line1", "line2", "address_line1", "address_line2",
             "city", "state", "postal_code", "country", "phone",
             "created_at",
         ]
         read_only_fields = ["id", "created_at"]
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        if self.instance is None and "line1" not in attrs:
+            raise serializers.ValidationError({"line1": "Address line 1 is required."})
+        return attrs
 
 
 # ─────────────────────────────────────────────────────────────

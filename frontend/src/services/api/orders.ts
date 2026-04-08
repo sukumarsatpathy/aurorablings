@@ -195,8 +195,17 @@ const ordersService = {
     guest_email?: string;
     session_key?: string;
     warehouse_id?: string | null;
+    create_account?: boolean;
+    save_address?: boolean;
+    account?: {
+      email: string;
+      password: string;
+      first_name: string;
+      last_name: string;
+      phone?: string;
+    };
   }) => {
-    const response = await apiClient.post('/v1/orders/place/', payload);
+    const response = await apiClient.post('/v1/orders/create/', payload);
     return response.data;
   },
 

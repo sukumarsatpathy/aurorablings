@@ -159,6 +159,22 @@ class PlaceOrderSerializer(serializers.Serializer):
     guest_email      = serializers.EmailField(required=False, default="")
     # For guest carts
     session_key      = serializers.CharField(required=False, default="")
+    create_account   = serializers.BooleanField(required=False, default=False)
+    account          = serializers.DictField(required=False, default=dict)
+    save_address     = serializers.BooleanField(required=False, default=True)
+
+    def validate(self, attrs):
+        attrs = super().validate(attrs)
+        account = attrs.get("account") or {}
+        create_account = bool(attrs.get("create_account"))
+        if create_account:
+            required_fields = ["email", "password", "first_name", "last_name"]
+            missing = [field for field in required_fields if not str(account.get(field, "") or "").strip()]
+            if missing:
+                raise serializers.ValidationError(
+                    {"account": [f"Missing required account field(s): {', '.join(missing)}"]}
+                )
+        return attrs
 
 
 class TransitionSerializer(serializers.Serializer):

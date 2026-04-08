@@ -19,8 +19,9 @@ class PricingService:
 
         coupon_data = None
         discount = Decimal("0")
-        if coupon_code:
-            coupon_data = CouponService.apply_coupon(cart=cart, code=coupon_code, user=user)
+        resolved_coupon_code = (coupon_code or getattr(cart, "coupon_code", "") or "").strip()
+        if resolved_coupon_code:
+            coupon_data = CouponService.apply_coupon(cart=cart, code=resolved_coupon_code, user=user)
             discount = coupon_data["amount"]
 
         total = max(Decimal("0"), subtotal - discount)

@@ -101,6 +101,15 @@ const cartService = {
     });
     return response.data;
   },
+
+  async applyCoupon(couponCode: string) {
+    const response = await apiClient.post(
+      '/v1/cart/apply-coupon/',
+      { coupon_code: couponCode },
+      { headers: getCartHeaders() }
+    );
+    return response.data;
+  },
 };
 
 export default cartService;

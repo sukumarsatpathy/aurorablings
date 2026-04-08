@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import re
+from html import unescape
 from io import BytesIO
 
 from django.conf import settings
@@ -40,7 +42,10 @@ class PDFService:
         pdf = canvas.Canvas(buffer, pagesize=A4)
         width, height = A4
         y = height - 40
-        for line in html.replace("<br>", "\n").splitlines():
+        plain_text = re.sub(r"<br\s*/?>", "\n", html, flags=re.IGNORECASE)
+        plain_text = re.sub(r"<[^>]+>", "", plain_text)
+        plain_text = unescape(plain_text)
+        for line in plain_text.splitlines():
             if y < 40:
                 pdf.showPage()
                 y = height - 40

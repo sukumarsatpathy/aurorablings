@@ -6,19 +6,28 @@ from .models import Coupon
 
 
 class CouponSerializer(serializers.ModelSerializer):
+    discount_type = serializers.CharField(source="type", required=False)
+    min_order_amount = serializers.DecimalField(source="min_order_value", max_digits=12, decimal_places=2, required=False)
+    valid_from = serializers.DateTimeField(source="start_date", required=False)
+    valid_to = serializers.DateTimeField(source="end_date", required=False)
+
     class Meta:
         model = Coupon
         fields = [
             "id",
             "code",
             "type",
+            "discount_type",
             "value",
             "max_discount",
             "min_order_value",
+            "min_order_amount",
             "usage_limit",
             "per_user_limit",
             "start_date",
             "end_date",
+            "valid_from",
+            "valid_to",
             "is_active",
             "created_at",
             "updated_at",

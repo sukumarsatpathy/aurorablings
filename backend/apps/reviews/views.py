@@ -20,6 +20,7 @@ from .cache import (
 )
 from . import selectors, services
 from .serializers import (
+    FlatReviewCreateSerializer,
     AdminReviewFilterSerializer,
     AdminReviewSerializer,
     MyReviewSerializer,
@@ -171,19 +172,64 @@ class ProductReviewSummaryView(APIView):
 
         has_reviewed = False
         my_review_id = None
+        can_review = False
+        eligibility_reason = "Login to review this product."
         if request.user and request.user.is_authenticated:
             my_review = selectors.get_user_active_review(user_id=request.user.id, product_id=product.id)
             if my_review:
                 has_reviewed = True
                 my_review_id = my_review.id
+            can_review, eligibility_reason = services.get_review_eligibility(user=request.user, product_id=product.id)
 
         payload = {
             **summary,
             "has_reviewed": has_reviewed,
             "my_review_id": my_review_id,
+            "can_review": can_review,
+            "eligibility_reason": eligibility_reason,
         }
         data = ReviewSummarySerializer(payload).data
         return success_response(data=data, request_id=getattr(request, "request_id", None))
+
+
+class FlatReviewCreateView(APIView):
+    permission_classes = [IsAuthenticated]
+    throttle_classes = [AuthenticatedOrIPRateThrottle]
+
+    def post(self, request):
+        serializer = FlatReviewCreateSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        if not verify_turnstile_token(
+            token=serializer.validated_data.get("turnstile_token", ""),
+            remote_ip=get_client_ip(request),
+            action="reviews.submit",
+        ):
+            return error_response(
+                message="CAPTCHA verification failed.",
+                error_code="turnstile_verification_failed",
+                errors={"turnstile_token": ["Invalid or missing CAPTCHA token."]},
+                status_code=status.HTTP_400_BAD_REQUEST,
+                request_id=getattr(request, "request_id", None),
+            )
+
+        review = services.submit_review(
+            product_id=serializer.validated_data["product_id"],
+            user=request.user,
+            rating=serializer.validated_data["rating"],
+            title=serializer.validated_data.get("title", ""),
+            comment=serializer.validated_data["comment"],
+            images=serializer.validated_data.get("images", []),
+            submitted_ip=request.META.get("REMOTE_ADDR"),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            request=request,
+        )
+        return success_response(
+            data=MyReviewSerializer(review, context={"request": request}).data,
+            message="Thanks. Your review has been submitted for approval.",
+            status_code=status.HTTP_201_CREATED,
+            request_id=getattr(request, "request_id", None),
+        )
 
 
 class ReviewDetailView(APIView):

@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams } from 'react-router-dom';
-import { ChevronRight, Heart, Minus, Plus, ShoppingCart, Star } from 'lucide-react';
+import { ChevronRight, Minus, Plus, ShoppingCart, Star } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
@@ -305,7 +305,7 @@ export const ProductDetailPage: React.FC = () => {
   }
 
   return (
-    <div className="pt-28 pb-24 bg-transparent">
+    <div className="bg-transparent pb-32 pt-24 md:pb-24 md:pt-28">
       <div className="container mx-auto px-4">
         <div className="mb-10">
           <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border/70 bg-white/70 backdrop-blur-sm px-4 py-2">
@@ -439,15 +439,12 @@ export const ProductDetailPage: React.FC = () => {
                   type="button"
                   onClick={() => void handleAddToCart()}
                   disabled={!isInStock}
-                  className="h-11 rounded-xl px-6 bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
+                  className="h-11 flex-1 rounded-xl px-6 bg-primary text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground md:flex-none"
                 >
                   <span className="inline-flex items-center gap-2">
                     <ShoppingCart size={18} />
                     <span>{isInStock ? 'Add to Cart' : 'Out of Stock'}</span>
                   </span>
-                </Button>
-                <Button type="button" variant="outline" size="icon" className="h-11 w-11 rounded-xl">
-                  <Heart size={18} />
                 </Button>
               </div>
               {cartMessage ? <p className="text-xs font-medium text-emerald-700">{cartMessage}</p> : null}
@@ -540,6 +537,26 @@ export const ProductDetailPage: React.FC = () => {
             <ProductReviewsSection productId={product.id} />
           </div>
         </section>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur-sm md:hidden">
+        <div className="mx-auto flex max-w-6xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-muted-foreground">Price</p>
+            <p className="truncate text-lg font-bold text-foreground">{formatCurrency(selectedPrice)}</p>
+          </div>
+          <Button
+            type="button"
+            onClick={() => void handleAddToCart()}
+            disabled={!isInStock}
+            className="h-11 min-w-[170px] rounded-xl bg-primary px-6 text-primary-foreground hover:bg-primary/90 disabled:bg-muted disabled:text-muted-foreground"
+          >
+            <span className="inline-flex items-center gap-2">
+              <ShoppingCart size={18} />
+              <span>{isInStock ? 'Add to Bag' : 'Out of Stock'}</span>
+            </span>
+          </Button>
+        </div>
       </div>
     </div>
   );

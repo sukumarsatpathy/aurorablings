@@ -15,6 +15,7 @@ import hashlib
 import secrets
 from datetime import timedelta
 
+from django.db import transaction
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -220,6 +221,14 @@ def login_user(
     return {**tokens, "user": user}
 
 
+def issue_auth_tokens(*, user: User) -> dict:
+    """
+    Return a fresh JWT pair for an already-authenticated user lifecycle event,
+    such as immediate sign-in right after registration.
+    """
+    return _issue_tokens(user)
+
+
 def logout_user(refresh_token: str, request=None, user=None) -> None:
     """
     Blacklist the refresh token so it cannot be used to get new access tokens.
@@ -330,6 +339,7 @@ def confirm_password_reset(*, token: str, new_password: str) -> None:
 # ─────────────────────────────────────────────────────────────
 
 def create_address(*, user: User, data: dict) -> Address:
+    data = normalise_address_payload(data)
     address_type = data.get("address_type", "shipping")
 
     # If this is set as default, clear existing default for same type
@@ -338,7 +348,91 @@ def create_address(*, user: User, data: dict) -> Address:
 
     address = Address.objects.create(user=user, **data)
     logger.info("address_created", user_id=str(user.id), address_id=str(address.id))
+    log_activity(
+        user=user,
+        actor_type=_actor_type_for_user(user),
+        action=AuditAction.CREATE,
+        entity_type="address",
+        entity_id=str(address.id),
+        description=f"Created {address_type} address",
+        metadata={"address_type": address_type, "is_default": address.is_default},
+    )
     return address
+
+
+def normalise_address_payload(data: dict | None) -> dict:
+    payload = dict(data or {})
+    address_line1 = payload.pop("address_line1", None)
+    address_line2 = payload.pop("address_line2", None)
+    postal_code = payload.pop("postal_code", None)
+    pincode = payload.pop("pincode", None)
+
+    if address_line1 is not None and not payload.get("line1"):
+        payload["line1"] = address_line1
+    if address_line2 is not None and not payload.get("line2"):
+        payload["line2"] = address_line2
+    if postal_code is not None and not payload.get("postal_code"):
+        payload["postal_code"] = postal_code
+    if pincode is not None and not payload.get("postal_code"):
+        payload["postal_code"] = pincode
+    return payload
+
+
+@transaction.atomic
+def update_address(*, address: Address, data: dict, changed_by=None) -> Address:
+    payload = normalise_address_payload(data)
+    address_type = payload.get("address_type", address.address_type)
+    make_default = bool(payload.get("is_default", address.is_default))
+
+    if make_default:
+        Address.objects.filter(
+            user=address.user,
+            address_type=address_type,
+            is_default=True,
+        ).exclude(id=address.id).update(is_default=False)
+
+    for field, value in payload.items():
+        setattr(address, field, value)
+    address.save()
+
+    actor = changed_by if changed_by and getattr(changed_by, "is_authenticated", False) else address.user
+    log_activity(
+        user=actor,
+        actor_type=_actor_type_for_user(actor),
+        action=AuditAction.UPDATE,
+        entity_type="address",
+        entity_id=str(address.id),
+        description=f"Updated {address.address_type} address",
+        metadata={"address_type": address.address_type, "is_default": address.is_default},
+    )
+    return address
+
+
+@transaction.atomic
+def save_checkout_address(
+    *,
+    user: User,
+    address_data: dict,
+    address_type: str = "shipping",
+    set_default: bool = True,
+    changed_by=None,
+) -> Address:
+    payload = normalise_address_payload(address_data)
+    payload["address_type"] = address_type
+    payload["is_default"] = set_default
+
+    existing = None
+    if set_default:
+        existing = (
+            Address.objects
+            .select_for_update()
+            .filter(user=user, address_type=address_type, is_default=True)
+            .first()
+        )
+
+    if existing:
+        return update_address(address=existing, data=payload, changed_by=changed_by or user)
+    return create_address(user=user, data=payload)
 
 
 def delete_address(*, address: Address) -> None:

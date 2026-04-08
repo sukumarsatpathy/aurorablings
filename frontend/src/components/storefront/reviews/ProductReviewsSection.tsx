@@ -251,6 +251,7 @@ export function ProductReviewsSection({ productId }: { productId: string }) {
   const { data: reviewsPayload, isLoading: reviewsLoading, isError: reviewsError } = useProductReviews(productId, sort, page, 10);
   const { myReview } = useMyReview(productId);
   const hasExistingReview = Boolean(myReview || summary?.has_reviewed);
+  const canWriteReview = Boolean(token && (hasExistingReview || summary?.can_review));
 
   const voteMutation = useMutation({
     mutationFn: ({ reviewId, vote }: { reviewId: string; vote: 'helpful' | 'unhelpful' }) => reviewsService.voteReview(reviewId, vote),
@@ -281,6 +282,11 @@ export function ProductReviewsSection({ productId }: { productId: string }) {
 
         {!token ? (
           <Button asChild variant="outline"><Link to={`/login?next=${encodeURIComponent(`/product/${productId}`)}`}>Login to write a review</Link></Button>
+        ) : !canWriteReview ? (
+          <div className="text-right">
+            <Button disabled variant="outline">Write a Review</Button>
+            {summary?.eligibility_reason ? <p className="mt-2 text-xs text-muted-foreground">{summary.eligibility_reason}</p> : null}
+          </div>
         ) : (
           <Button onClick={() => setIsModalOpen(true)}>{hasExistingReview ? 'Edit Your Review' : 'Write a Review'}</Button>
         )}
@@ -371,7 +377,7 @@ export function ProductReviewsSection({ productId }: { productId: string }) {
         </div>
       ) : null}
 
-      {token ? (
+      {canWriteReview ? (
         <ReviewFormModal
           open={isModalOpen}
           onOpenChange={setIsModalOpen}

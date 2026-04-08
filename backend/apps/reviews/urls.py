@@ -5,6 +5,7 @@ from . import views
 app_name = "reviews"
 
 urlpatterns = [
+    path("", views.FlatReviewCreateView.as_view(), name="review-create"),
     path("products/<uuid:product_id>/reviews/", views.ProductReviewListCreateView.as_view(), name="product-reviews"),
     path("products/<uuid:product_id>/review-summary/", views.ProductReviewSummaryView.as_view(), name="product-review-summary"),
 

@@ -68,6 +68,7 @@ class Cart(models.Model):
     status     = models.CharField(
         max_length=15, choices=CartStatus.choices, default=CartStatus.ACTIVE, db_index=True
     )
+    coupon_code = models.CharField(max_length=50, blank=True, default="")
     expires_at = models.DateTimeField(
         null=True, blank=True,
         help_text="Guest carts auto-expire after 30 days of inactivity.",

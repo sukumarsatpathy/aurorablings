@@ -149,9 +149,24 @@ class Address(models.Model):
         verbose_name        = _("address")
         verbose_name_plural = _("addresses")
         ordering            = ["-is_default", "-created_at"]
+        constraints         = [
+            models.UniqueConstraint(
+                fields=["user", "address_type"],
+                condition=models.Q(is_default=True),
+                name="accounts_unique_default_address_per_type",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.full_name}, {self.line1}, {self.city}"
+
+    @property
+    def address_line1(self) -> str:
+        return self.line1
+
+    @property
+    def address_line2(self) -> str:
+        return self.line2
 
 
 # ─────────────────────────────────────────────────────────────

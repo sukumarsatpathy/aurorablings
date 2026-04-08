@@ -500,6 +500,7 @@ class ProductVariant(BaseModel):
     stock_quantity = models.IntegerField(default=0)
     low_stock_threshold = models.PositiveSmallIntegerField(default=5)
     track_inventory = models.BooleanField(default=True)
+    allow_backorder = models.BooleanField(default=False)
 
     # ── Flags ─────────────────────────────────────────────────
     is_active  = models.BooleanField(default=True, db_index=True)
@@ -597,6 +598,8 @@ class ProductVariant(BaseModel):
         from django.core.exceptions import ValidationError
 
         errors = {}
+        if self.stock_quantity < 0 and not self.allow_backorder:
+            errors["stock_quantity"] = "Stock cannot be negative unless backorder is enabled."
         if self.offer_price is not None and self.offer_price >= self.price:
             errors["offer_price"] = "Offer price must be lower than regular price."
         if self.offer_starts_at and self.offer_ends_at and self.offer_ends_at <= self.offer_starts_at:

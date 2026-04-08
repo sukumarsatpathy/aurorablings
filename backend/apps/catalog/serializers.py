@@ -267,7 +267,7 @@ class ProductVariantSerializer(serializers.ModelSerializer):
             "id", "sku", "name", "price", "compare_at_price",
             "offer_price", "offer_starts_at", "offer_ends_at", "offer_label", "offer_is_active",
             "has_active_offer", "effective_price", "display_compare_at_price",
-            "stock_quantity", "is_active", "is_default",
+            "stock_quantity", "allow_backorder", "is_active", "is_default",
             "attribute_values", "discount_percentage",
             "is_in_stock", "is_low_stock", "weight_grams",
         ]
@@ -286,6 +286,7 @@ class ProductVariantWriteSerializer(serializers.Serializer):
     offer_is_active     = serializers.BooleanField(required=False, default=False)
     cost_price          = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, allow_null=True)
     stock_quantity      = serializers.IntegerField(default=0)
+    allow_backorder     = serializers.BooleanField(required=False, default=False)
     is_default          = serializers.BooleanField(default=False)
     attribute_value_ids = serializers.ListField(child=serializers.UUIDField(), default=list)
     weight_grams        = serializers.IntegerField(required=False, allow_null=True)
@@ -301,6 +302,8 @@ class ProductVariantWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError({"offer_price": "Offer price must be lower than regular price."})
         if starts and ends and ends <= starts:
             raise serializers.ValidationError({"offer_ends_at": "Offer end must be later than offer start."})
+        if int(attrs.get("stock_quantity", 0)) < 0 and not bool(attrs.get("allow_backorder", False)):
+            raise serializers.ValidationError({"stock_quantity": "Stock cannot be negative unless backorder is enabled."})
         return attrs
 
 

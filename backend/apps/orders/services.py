@@ -58,6 +58,7 @@ from apps.pricing.services import PricingService
 from apps.pricing.coupons.services import CouponService
 from apps.surcharge.services import SurchargeContext, CartItemContext, calculate_surcharges
 from apps.features import services as feature_services
+from apps.accounts import services as account_services
 
 from .models import (
     Order, OrderItem, OrderStatusHistory,
@@ -74,6 +75,88 @@ ONLINE_PAYMENT_METHODS = {
     PaymentMethod.STRIPE,
     PaymentMethod.UPI,
 }
+
+
+def _normalise_checkout_address(address: dict | None) -> dict:
+    payload = dict(address or {})
+    if "address_line1" not in payload and payload.get("line1"):
+        payload["address_line1"] = payload["line1"]
+    if "address_line2" not in payload and payload.get("line2"):
+        payload["address_line2"] = payload["line2"]
+    if "postal_code" not in payload and payload.get("pincode"):
+        payload["postal_code"] = payload["pincode"]
+    if "pincode" not in payload and payload.get("postal_code"):
+        payload["pincode"] = payload["postal_code"]
+    return payload
+
+
+@transaction.atomic
+def checkout_place_order(
+    *,
+    cart,
+    shipping_address: dict,
+    billing_address: dict | None = None,
+    payment_method: str = PaymentMethod.COD,
+    shipping_cost: Decimal = Decimal("0"),
+    coupon_code: str = "",
+    notes: str = "",
+    user=None,
+    guest_email: str = "",
+    warehouse_id=None,
+    changed_by=None,
+    create_account: bool = False,
+    account_data: dict | None = None,
+    save_address: bool = True,
+) -> tuple[Order, object | None]:
+    resolved_user = user
+    account_payload = dict(account_data or {})
+    shipping_address = _normalise_checkout_address(shipping_address)
+    billing_address = _normalise_checkout_address(billing_address or shipping_address)
+
+    if resolved_user is None and not create_account and payment_method in ONLINE_PAYMENT_METHODS:
+        raise ValidationError("Please login or create an account to continue with prepaid checkout.")
+
+    if create_account and resolved_user is None:
+        resolved_user = account_services.register_user(
+            email=str(account_payload.get("email", "")).strip().lower(),
+            password=str(account_payload.get("password", "")),
+            first_name=str(account_payload.get("first_name", "")).strip(),
+            last_name=str(account_payload.get("last_name", "")).strip(),
+            phone=str(account_payload.get("phone", shipping_address.get("phone", ""))).strip(),
+        )
+        guest_email = resolved_user.email
+
+    if resolved_user and save_address:
+        account_services.save_checkout_address(
+            user=resolved_user,
+            address_data=shipping_address,
+            address_type="shipping",
+            set_default=True,
+            changed_by=changed_by or resolved_user,
+        )
+        if billing_address:
+            account_services.save_checkout_address(
+                user=resolved_user,
+                address_data=billing_address,
+                address_type="billing",
+                set_default=True,
+                changed_by=changed_by or resolved_user,
+            )
+
+    order = place_order(
+        cart=cart,
+        shipping_address=shipping_address,
+        billing_address=billing_address,
+        payment_method=payment_method,
+        shipping_cost=shipping_cost,
+        coupon_code=coupon_code,
+        notes=notes,
+        user=resolved_user,
+        guest_email=guest_email,
+        warehouse_id=warehouse_id,
+        changed_by=changed_by or resolved_user,
+    )
+    return order, resolved_user
 
 
 def _is_private_host(url: str) -> bool:
@@ -457,7 +540,7 @@ def place_order(
     subtotal = sum(i.line_total for i in items)
 
     coupon_discount = Decimal("0")
-    normalised_coupon_code = (coupon_code or "").strip()
+    normalised_coupon_code = (coupon_code or getattr(cart, "coupon_code", "") or "").strip()
     if normalised_coupon_code:
         pricing = PricingService.calculate(
             cart=cart,

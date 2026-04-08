@@ -73,14 +73,19 @@ class RegisterView(APIView):
             )
 
         user = services.register_user(**payload)
+        tokens = services.issue_auth_tokens(user=user)
 
         # Fire welcome email async
         from .tasks import send_welcome_email
         send_welcome_email.delay(user_id=str(user.id))
 
         return success_response(
-            data=UserProfileSerializer(user).data,
-            message="Account created successfully. Please verify your email.",
+            data={
+                "access": tokens["access"],
+                "refresh": tokens["refresh"],
+                "user": UserProfileSerializer(user).data,
+            },
+            message="Account created successfully.",
             status_code=status.HTTP_201_CREATED,
             request_id=getattr(request, "request_id", None),
         )
@@ -301,7 +306,7 @@ class AddressDetailView(APIView):
         address = self._get_address(request, pk)
         s = AddressSerializer(address, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
-        s.save()
+        address = services.update_address(address=address, data=s.validated_data, changed_by=request.user)
         return success_response(
             data=AddressSerializer(address).data,
             message="Address updated.",
@@ -536,7 +541,7 @@ class AdminAddressDetailView(APIView):
         address = self._get_address(user_id, pk)
         s = AddressSerializer(address, data=request.data, partial=True)
         s.is_valid(raise_exception=True)
-        s.save()
+        address = services.update_address(address=address, data=s.validated_data, changed_by=request.user)
         return success_response(
             data=AddressSerializer(address).data,
             message="Address updated.",

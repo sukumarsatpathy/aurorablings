@@ -114,7 +114,7 @@ class PlaceOrderView(APIView):
                 status_code=400,
             )
 
-        order = services.place_order(
+        order, resolved_user = services.checkout_place_order(
             cart=cart,
             shipping_address=data["shipping_address"],
             billing_address=data.get("billing_address"),
@@ -126,9 +126,26 @@ class PlaceOrderView(APIView):
             guest_email=data.get("guest_email", ""),
             warehouse_id=data.get("warehouse_id"),
             changed_by=request.user if request.user.is_authenticated else None,
+            create_account=data.get("create_account", False),
+            account_data=data.get("account") or {},
+            save_address=data.get("save_address", True),
         )
+        response_data = OrderDetailSerializer(order).data
+        if resolved_user and not request.user.is_authenticated and data.get("create_account", False):
+            from apps.accounts.serializers import UserProfileSerializer
+            from apps.accounts.services import _issue_tokens
+
+            tokens = _issue_tokens(resolved_user)
+            response_data = {
+                **response_data,
+                "auth": {
+                    "access": tokens["access"],
+                    "refresh": tokens["refresh"],
+                    "user": UserProfileSerializer(resolved_user).data,
+                },
+            }
         return success_response(
-            data=OrderDetailSerializer(order).data,
+            data=response_data,
             message=f"Order {order.order_number} placed successfully.",
             request_id=getattr(request, "request_id", None),
             status_code=201,

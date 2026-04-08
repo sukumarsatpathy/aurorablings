@@ -7,6 +7,7 @@ urlpatterns = [
     # ── Customer ──────────────────────────────────────────────
     path("",                          views.MyOrderListView.as_view(),    name="my-orders"),
     path("place/",                    views.PlaceOrderView.as_view(),     name="place"),
+    path("create/",                   views.PlaceOrderView.as_view(),     name="create"),
     path("<uuid:order_id>/",          views.MyOrderDetailView.as_view(),  name="detail"),
     path("<uuid:order_id>/cancel/",   views.CancelOrderView.as_view(),    name="cancel"),
 

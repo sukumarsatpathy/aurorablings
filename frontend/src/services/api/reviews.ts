@@ -31,6 +31,8 @@ export interface ReviewSummary {
   rating_breakdown: Record<string, number>;
   has_reviewed: boolean;
   my_review_id: string | null;
+  can_review: boolean;
+  eligibility_reason: string;
 }
 
 export interface MyReview {

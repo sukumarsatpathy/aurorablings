@@ -42,6 +42,14 @@ from .serializers import (
 logger = get_logger(__name__)
 
 
+def _is_catalog_staff(user) -> bool:
+    return bool(
+        user
+        and getattr(user, "is_authenticated", False)
+        and getattr(user, "role", "") in {"admin", "staff"}
+    )
+
+
 # ─────────────────────────────────────────────────────────────
 #  Category
 # ─────────────────────────────────────────────────────────────
@@ -66,7 +74,7 @@ class CategoryViewSet(BaseViewSet):
     def list(self, request):
         latest = str(request.query_params.get("latest", "")).strip().lower() in {"1", "true", "yes", "on"}
         qs = selectors.get_all_categories(
-            active_only=not request.user.is_staff,
+            active_only=not _is_catalog_staff(request.user),
             latest_first=latest,
         )
         return self.paginate(qs, CategorySerializer)
@@ -165,7 +173,7 @@ class ProductViewSet(BaseViewSet):
 
     # ── List ──────────────────────────────────────────────────
     def list(self, request):
-        qs = selectors.get_product_list(published_only=not request.user.is_staff)
+        qs = selectors.get_product_list(published_only=not _is_catalog_staff(request.user))
         qs = self.filter_queryset(qs)
         return self.paginate(qs, ProductListSerializer)
 
@@ -509,7 +517,7 @@ class ProductViewSet(BaseViewSet):
             raise NotFoundError("Product not found.")
 
         if request.method == "GET":
-            qs = selectors.get_info_items_for_product(product, active_only=not request.user.is_staff)
+            qs = selectors.get_info_items_for_product(product, active_only=not _is_catalog_staff(request.user))
             return self.ok(data=ProductInfoItemSerializer(qs, many=True).data)
 
         if not (request.user.is_authenticated and request.user.role in ("admin", "staff")):
@@ -570,7 +578,7 @@ class ProductViewSet(BaseViewSet):
         permission_classes=[AllowAny],
     )
     def notify_me(self, request, pk=None):
-        product = selectors.get_product_by_id(pk, published_only=not request.user.is_staff)
+        product = selectors.get_product_by_id(pk, published_only=not _is_catalog_staff(request.user))
         if not product:
             raise NotFoundError("Product not found.")
 

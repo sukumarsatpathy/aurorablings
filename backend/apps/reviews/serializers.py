@@ -110,10 +110,16 @@ class ReviewSummarySerializer(serializers.Serializer):
     rating_breakdown = serializers.DictField(child=serializers.IntegerField())
     has_reviewed = serializers.BooleanField()
     my_review_id = serializers.UUIDField(allow_null=True)
+    can_review = serializers.BooleanField()
+    eligibility_reason = serializers.CharField(allow_blank=True)
 
 
 class PublicReviewListQuerySerializer(serializers.Serializer):
     sort = serializers.ChoiceField(choices=[(item, item) for item in SORT_OPTIONS], default="featured_first")
+
+
+class FlatReviewCreateSerializer(ReviewCreateUpdateSerializer):
+    product_id = serializers.UUIDField()
 
 
 class AdminReviewSerializer(serializers.ModelSerializer):

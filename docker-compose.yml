@@ -42,6 +42,7 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-aurora_user}:${POSTGRES_PASSWORD:-your_password}@db:5432/${POSTGRES_DB:-aurora_db}
       DATABASE: postgres
       SQL_HOST: db
       SQL_PORT: 5432
@@ -64,6 +65,7 @@ services:
     env_file:
       - .env
     environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-aurora_user}:${POSTGRES_PASSWORD:-your_password}@db:5432/${POSTGRES_DB:-aurora_db}
       DATABASE: postgres
       SQL_HOST: db
       SQL_PORT: 5432

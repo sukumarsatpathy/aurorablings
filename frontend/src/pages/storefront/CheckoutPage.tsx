@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
-import { ShieldCheck, ArrowLeft, CreditCard, Truck, ClipboardList } from 'lucide-react';
+import { ShieldCheck, ArrowLeft, CreditCard, Truck, ClipboardList, ChevronDown, ChevronUp } from 'lucide-react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
@@ -192,6 +192,13 @@ export const CheckoutPage: React.FC = () => {
   const [cartLoading, setCartLoading] = useState(true);
   const [cartError, setCartError] = useState('');
   const [items, setItems] = useState<CheckoutCartItem[]>([]);
+  const [couponInput, setCouponInput] = useState('');
+  const [appliedCouponCode, setAppliedCouponCode] = useState('');
+  const [discountAmount, setDiscountAmount] = useState(0);
+  const [couponError, setCouponError] = useState('');
+  const [couponLoading, setCouponLoading] = useState(false);
+  const [couponPanelOpen, setCouponPanelOpen] = useState(false);
+  const [mobileOrderSummaryOpen, setMobileOrderSummaryOpen] = useState(false);
 
   const [shippingAddress, setShippingAddress] = useState({
     full_name: '',
@@ -252,6 +259,14 @@ export const CheckoutPage: React.FC = () => {
 
   const isAuthenticated = Boolean(localStorage.getItem('auth_token'));
 
+  const syncCartPricing = (payload: any) => {
+    const data = payload?.data || {};
+    const couponCode = String(data?.coupon_code || '').trim();
+    setAppliedCouponCode(couponCode);
+    setCouponInput((prev) => prev || couponCode);
+    setDiscountAmount(Number(data?.discount || 0));
+  };
+
   useEffect(() => {
     if (authMode === 'login') {
       setLoginTurnstileToken('');
@@ -268,8 +283,11 @@ export const CheckoutPage: React.FC = () => {
       setCartError('');
       const response = await cartService.getCart();
       setItems(mapCheckoutItems(response));
+      syncCartPricing(response);
     } catch {
       setItems([]);
+      setAppliedCouponCode('');
+      setDiscountAmount(0);
       setCartError('Unable to load cart for checkout.');
     } finally {
       setCartLoading(false);
@@ -278,6 +296,7 @@ export const CheckoutPage: React.FC = () => {
 
   const fetchLatestCartItems = async (): Promise<CheckoutCartItem[]> => {
     const response = await cartService.getCart();
+    syncCartPricing(response);
     return mapCheckoutItems(response);
   };
 
@@ -474,8 +493,36 @@ export const CheckoutPage: React.FC = () => {
   });
 
   const subtotal = useMemo(() => items.reduce((sum, item) => sum + item.lineTotal, 0), [items]);
-  const total = useMemo(() => Math.max(0, subtotal + shippingCharge + taxAmount), [subtotal, shippingCharge, taxAmount]);
+  const total = useMemo(
+    () => Math.max(0, subtotal - discountAmount + shippingCharge + taxAmount),
+    [subtotal, discountAmount, shippingCharge, taxAmount]
+  );
   const showPaymentMethodSelection = paymentOptions.length > 1;
+  const orderActionLabel = isAuthenticated
+    ? 'Complete Purchase'
+    : authMode === 'create'
+      ? 'Create Account & Complete Order'
+      : 'Login for Prepaid Checkout';
+
+  const handleApplyCoupon = async () => {
+    const code = couponInput.trim();
+    if (!code) {
+      setCouponError('Enter a coupon code.');
+      return;
+    }
+
+    try {
+      setCouponLoading(true);
+      setCouponError('');
+      const response = await cartService.applyCoupon(code);
+      setItems(mapCheckoutItems(response));
+      syncCartPricing(response);
+    } catch (error: any) {
+      setCouponError(error?.response?.data?.message || 'Unable to apply coupon.');
+    } finally {
+      setCouponLoading(false);
+    }
+  };
 
   useEffect(() => {
     let cancelled = false;
@@ -580,7 +627,7 @@ export const CheckoutPage: React.FC = () => {
         return;
       }
 
-      await apiClient.post('/v1/auth/register/', {
+      const response = await apiClient.post('/v1/auth/register/', {
         email: registerForm.email,
         password: registerForm.password,
         first_name: registerForm.first_name,
@@ -588,9 +635,25 @@ export const CheckoutPage: React.FC = () => {
         phone: registerForm.phone,
         turnstile_token: registerTurnstileToken,
       });
+      let payload = response?.data?.data || {};
+      let access = String(payload.access || '');
+      let refresh = String(payload.refresh || '');
+      let user = payload.user;
 
-      if (turnstileEnabled) {
-        setAuthError('Account created successfully. Please complete CAPTCHA and login to continue checkout.');
+      if (!access) {
+        const loginResponse = await apiClient.post('/v1/auth/login/', {
+          email: registerForm.email,
+          password: registerForm.password,
+          turnstile_token: registerTurnstileToken,
+        });
+        payload = loginResponse?.data?.data || {};
+        access = String(payload.access || '');
+        refresh = String(payload.refresh || '');
+        user = payload.user;
+      }
+
+      if (!access) {
+        setAuthError('Account created, but auto-login failed. Please login manually.');
         setAuthMode('login');
         setLoginForm((prev) => ({ ...prev, email: registerForm.email, password: '' }));
         setRegisterTurnstileToken('');
@@ -598,41 +661,24 @@ export const CheckoutPage: React.FC = () => {
         return;
       }
 
-      await apiClient.post('/v1/auth/login/', {
-        email: registerForm.email,
-        password: registerForm.password,
-        turnstile_token: registerTurnstileToken,
-      }).then(async (response) => {
-        const payload = response?.data?.data || {};
-        const access = String(payload.access || '');
-        const refresh = String(payload.refresh || '');
-        const user = payload.user;
+      const existingGuestSession = cartService.getGuestCartToken();
 
-        if (!access) {
-          setAuthError('Account created, but auto-login failed. Please login manually.');
-          setAuthMode('login');
-          return;
-        }
+      localStorage.setItem('auth_token', access);
+      if (refresh) localStorage.setItem('refresh_token', refresh);
+      if (user) localStorage.setItem('auth_user', JSON.stringify(user));
+      window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
 
-        const existingGuestSession = cartService.getGuestCartToken();
+      try {
+        await cartService.mergeGuestCart(existingGuestSession);
+      } catch {
+        // do not block checkout auth on merge issue
+      }
 
-        localStorage.setItem('auth_token', access);
-        if (refresh) localStorage.setItem('refresh_token', refresh);
-        if (user) localStorage.setItem('auth_user', JSON.stringify(user));
-        window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
-
-        try {
-          await cartService.mergeGuestCart(existingGuestSession);
-        } catch {
-          // do not block checkout auth on merge issue
-        }
-
-        window.dispatchEvent(new CustomEvent('aurora:cart-updated'));
-        await hydrateProfile();
-        await loadCart();
-        setRegisterTurnstileToken('');
-        setRegisterTurnstileResetKey((prev) => prev + 1);
-      });
+      window.dispatchEvent(new CustomEvent('aurora:cart-updated'));
+      await hydrateProfile();
+      await loadCart();
+      setRegisterTurnstileToken('');
+      setRegisterTurnstileResetKey((prev) => prev + 1);
     } catch (error: any) {
       setAuthError(error?.response?.data?.message || 'Unable to create account.');
       setRegisterTurnstileToken('');
@@ -643,8 +689,9 @@ export const CheckoutPage: React.FC = () => {
   };
 
   const placeOrder = async () => {
-    if (!isAuthenticated) {
-      setOrderError('Please login or create an account to complete your order.');
+    const shouldCreateAccount = !isAuthenticated && authMode === 'create';
+    if (!isAuthenticated && !shouldCreateAccount) {
+      setOrderError('Please login or create an account to continue with prepaid checkout.');
       return;
     }
 
@@ -682,6 +729,16 @@ export const CheckoutPage: React.FC = () => {
       setOrderError('Please enter a valid phone number.');
       return;
     }
+    if (shouldCreateAccount) {
+      if (!registerForm.first_name.trim() || !registerForm.last_name.trim() || !registerForm.email.trim() || !registerForm.password.trim()) {
+        setOrderError('Please complete the account details to create your account during checkout.');
+        return;
+      }
+      if (turnstileEnabled && !registerTurnstileToken) {
+        setOrderError('Please complete CAPTCHA verification before placing your order.');
+        return;
+      }
+    }
 
     try {
       setPlacingOrder(true);
@@ -699,13 +756,32 @@ export const CheckoutPage: React.FC = () => {
         billing_address: toOrderAddressPayload(billingSameAsShipping ? shippingAddress : billingAddress),
         payment_method: paymentMethod,
         shipping_cost: shippingCharge,
+        coupon_code: appliedCouponCode || couponInput.trim(),
         notes: orderNotes.trim(),
         guest_email: normalizedEmail,
+        create_account: shouldCreateAccount,
+        save_address: true,
+        account: shouldCreateAccount ? {
+          email: registerForm.email.trim(),
+          password: registerForm.password,
+          first_name: registerForm.first_name.trim(),
+          last_name: registerForm.last_name.trim(),
+          phone: registerForm.phone.trim() || normalizedPhone,
+        } : undefined,
       });
 
       const placedOrder = response?.data || null;
+      const authPayload = placedOrder?.auth;
+      if (authPayload?.access) {
+        localStorage.setItem('auth_token', String(authPayload.access));
+        if (authPayload.refresh) localStorage.setItem('refresh_token', String(authPayload.refresh));
+        if (authPayload.user) localStorage.setItem('auth_user', JSON.stringify(authPayload.user));
+        window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
+        await hydrateProfile();
+      }
       if (placedOrder) {
-        sessionStorage.setItem('aurora_last_order', JSON.stringify(placedOrder));
+        const { auth: _auth, ...orderSnapshot } = placedOrder;
+        sessionStorage.setItem('aurora_last_order', JSON.stringify(orderSnapshot));
       } else {
         sessionStorage.removeItem('aurora_last_order');
       }
@@ -872,23 +948,119 @@ export const CheckoutPage: React.FC = () => {
   };
 
   return (
-    <div className="pt-32 pb-24">
+    <div className="bg-transparent pb-32 pt-24 md:pb-24 md:pt-32">
       <div className="container mx-auto px-4 max-w-6xl">
-        <div className="flex items-center gap-4 mb-10">
+        <div className="mb-6 flex items-center gap-3 md:mb-10 md:gap-4">
           <Link to="/cart" className="text-muted-foreground hover:text-primary transition-colors">
             <ArrowLeft size={20} />
           </Link>
-          <h1 className="text-4xl font-bold tracking-tight italic">Secure Checkout</h1>
+          <div>
+            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-muted-foreground">Aurora Blings</p>
+            <h1 className="text-2xl font-bold tracking-tight italic md:text-4xl">Secure Checkout</h1>
+          </div>
         </div>
 
         {cartError ? <p className="mb-4 text-sm text-red-600">{cartError}</p> : null}
 
-        <div className="grid grid-cols-1 lg:grid-cols-12 gap-12">
+        <div className="mb-5 rounded-2xl border border-border/70 bg-white/90 p-4 shadow-sm lg:hidden">
+          <button
+            type="button"
+            onClick={() => setMobileOrderSummaryOpen((prev) => !prev)}
+            className="flex w-full items-center justify-between gap-3 text-left"
+          >
+            <div>
+              <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-muted-foreground">Order Summary</p>
+              <p className="text-sm font-semibold text-foreground">{items.length} item{items.length === 1 ? '' : 's'}</p>
+            </div>
+            <div className="flex items-center gap-3">
+              <span className="text-lg font-bold text-primary">{formatCurrency(total)}</span>
+              {mobileOrderSummaryOpen ? <ChevronUp size={18} /> : <ChevronDown size={18} />}
+            </div>
+          </button>
+
+          {mobileOrderSummaryOpen ? (
+            <div className="mt-4 space-y-4 border-t border-border/60 pt-4">
+              {cartLoading ? (
+                <p className="text-sm text-muted-foreground">Loading cart...</p>
+              ) : items.length === 0 ? (
+                <p className="text-sm text-muted-foreground">Your cart is empty. Add products to continue checkout.</p>
+              ) : (
+                <div className="space-y-3">
+                  {items.map((item) => (
+                    <div key={item.id} className="flex gap-3">
+                      <div className="h-16 w-14 overflow-hidden rounded-lg border bg-muted">
+                        <img src={item.thumbnail || FALLBACK_IMAGE} alt={item.productName} className="h-full w-full object-cover" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-semibold">{item.productName}</p>
+                        <p className="truncate text-xs text-muted-foreground">{item.variantName}</p>
+                        <p className="text-xs text-muted-foreground">Qty {item.quantity} • {formatCurrency(item.lineTotal)}</p>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div className="space-y-3 border-t border-border/60 pt-4 text-sm">
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Subtotal</span>
+                  <span className="font-medium">{formatCurrency(subtotal)}</span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Shipping</span>
+                  <span className="font-medium">
+                    {shippingLoading ? 'Calculating...' : shippingCharge === 0 ? 'Free' : formatCurrency(shippingCharge)}
+                  </span>
+                </div>
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Tax</span>
+                  <span className="font-medium">{formatCurrency(taxAmount)}</span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCouponPanelOpen((prev) => !prev)}
+                  className="flex w-full items-center justify-between rounded-xl border border-dashed border-border px-3 py-2 text-left"
+                >
+                  <span className="font-semibold text-foreground">
+                    {appliedCouponCode ? `Coupon: ${appliedCouponCode}` : 'Apply Coupon'}
+                  </span>
+                  {couponPanelOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                </button>
+                {couponPanelOpen ? (
+                  <div className="space-y-2">
+                    <div className="flex gap-2">
+                      <Input
+                        placeholder="Enter coupon"
+                        value={couponInput}
+                        onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                        className="rounded-xl"
+                      />
+                      <Button type="button" variant="outline" onClick={() => void handleApplyCoupon()} disabled={couponLoading}>
+                        {couponLoading ? 'Applying...' : 'Apply'}
+                      </Button>
+                    </div>
+                    {couponError ? <p className="text-xs text-red-600">{couponError}</p> : null}
+                  </div>
+                ) : null}
+                <div className="flex justify-between">
+                  <span className="text-muted-foreground">Discount</span>
+                  <span className="font-medium text-emerald-700">- {formatCurrency(discountAmount)}</span>
+                </div>
+                <div className="flex justify-between border-t border-border/60 pt-3 text-base font-bold">
+                  <span>Total</span>
+                  <span className="text-primary">{formatCurrency(total)}</span>
+                </div>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-12">
           <div className="lg:col-span-7 space-y-8">
             {!isAuthenticated ? (
               <section className="space-y-5 rounded-2xl border bg-white p-6">
                 <h2 className="text-xl font-bold">Login or Create Account</h2>
-                <p className="text-sm text-muted-foreground">You need an account to complete your order.</p>
+                <p className="text-sm text-muted-foreground">A secure account is required for prepaid checkout with Razorpay.</p>
 
                 <div className="inline-flex rounded-xl border overflow-hidden">
                   <button
@@ -985,7 +1157,7 @@ export const CheckoutPage: React.FC = () => {
               </section>
             ) : null}
 
-            <section className="space-y-6">
+            <section className="space-y-6 rounded-2xl border border-border/70 bg-white p-5 shadow-sm md:p-6">
               <div className="flex items-center gap-3 text-primary">
                 <h2 className="text-xl font-bold flex items-center gap-2">
                   <Truck size={20} /> Shipping Information
@@ -1121,7 +1293,7 @@ export const CheckoutPage: React.FC = () => {
               </div>
             </section>
 
-            <section className="space-y-4 pt-4 border-t">
+            <section className="space-y-4 rounded-2xl border border-border/70 bg-white p-5 shadow-sm md:p-6">
               <div className="flex items-center justify-between">
                 <h3 className="text-lg font-bold">Billing Address</h3>
                 <label className="inline-flex items-center gap-2 text-sm">
@@ -1197,7 +1369,7 @@ export const CheckoutPage: React.FC = () => {
             </section>
 
             {showPaymentMethodSelection ? (
-              <section className="space-y-5 pt-6 border-t">
+              <section className="space-y-5 rounded-2xl border border-border/70 bg-white p-5 shadow-sm md:p-6">
                 <div className="flex items-center gap-3 text-muted-foreground">
                   <div className="w-8 h-8 rounded-full bg-muted flex items-center justify-center font-bold text-sm">2</div>
                   <h2 className="text-xl font-bold flex items-center gap-2">
@@ -1225,7 +1397,7 @@ export const CheckoutPage: React.FC = () => {
               </section>
             ) : null}
 
-            <section className="space-y-3 pt-6 border-t">
+            <section className="space-y-3 rounded-2xl border border-border/70 bg-white p-5 shadow-sm md:p-6">
               <h3 className="text-lg font-bold">Order Notes (Optional)</h3>
               <textarea
                 value={orderNotes}
@@ -1239,8 +1411,8 @@ export const CheckoutPage: React.FC = () => {
             </section>
           </div>
 
-          <div className="lg:col-span-5">
-            <Card className="p-8 sticky top-32 space-y-6 bg-muted/30 border-none shadow-none">
+          <div className="hidden lg:col-span-5 lg:block">
+            <Card className="sticky top-32 space-y-6 border-none bg-muted/30 p-8 shadow-none">
               <h2 className="text-xl font-bold tracking-tight italic flex items-center gap-2 border-b pb-4">
                 <ClipboardList size={20} /> Review Order
               </h2>
@@ -1281,6 +1453,41 @@ export const CheckoutPage: React.FC = () => {
                   <span className="text-muted-foreground">Estimated Tax (Live)</span>
                   <span className="font-medium">{formatCurrency(taxAmount)}</span>
                 </div>
+                <div className="space-y-2 rounded-xl border border-dashed border-border p-3">
+                  <button
+                    type="button"
+                    onClick={() => setCouponPanelOpen((prev) => !prev)}
+                    className="flex w-full items-center justify-between text-left"
+                  >
+                    <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground">Coupon Code</label>
+                    {couponPanelOpen ? <ChevronUp size={16} /> : <ChevronDown size={16} />}
+                  </button>
+                  {couponPanelOpen ? (
+                    <>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder="Enter coupon"
+                          value={couponInput}
+                          onChange={(e) => setCouponInput(e.target.value.toUpperCase())}
+                          className="rounded-xl"
+                        />
+                        <Button type="button" variant="outline" onClick={() => void handleApplyCoupon()} disabled={couponLoading}>
+                          {couponLoading ? 'Applying...' : 'Apply'}
+                        </Button>
+                      </div>
+                      {appliedCouponCode ? <p className="text-xs text-emerald-700">Applied coupon: {appliedCouponCode}</p> : null}
+                      {couponError ? <p className="text-xs text-red-600">{couponError}</p> : null}
+                    </>
+                  ) : appliedCouponCode ? (
+                    <p className="text-xs text-emerald-700">Applied coupon: {appliedCouponCode}</p>
+                  ) : (
+                    <p className="text-xs text-muted-foreground">Tap to add a coupon code.</p>
+                  )}
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-muted-foreground">Discount</span>
+                  <span className="font-medium text-emerald-700">- {formatCurrency(discountAmount)}</span>
+                </div>
                 {shippingError ? <p className="text-xs text-amber-700">{shippingError}</p> : null}
                 <div className="pt-4 border-t flex justify-between items-center text-lg font-bold">
                   <span>Total Amount</span>
@@ -1293,10 +1500,10 @@ export const CheckoutPage: React.FC = () => {
               <Button
                 size="lg"
                 className="w-full rounded-xl h-14 text-lg"
-                disabled={!isAuthenticated || placingOrder || cartLoading || items.length === 0}
+                disabled={placingOrder || cartLoading || items.length === 0}
                 onClick={() => void placeOrder()}
               >
-                {placingOrder ? 'Placing Order...' : isAuthenticated ? 'Complete Purchase' : 'Login to Complete Order'}
+                {placingOrder ? 'Placing Order...' : orderActionLabel}
               </Button>
 
               <p className="text-[10px] text-center text-muted-foreground leading-relaxed">
@@ -1304,6 +1511,23 @@ export const CheckoutPage: React.FC = () => {
               </p>
             </Card>
           </div>
+        </div>
+      </div>
+
+      <div className="fixed inset-x-0 bottom-0 z-40 border-t border-border/70 bg-white/95 px-4 py-3 shadow-[0_-8px_24px_rgba(15,23,42,0.08)] backdrop-blur-sm lg:hidden">
+        <div className="mx-auto flex max-w-6xl items-center gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="text-[10px] font-bold uppercase tracking-[0.24em] text-muted-foreground">Total Amount</p>
+            <p className="truncate text-lg font-bold text-primary">{formatCurrency(total)}</p>
+          </div>
+          <Button
+            size="lg"
+            className="h-11 min-w-[188px] rounded-xl px-5 text-sm"
+            disabled={placingOrder || cartLoading || items.length === 0}
+            onClick={() => void placeOrder()}
+          >
+            {placingOrder ? 'Placing Order...' : orderActionLabel}
+          </Button>
         </div>
       </div>
     </div>
