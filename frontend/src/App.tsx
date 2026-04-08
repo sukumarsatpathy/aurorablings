@@ -55,6 +55,7 @@ import { useBranding } from './hooks/useBranding';
 import { CookieConsentRoot } from './privacy/CookieConsentRoot';
 import trackingLoader from './services/trackingLoader';
 import trackingApi from './services/trackingApi';
+import { applySeo } from './lib/seo';
 
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 const isPrivilegedRole = (role?: string) => {
@@ -292,10 +293,30 @@ function DashboardHomeRedirect() {
 function AppContent() {
   useLenis(); // Smooth scroll initialization
   const branding = useBranding();
+  const location = useLocation();
 
   useEffect(() => {
-    document.title = branding.tabTitle;
-  }, [branding.tabTitle]);
+    const genericDescription = branding.tagline
+      ? `${branding.brandName} | ${branding.tagline}`
+      : `${branding.brandName} brings stylish, premium accessories and standout picks for every occasion.`;
+
+    applySeo({
+      title: branding.tabTitle,
+      description: genericDescription,
+      image: branding.logoUrl || branding.faviconUrl,
+      imageAlt: branding.brandName,
+      url: `${window.location.origin}${location.pathname}${location.search}`,
+      siteName: branding.brandName,
+    });
+  }, [
+    branding.brandName,
+    branding.faviconUrl,
+    branding.logoUrl,
+    branding.tabTitle,
+    branding.tagline,
+    location.pathname,
+    location.search,
+  ]);
 
   useEffect(() => {
     if (!branding.faviconUrl) return;

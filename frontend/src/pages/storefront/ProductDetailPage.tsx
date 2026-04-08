@@ -10,6 +10,7 @@ import cartService from '@/services/api/cart';
 import { useCurrency } from '@/hooks/useCurrency';
 import { ProductReviewsSection } from '@/components/storefront/reviews/ProductReviewsSection';
 import { useStagger } from '@/animations/useStagger';
+import { applySeo, stripHtml, truncateText } from '@/lib/seo';
 
 const getBackendOrigin = (): string => {
   const baseURL = import.meta.env.VITE_API_BASE_URL as string | undefined;
@@ -161,6 +162,7 @@ export const ProductDetailPage: React.FC = () => {
     if (!activeVariants.length) return null;
     return activeVariants.find((variant) => variant.id === selectedVariantId) || defaultVariant;
   }, [activeVariants, selectedVariantId, defaultVariant]);
+
   const isInStock = Boolean((selectedVariant as any)?.is_in_stock || (selectedVariant?.stock_quantity || 0) > 0);
 
   const selectedPrice = Number((selectedVariant as any)?.effective_price || selectedVariant?.price || 0);
@@ -235,6 +237,29 @@ export const ProductDetailPage: React.FC = () => {
       // ignore malformed local user cache
     }
   }, []);
+
+  useEffect(() => {
+    if (!product) return;
+
+    const title = product.name ? `${product.name} | Aurora Blings` : 'Aurora Blings';
+    const descriptionSource =
+      product.short_description ||
+      stripHtml(product.description || '') ||
+      'Premium quality product.';
+    const primaryMedia = (product.media || []).find((item) => item.is_primary) || product.media?.[0];
+    const primaryImage = normalizeAssetUrl(primaryMedia?.image) || images[0];
+    const shareUrl = `${window.location.origin}/product/${product.slug || product.id}`;
+
+    applySeo({
+      title,
+      description: truncateText(descriptionSource, 180),
+      image: primaryImage,
+      imageAlt: primaryMedia?.alt_text || product.name,
+      url: shareUrl,
+      type: 'product',
+      siteName: 'Aurora Blings',
+    });
+  }, [images, product]);
 
   const successMessage = 'You’ll be notified when this product is back in stock';
 
