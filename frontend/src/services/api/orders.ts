@@ -60,6 +60,7 @@ export interface AdminOrderDetail extends AdminOrderListRow {
     quantity: number;
     unit_price: string;
     line_total: string;
+    product_image?: string | null;
   }>;
   status_history: Array<{
     id: string;
@@ -132,6 +133,7 @@ export interface CustomerOrderDetail extends CustomerOrderListRow {
     quantity: number;
     unit_price: string;
     line_total: string;
+    product_image?: string | null;
   }>;
   status_history: Array<{
     id: string;
@@ -310,6 +312,17 @@ const ordersService = {
     return response.data;
   },
 
+  markAdminOrderPaid: async (
+    id: string,
+    payload?: Partial<{
+      payment_reference: string;
+      payment_method: string;
+    }>
+  ) => {
+    const response = await apiClient.post(`/v1/orders/admin/${id}/pay/`, payload || {});
+    return response.data;
+  },
+
   getInvoiceDownloadUrl: (orderId: string) => `/v1/orders/${orderId}/invoice/`,
 
   downloadInvoice: async (orderId: string, invoiceUrl?: string) => {
@@ -347,6 +360,45 @@ const ordersService = {
   regenerateInvoice: async (orderId: string) => {
     const response = await apiClient.post(`/v1/orders/admin/${orderId}/invoice/regenerate/`);
     return response.data;
+  },
+
+  downloadShippingLabel: async (orderId: string) => {
+    const response = await apiClient.get(`/v1/orders/admin/${orderId}/shipping-label/`, {
+      responseType: 'blob',
+    });
+
+    const blob = response.data as Blob;
+    const contentDisposition = String(response.headers?.['content-disposition'] || '');
+    const basicMatch = contentDisposition.match(/filename="?([^"]+)"?/i);
+    const filename = basicMatch?.[1] || `shipping-label-${orderId}.pdf`;
+
+    const href = window.URL.createObjectURL(blob);
+    const anchor = document.createElement('a');
+    anchor.href = href;
+    anchor.download = filename;
+    document.body.appendChild(anchor);
+    anchor.click();
+    document.body.removeChild(anchor);
+    window.URL.revokeObjectURL(href);
+  },
+
+  printShippingLabel: async (orderId: string) => {
+    const response = await apiClient.get(`/v1/orders/admin/${orderId}/shipping-label/?format=html`, {
+      responseType: 'text',
+    });
+    const html = String(response.data || '').trim();
+    if (!html) throw new Error('Shipping label preview is empty.');
+
+    const printWindow = window.open('', '_blank', 'noopener,noreferrer');
+    if (!printWindow) throw new Error('Unable to open print window. Please allow pop-ups.');
+
+    printWindow.document.open();
+    printWindow.document.write(html);
+    printWindow.document.close();
+    printWindow.focus();
+    window.setTimeout(() => {
+      printWindow.print();
+    }, 250);
   },
 
   sendOrderConfirmationEmail: async (orderId: string) => {

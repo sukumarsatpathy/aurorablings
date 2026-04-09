@@ -1,5 +1,6 @@
 from rest_framework import serializers
-from .models import Order, OrderItem, OrderStatusHistory, PaymentMethod, OrderStatus
+from .models import Order, OrderItem, OrderStatusHistory, PaymentMethod, OrderStatus, PaymentStatus
+from core.media import build_media_url
 
 
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
@@ -15,14 +16,30 @@ class OrderStatusHistorySerializer(serializers.ModelSerializer):
 
 
 class OrderItemSerializer(serializers.ModelSerializer):
+    product_image = serializers.SerializerMethodField()
+
     class Meta:
         model  = OrderItem
         fields = [
             "id", "sku", "product_name", "variant_name",
             "quantity", "unit_price", "compare_at_price", "line_total",
-            "product_snapshot",
+            "product_snapshot", "product_image",
         ]
         read_only_fields = fields
+
+    def get_product_image(self, obj) -> str | None:
+        request = self.context.get("request")
+        snapshot = obj.product_snapshot or {}
+        snapshot_image = str(snapshot.get("image_url", "") or "").strip()
+        if snapshot_image:
+            return build_media_url(snapshot_image, request=request)
+
+        variant = getattr(obj, "variant", None)
+        if variant and getattr(variant, "product", None):
+            media = variant.product.media.filter(is_primary=True).first() or variant.product.media.first()
+            if media and getattr(media, "image", None):
+                return build_media_url(media.image, request=request)
+        return None
 
 
 class OrderListSerializer(serializers.ModelSerializer):
@@ -205,10 +222,18 @@ class AdminOrderCreateSerializer(serializers.Serializer):
     user_id = serializers.UUIDField(required=False, allow_null=True)
     guest_email = serializers.EmailField(required=False, allow_blank=True, default="")
     status = serializers.ChoiceField(choices=OrderStatus.choices, default=OrderStatus.PLACED)
-    payment_status = serializers.CharField(required=False, default="pending")
+    payment_status = serializers.ChoiceField(choices=PaymentStatus.choices, required=False, default=PaymentStatus.PENDING)
     payment_method = serializers.ChoiceField(choices=PaymentMethod.choices, required=False, default=PaymentMethod.COD)
-    shipping_address = serializers.DictField(child=serializers.CharField(), required=False, default=dict)
-    billing_address = serializers.DictField(child=serializers.CharField(), required=False, default=dict)
+    shipping_address = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True, required=False),
+        required=False,
+        default=dict,
+    )
+    billing_address = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True, required=False),
+        required=False,
+        default=dict,
+    )
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default="0")
     discount_amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default="0")
     shipping_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False, default="0")
@@ -223,10 +248,16 @@ class AdminOrderCreateSerializer(serializers.Serializer):
 
 
 class AdminOrderUpdateSerializer(serializers.Serializer):
-    payment_status = serializers.CharField(required=False)
+    payment_status = serializers.ChoiceField(choices=PaymentStatus.choices, required=False)
     payment_method = serializers.ChoiceField(choices=PaymentMethod.choices, required=False)
-    shipping_address = serializers.DictField(child=serializers.CharField(), required=False)
-    billing_address = serializers.DictField(child=serializers.CharField(), required=False)
+    shipping_address = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True, required=False),
+        required=False,
+    )
+    billing_address = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True, required=False),
+        required=False,
+    )
     subtotal = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
     discount_amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
     shipping_cost = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
@@ -242,6 +273,10 @@ class AdminOrderUpdateSerializer(serializers.Serializer):
 class AdminOrderCalculateSerializer(serializers.Serializer):
     user_id = serializers.UUIDField(required=False, allow_null=True)
     payment_method = serializers.ChoiceField(choices=PaymentMethod.choices, required=False, default=PaymentMethod.COD)
-    shipping_address = serializers.DictField(child=serializers.CharField(), required=False, default=dict)
+    shipping_address = serializers.DictField(
+        child=serializers.CharField(allow_blank=True, allow_null=True, required=False),
+        required=False,
+        default=dict,
+    )
     coupon_code = serializers.CharField(required=False, allow_blank=True, default="")
     items = AdminOrderItemInputSerializer(many=True, required=True)

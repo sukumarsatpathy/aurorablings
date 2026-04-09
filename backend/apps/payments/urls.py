@@ -23,5 +23,6 @@ urlpatterns = [
 
     # ── Admin ─────────────────────────────────────────────────
     path("admin/transactions/",     views.AdminTransactionListView.as_view(), name="admin-transactions"),
+    path("admin/reconcile/",        views.AdminReconcilePaymentView.as_view(), name="admin-reconcile"),
     path("admin/webhooks/",         views.AdminWebhookLogView.as_view(),    name="admin-webhooks"),
 ]

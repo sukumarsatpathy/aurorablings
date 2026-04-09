@@ -2,7 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { DataTable, StatusBadge } from '@/components/admin/AdminTable';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
-import { Search, Filter, RefreshCw, Eye, Trash2, MoreHorizontal, Plus, FileDown, RotateCw, Mail } from 'lucide-react';
+import { Search, Filter, RefreshCw, Eye, Trash2, MoreHorizontal, Plus, FileDown, RotateCw, Mail, Printer } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -19,6 +19,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import ordersService, { type AdminOrderDetail, type AdminOrderListRow } from '@/services/api/orders';
 import shippingService from '@/services/api/shipping';
+import paymentsService, { type AdminPaymentTransaction } from '@/services/api/payments';
 import inventoryService from '@/services/api/inventory';
 import customerService from '@/services/api/customers';
 import { useCurrency } from '@/hooks/useCurrency';
@@ -60,6 +61,18 @@ interface DraftOrderItem {
   variant_name: string;
   unit_price: number;
   quantity: number;
+}
+
+interface PaymentTxnView {
+  id: string;
+  provider: string;
+  provider_ref: string;
+  status: string;
+  amount: number;
+  currency: string;
+  created_at: string;
+  razorpay_payment_id?: string;
+  razorpay_order_id?: string;
 }
 
 interface OrderFormState {
@@ -127,7 +140,10 @@ export const Orders: React.FC = () => {
   const [draftItems, setDraftItems] = useState<DraftOrderItem[]>([]);
   const [calcLoading, setCalcLoading] = useState(false);
   const [shipmentActionLoading, setShipmentActionLoading] = useState('');
+  const [paymentActionLoading, setPaymentActionLoading] = useState('');
   const [calcBreakdown, setCalcBreakdown] = useState<any[]>([]);
+  const [paymentTxns, setPaymentTxns] = useState<PaymentTxnView[]>([]);
+  const [paymentTxnsLoading, setPaymentTxnsLoading] = useState(false);
   const [toasts, setToasts] = useState<UiToast[]>([]);
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerOptions, setCustomerOptions] = useState<Customer[]>([]);
@@ -165,6 +181,31 @@ export const Orders: React.FC = () => {
   const loadCustomers = async (search = '') => {
     const response = await customerService.getAll({ search });
     setCustomerOptions(Array.isArray(response?.data) ? response.data : []);
+  };
+
+  const loadPaymentTransactions = async (orderId: string) => {
+    try {
+      setPaymentTxnsLoading(true);
+      const response = await paymentsService.listAdminTransactions(orderId);
+      const rows = Array.isArray(response?.data) ? (response.data as AdminPaymentTransaction[]) : [];
+      setPaymentTxns(
+        rows.map((row) => ({
+          id: String(row.id || ''),
+          provider: String(row.provider || ''),
+          provider_ref: String(row.provider_ref || ''),
+          status: String(row.status || ''),
+          amount: Number(row.amount || row.total_amount || 0),
+          currency: String(row.currency || 'INR'),
+          created_at: String(row.created_at || ''),
+          razorpay_payment_id: String(row.razorpay_payment_id || ''),
+          razorpay_order_id: String(row.razorpay_order_id || ''),
+        }))
+      );
+    } catch {
+      setPaymentTxns([]);
+    } finally {
+      setPaymentTxnsLoading(false);
+    }
   };
 
   useEffect(() => {
@@ -290,6 +331,7 @@ export const Orders: React.FC = () => {
     setCustomerSearch('');
     setCustomerOptions([]);
     setShowCustomerDropdown(false);
+    setPaymentTxns([]);
     setIsModalOpen(true);
   };
 
@@ -323,6 +365,7 @@ export const Orders: React.FC = () => {
       setCustomerSearch(detail.customer_email || '');
       setCustomerOptions([]);
       setShowCustomerDropdown(false);
+      await loadPaymentTransactions(detail.id);
       setIsModalOpen(true);
     } catch (error: any) {
       alert(error?.response?.data?.message || 'Failed to load order details.');
@@ -347,6 +390,45 @@ export const Orders: React.FC = () => {
       alert(error?.response?.data?.message || 'Shipment action failed.');
     } finally {
       setShipmentActionLoading('');
+    }
+  };
+
+  const reconcilePayment = async () => {
+    if (!editingOrder) return;
+    try {
+      setPaymentActionLoading('reconcile');
+      const response = await paymentsService.reconcileAdminOrder(editingOrder.id);
+      const reconciledStatus = String(response?.data?.payment_status || '').trim();
+      if (reconciledStatus) {
+        setFormData((prev) => ({ ...prev, payment_status: reconciledStatus }));
+      }
+      await loadPaymentTransactions(editingOrder.id);
+      await openEdit(editingOrder);
+      pushToast('success', response?.message || 'Payment status reconciled.');
+    } catch (error: any) {
+      pushToast('error', error?.response?.data?.message || 'Failed to reconcile payment.');
+    } finally {
+      setPaymentActionLoading('');
+    }
+  };
+
+  const markOrderPaidNow = async () => {
+    if (!editingOrder) return;
+    try {
+      setPaymentActionLoading('mark-paid');
+      const candidateRef = paymentTxns.find((txn) => txn.status === 'success')?.provider_ref || '';
+      await ordersService.markAdminOrderPaid(editingOrder.id, {
+        payment_method: formData.payment_method || 'razorpay',
+        payment_reference: candidateRef || undefined,
+      });
+      setFormData((prev) => ({ ...prev, payment_status: 'paid', status: prev.status === 'draft' ? 'paid' : prev.status }));
+      await loadPaymentTransactions(editingOrder.id);
+      await openEdit(editingOrder);
+      pushToast('success', 'Order marked as paid.');
+    } catch (error: any) {
+      pushToast('error', error?.response?.data?.message || 'Failed to mark order as paid.');
+    } finally {
+      setPaymentActionLoading('');
     }
   };
 
@@ -851,6 +933,66 @@ export const Orders: React.FC = () => {
               </>
             )}
 
+            {editingOrder ? (
+              <div className="md:col-span-2 rounded-xl border border-border bg-white p-3 space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <p className="text-xs font-bold uppercase text-muted-foreground">Payment Timeline</p>
+                  <div className="flex flex-wrap gap-2">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => void loadPaymentTransactions(editingOrder.id)}
+                      disabled={paymentTxnsLoading || paymentActionLoading.length > 0}
+                    >
+                      {paymentTxnsLoading ? 'Refreshing...' : 'Refresh Payment Logs'}
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={reconcilePayment}
+                      disabled={paymentActionLoading.length > 0}
+                    >
+                      {paymentActionLoading === 'reconcile' ? 'Reconciling...' : 'Reconcile with Gateway'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      onClick={markOrderPaidNow}
+                      disabled={paymentActionLoading.length > 0 || formData.payment_status === 'paid'}
+                    >
+                      {paymentActionLoading === 'mark-paid' ? 'Updating...' : 'Mark Paid Manually'}
+                    </Button>
+                  </div>
+                </div>
+
+                {paymentTxns.length === 0 ? (
+                  <p className="text-xs text-muted-foreground">No payment transactions found for this order yet.</p>
+                ) : (
+                  <div className="space-y-2">
+                    {paymentTxns.slice(0, 5).map((txn) => (
+                      <div key={txn.id} className="rounded-lg border border-border/60 bg-muted/20 px-3 py-2 text-xs">
+                        <div className="flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-semibold uppercase">{txn.provider}</span>
+                          <StatusBadge status={toTitle(txn.status)} type="generic" />
+                        </div>
+                        <div className="mt-1 text-muted-foreground">
+                          Amount: {formatCurrency(Number(txn.amount || 0))} {txn.currency}
+                        </div>
+                        <div className="text-muted-foreground break-all">
+                          Ref: {txn.razorpay_payment_id || txn.provider_ref || txn.razorpay_order_id || '-'}
+                        </div>
+                        <div className="text-muted-foreground">
+                          {txn.created_at ? new Date(txn.created_at).toLocaleString() : '-'}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            ) : null}
+
             <div className="md:col-span-2 rounded-xl border border-border bg-muted/20 p-3 space-y-2">
               <div className="flex items-center justify-between">
                 <p className="text-xs font-bold uppercase text-muted-foreground">Totals</p>
@@ -888,11 +1030,37 @@ export const Orders: React.FC = () => {
               <div className="md:col-span-2 rounded-xl border border-border bg-muted/20 p-3 space-y-2">
                 <p className="text-xs font-bold uppercase text-muted-foreground">Order Items ({editingOrder.items.length})</p>
                 {editingOrder.items.map((item) => (
-                  <div key={item.id} className="flex items-center justify-between text-xs border-b border-border/60 pb-2 last:border-0 last:pb-0">
-                    <span>{item.product_name} ({item.sku}) × {item.quantity}</span>
+                  <div key={item.id} className="flex items-center justify-between gap-3 text-xs border-b border-border/60 pb-2 last:border-0 last:pb-0">
+                    <div className="flex items-center gap-3">
+                      <img
+                        src={item.product_image || 'https://placehold.co/80x80/f3f4f6/6b7280?text=Product'}
+                        alt={item.product_name}
+                        className="h-10 w-10 rounded-md border border-border/70 object-cover"
+                      />
+                      <span>{item.product_name} ({item.sku}) × {item.quantity}</span>
+                    </div>
                     <span className="font-semibold">{formatCurrency(Number(item.line_total || 0))}</span>
                   </div>
                 ))}
+              </div>
+            ) : null}
+
+            {editingOrder ? (
+              <div className="md:col-span-2 rounded-xl border border-border bg-white p-3 space-y-2">
+                <p className="text-xs font-bold uppercase text-muted-foreground">Delivery Address</p>
+                <div className="text-sm leading-relaxed text-foreground">
+                  <p className="font-semibold">{String(editingOrder.shipping_address?.full_name || editingOrder.customer_name || 'Customer')}</p>
+                  <p>{String(editingOrder.shipping_address?.line1 || '-')}</p>
+                  {editingOrder.shipping_address?.line2 ? <p>{String(editingOrder.shipping_address.line2)}</p> : null}
+                  <p>
+                    {String(editingOrder.shipping_address?.city || '')}
+                    {editingOrder.shipping_address?.state ? `, ${String(editingOrder.shipping_address.state)}` : ''}
+                    {editingOrder.shipping_address?.pincode ? ` - ${String(editingOrder.shipping_address.pincode)}` : ''}
+                  </p>
+                  <p>{String(editingOrder.shipping_address?.country || 'India')}</p>
+                  <p className="mt-1 text-xs text-muted-foreground">Email: {editingOrder.customer_email || editingOrder.guest_email || '-'}</p>
+                  <p className="text-xs text-muted-foreground">Contact: {String(editingOrder.shipping_address?.phone || '-')}</p>
+                </div>
               </div>
             ) : null}
 
@@ -1019,6 +1187,26 @@ export const Orders: React.FC = () => {
                       }}
                     >
                       <FileDown className="mr-1 h-3.5 w-3.5" /> Download
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        void ordersService.downloadShippingLabel(editingOrder.id);
+                      }}
+                    >
+                      <FileDown className="mr-1 h-3.5 w-3.5" /> Shipping Label
+                    </Button>
+                    <Button
+                      type="button"
+                      variant="outline"
+                      size="sm"
+                      onClick={() => {
+                        void ordersService.printShippingLabel(editingOrder.id);
+                      }}
+                    >
+                      <Printer className="mr-1 h-3.5 w-3.5" /> Print Label
                     </Button>
                     <Button
                       type="button"

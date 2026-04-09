@@ -555,6 +555,30 @@ class AdminTransactionListView(APIView):
         return success_response(data=PaymentTransactionSerializer(txns, many=True).data)
 
 
+class AdminReconcilePaymentView(APIView):
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request):
+        s = ReconcilePaymentSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        order = get_order_by_id(s.validated_data["order_id"])
+        if not order:
+            raise NotFoundError("Order not found.")
+
+        txn = services.reconcile_order_payment(order=order)
+        order.refresh_from_db(fields=["status", "payment_status", "updated_at"])
+        return success_response(
+            data={
+                "order_id": str(order.id),
+                "order_status": order.status,
+                "payment_status": order.payment_status,
+                "transaction": PaymentTransactionSerializer(txn).data if txn else None,
+            },
+            message="Payment status reconciled.",
+            request_id=getattr(request, "request_id", None),
+        )
+
+
 class AdminWebhookLogView(APIView):
     permission_classes = [IsAuthenticated, IsStaffOrAdmin]
 
