@@ -492,6 +492,7 @@ def create_variant(
     offer_is_active: bool = False,
     cost_price=None,
     stock_quantity: int = 0,
+    allow_backorder: bool = False,
     is_default: bool = False,
     weight_grams: int | None = None,
     name: str = "",
@@ -544,6 +545,7 @@ def create_variant(
         offer_is_active=offer_is_active,
         cost_price=cost_price,
         stock_quantity=stock_quantity,
+        allow_backorder=allow_backorder,
         is_default=is_default,
         weight_grams=weight_grams,
     )
