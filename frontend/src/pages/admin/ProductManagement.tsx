@@ -362,6 +362,8 @@ export const ProductManagement: React.FC = () => {
   const [categorySearch, setCategorySearch] = useState('');
   const [isCategoryDropdownOpen, setIsCategoryDropdownOpen] = useState(false);
   const [productToDelete, setProductToDelete] = useState<string | null>(null);
+  const [isDeletingProduct, setIsDeletingProduct] = useState(false);
+  const [deleteProductError, setDeleteProductError] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
   const nameFieldRef = useRef<HTMLDivElement | null>(null);
@@ -743,6 +745,7 @@ export const ProductManagement: React.FC = () => {
   };
 
   const handleDelete = async (id: string) => {
+    setDeleteProductError(null);
     setProductToDelete(id);
   };
 
@@ -755,9 +758,30 @@ export const ProductManagement: React.FC = () => {
 
   const confirmDeleteProduct = async () => {
     if (!productToDelete) return;
-    await catalogService.deleteProduct(productToDelete);
-    setProductToDelete(null);
-    await loadCatalog();
+
+    setIsDeletingProduct(true);
+    setDeleteProductError(null);
+
+    try {
+      await catalogService.deleteProduct(productToDelete);
+      setProductToDelete(null);
+      await loadCatalog();
+    } catch (error: any) {
+      const responseData = error?.response?.data;
+      const fallbackMessage = 'Unable to delete product right now. Please try again.';
+
+      const message =
+        (typeof responseData === 'string' && responseData) ||
+        responseData?.detail ||
+        responseData?.message ||
+        (Array.isArray(responseData?.non_field_errors) ? responseData.non_field_errors[0] : '') ||
+        error?.message ||
+        fallbackMessage;
+
+      setDeleteProductError(String(message || fallbackMessage));
+    } finally {
+      setIsDeletingProduct(false);
+    }
   };
 
   const syncVariants = async (productId: string, attributeValueIdMap: Record<string, string>) => {
@@ -1874,13 +1898,21 @@ export const ProductManagement: React.FC = () => {
       <ConfirmDialog
         open={Boolean(productToDelete)}
         onOpenChange={(open) => {
-          if (!open) setProductToDelete(null);
+          if (!open) {
+            setProductToDelete(null);
+            setDeleteProductError(null);
+          }
         }}
         title="Delete Product"
-        description="This product will be removed from active catalog listings."
+        description={
+          deleteProductError
+            ? `Delete failed: ${deleteProductError}`
+            : 'This product will be removed from active catalog listings.'
+        }
         confirmLabel="Delete Product"
         variant="destructive"
         onConfirm={confirmDeleteProduct}
+        loading={isDeletingProduct}
       />
     </div>
   );

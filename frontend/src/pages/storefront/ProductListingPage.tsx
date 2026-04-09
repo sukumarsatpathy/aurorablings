@@ -164,20 +164,23 @@ const buildPageWindow = (current: number, total: number): Array<number | string>
 };
 
 interface ListCardImageProps {
+  productId: string;
   slug: string;
   name: string;
   primaryImage?: string | null;
   hoverImage?: string | null;
 }
 
-const ListCardImage: React.FC<ListCardImageProps> = ({ slug, name, primaryImage, hoverImage }) => {
+const ListCardImage: React.FC<ListCardImageProps> = ({ productId, slug, name, primaryImage, hoverImage }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [hoverMediaLoaded, setHoverMediaLoaded] = useState(false);
+  const [additionalImages, setAdditionalImages] = useState<string[]>([]);
   const [activeImageIndex, setActiveImageIndex] = useState(0);
   const fallback = `https://placehold.co/600x600/f3f4f6/517b4b?text=${encodeURIComponent(name)}`;
 
   const images = useMemo(() => {
     const seen = new Set<string>();
-    const ordered = [normalizeAssetUrl(primaryImage), normalizeAssetUrl(hoverImage)].filter(
+    const ordered = [normalizeAssetUrl(primaryImage), normalizeAssetUrl(hoverImage), ...additionalImages].filter(
       (image): image is string => Boolean(image)
     );
     const unique = ordered.filter((image) => {
@@ -186,7 +189,56 @@ const ListCardImage: React.FC<ListCardImageProps> = ({ slug, name, primaryImage,
       return true;
     });
     return unique.length > 0 ? unique : [fallback];
-  }, [fallback, hoverImage, primaryImage]);
+  }, [additionalImages, fallback, hoverImage, primaryImage]);
+
+  useEffect(() => {
+    if (!isHovered || hoverMediaLoaded) return;
+
+    let active = true;
+    const extractMedia = (payload: any): string[] => {
+      const root = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
+      return (Array.isArray(root?.media) ? root.media : [])
+        .map((item: any) => normalizeAssetUrl(item?.image))
+        .filter(Boolean);
+    };
+
+    const loadHoverMedia = async () => {
+      try {
+        let mediaImages: string[] = [];
+
+        if (slug) {
+          try {
+            const bySlug = await catalogService.getProductBySlug(slug);
+            mediaImages = extractMedia(bySlug);
+          } catch {
+            mediaImages = [];
+          }
+        }
+
+        if (!mediaImages.length && productId) {
+          try {
+            const byId = await catalogService.getProduct(productId);
+            mediaImages = extractMedia(byId);
+          } catch {
+            mediaImages = [];
+          }
+        }
+
+        if (!active) return;
+        setAdditionalImages(mediaImages);
+      } catch {
+        if (!active) return;
+        setAdditionalImages([]);
+      } finally {
+        if (active) setHoverMediaLoaded(true);
+      }
+    };
+
+    void loadHoverMedia();
+    return () => {
+      active = false;
+    };
+  }, [hoverMediaLoaded, isHovered, productId, slug]);
 
   useEffect(() => {
     if (!isHovered || images.length <= 1) {
@@ -611,6 +663,7 @@ export const ProductListingPage: React.FC = () => {
                 <div key={product.id} className="rounded-2xl border border-border bg-white/75 backdrop-blur-sm p-4 md:p-5">
                   <div className="flex flex-col md:flex-row md:items-center gap-4">
                     <ListCardImage
+                      productId={product.id}
                       slug={product.slug}
                       name={product.name}
                       primaryImage={product.primary_image}

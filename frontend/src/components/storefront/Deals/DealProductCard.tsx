@@ -109,6 +109,9 @@ const isUuid = (value: string): boolean =>
 
 export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => {
   const [isHovered, setIsHovered] = useState(false);
+  const [hoverMediaLoaded, setHoverMediaLoaded] = useState(false);
+  const [cardMediaImages, setCardMediaImages] = useState<string[]>([]);
+  const [activeCardImageIndex, setActiveCardImageIndex] = useState(0);
   const [quickViewOpen, setQuickViewOpen] = useState(false);
   const [quickViewLoading, setQuickViewLoading] = useState(false);
   const [quickViewError, setQuickViewError] = useState('');
@@ -169,6 +172,28 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
     if (fromMedia.length > 0) return fromMedia;
     return [normalizeAssetUrl(product.primary_image)].filter(Boolean);
   }, [quickViewProduct, product.primary_image]);
+
+  const fallbackCardImage = useMemo(
+    () => `https://placehold.co/600x600/f3f4f6/517b4b?text=${encodeURIComponent(product.name)}`,
+    [product.name]
+  );
+
+  const cardImages = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered = [
+      normalizeAssetUrl(product.primary_image),
+      normalizeAssetUrl(product.hover_image),
+      ...cardMediaImages,
+    ].filter((image): image is string => Boolean(image));
+
+    const unique = ordered.filter((image) => {
+      if (seen.has(image)) return false;
+      seen.add(image);
+      return true;
+    });
+
+    return unique.length > 0 ? unique : [fallbackCardImage];
+  }, [cardMediaImages, fallbackCardImage, product.hover_image, product.primary_image]);
 
   const quickHighlights = useMemo(() => {
     const attrs = quickVariant?.attribute_values || [];
@@ -474,6 +499,70 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
     };
   }, [syncCardCartState]);
 
+  useEffect(() => {
+    if (!isHovered || hoverMediaLoaded) return;
+
+    let active = true;
+    const loadHoverMedia = async () => {
+      const extractMediaImages = (payload: unknown): string[] => {
+        const extracted = extractProduct(payload);
+        return (extracted?.media || [])
+          .map((media) => normalizeAssetUrl(media.image))
+          .filter(Boolean);
+      };
+
+      try {
+        let images: string[] = [];
+
+        if (product.slug) {
+          try {
+            const bySlug = await catalogService.getProductBySlug(product.slug);
+            images = extractMediaImages(bySlug);
+          } catch {
+            images = [];
+          }
+        }
+
+        if (!images.length && product.id) {
+          try {
+            const byId = await catalogService.getProduct(product.id);
+            images = extractMediaImages(byId);
+          } catch {
+            images = [];
+          }
+        }
+
+        if (!active) return;
+        setCardMediaImages(images);
+      } catch {
+        if (!active) return;
+        setCardMediaImages([]);
+      } finally {
+        if (active) setHoverMediaLoaded(true);
+      }
+    };
+
+    void loadHoverMedia();
+    return () => {
+      active = false;
+    };
+  }, [hoverMediaLoaded, isHovered, product.slug]);
+
+  useEffect(() => {
+    if (!isHovered || cardImages.length <= 1) {
+      setActiveCardImageIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setActiveCardImageIndex((current) => (current + 1) % cardImages.length);
+    }, 850);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [cardImages.length, isHovered]);
+
   return (
     <>
       <div
@@ -483,26 +572,19 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
       >
         <div className="relative aspect-[1/1] mb-4 md:mb-6 rounded-[1.1rem] md:rounded-[1.5rem] overflow-hidden bg-[#eceff1] p-2.5 md:p-3">
           <Link to={`/product/${product.slug}`} className="block h-full w-full rounded-[1.2rem] overflow-hidden">
-            <img
-              src={product.primary_image || '/placeholder-product.png'}
-              alt={product.name}
-              className="absolute inset-0 h-full w-full object-contain rounded-[1.2rem] transition-opacity duration-300 opacity-100"
-              onError={(event) => {
-                (event.target as HTMLImageElement).src = `https://placehold.co/600x600/f3f4f6/517b4b?text=${encodeURIComponent(product.name)}`;
-              }}
-            />
-            {product.hover_image && (
+            {cardImages.map((image, index) => (
               <img
-                src={product.hover_image}
-                alt={`${product.name} hover`}
+                key={`${image}-${index}`}
+                src={image}
+                alt={index === 0 ? product.name : `${product.name} view ${index + 1}`}
                 className={`absolute inset-0 h-full w-full object-contain rounded-[1.2rem] transition-opacity duration-300 ${
-                  isHovered ? 'opacity-100' : 'opacity-0'
+                  activeCardImageIndex === index ? 'opacity-100' : 'opacity-0'
                 }`}
                 onError={(event) => {
-                  (event.target as HTMLImageElement).src = `https://placehold.co/600x600/f3f4f6/c8a97e?text=${encodeURIComponent(product.name)}`;
+                  (event.target as HTMLImageElement).src = fallbackCardImage;
                 }}
               />
-            )}
+            ))}
           </Link>
 
           <div className={`absolute right-4 bottom-4 hidden md:flex flex-col gap-2 transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>

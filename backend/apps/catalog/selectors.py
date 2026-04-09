@@ -127,6 +127,7 @@ def get_product_list(
     price_max=None,
     attribute_value_ids: list | None = None,
     published_only: bool = True,
+    include_deleted: bool = False,
 ) -> QuerySet:
     """
     Composable product list query used by ListProductView and filters.
@@ -139,6 +140,11 @@ def get_product_list(
         Prefetch("media", queryset=ProductMedia.objects.filter(is_primary=True)),
         "variants",
     )
+
+    # Admin/staff queries may use all_objects for visibility of inactive products,
+    # but catalog lists should hide soft-deleted items unless explicitly requested.
+    if not include_deleted:
+        qs = qs.filter(deleted_at__isnull=True)
 
     if category_id:
         # Include children categories
