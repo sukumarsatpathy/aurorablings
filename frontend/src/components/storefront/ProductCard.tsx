@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Eye } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -14,6 +14,8 @@ export interface Product {
   price: number;
   originalPrice?: number;
   image: string;
+  hoverImage?: string;
+  additionalImages?: string[];
   category: string;
   badge?: string;
   isNew?: boolean;
@@ -25,6 +27,36 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { formatCurrency } = useCurrency();
+  const [isHovered, setIsHovered] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+
+  const cardImages = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered = [product.image, product.hoverImage, ...(product.additionalImages || [])].filter(
+      (image): image is string => Boolean(image)
+    );
+    const unique = ordered.filter((image) => {
+      if (seen.has(image)) return false;
+      seen.add(image);
+      return true;
+    });
+    return unique.length > 0 ? unique : [product.image];
+  }, [product.additionalImages, product.hoverImage, product.image]);
+
+  useEffect(() => {
+    if (!isHovered || cardImages.length <= 1) {
+      setActiveImageIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setActiveImageIndex((current) => (current + 1) % cardImages.length);
+    }, 850);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [cardImages.length, isHovered]);
 
   const resolveDefaultVariantId = async () => {
     try {
@@ -56,15 +88,26 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   };
 
   return (
-    <Card data-stagger-item data-scroll-item className="group relative overflow-hidden border-none shadow-none bg-transparent h-full flex flex-col transition-transform duration-300 hover:-translate-y-1">
+    <Card
+      data-stagger-item
+      data-scroll-item
+      className="group relative overflow-hidden border-none shadow-none bg-transparent h-full flex flex-col transition-transform duration-300 hover:-translate-y-1"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
       {/* Image Container */}
       <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-muted/50">
-        <img 
-          src={product.image} 
-          alt={product.name}
-          className="h-full w-full object-cover transition-transform duration-700 will-change-transform group-hover:scale-[1.08]"
-          loading="lazy"
-        />
+        {cardImages.map((image, index) => (
+          <img
+            key={`${product.id}-${image}-${index}`}
+            src={image}
+            alt={index === 0 ? product.name : `${product.name} view ${index + 1}`}
+            className={`absolute inset-0 h-full w-full object-cover transition-all duration-700 will-change-transform ${
+              activeImageIndex === index ? 'opacity-100 scale-[1.08]' : 'opacity-0 scale-100'
+            }`}
+            loading="lazy"
+          />
+        ))}
         
         {/* Badges */}
         {product.badge && (

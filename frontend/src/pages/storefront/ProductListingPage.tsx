@@ -163,6 +163,67 @@ const buildPageWindow = (current: number, total: number): Array<number | string>
   return [1, '…', current - 1, current, current + 1, '…', total];
 };
 
+interface ListCardImageProps {
+  slug: string;
+  name: string;
+  primaryImage?: string | null;
+  hoverImage?: string | null;
+}
+
+const ListCardImage: React.FC<ListCardImageProps> = ({ slug, name, primaryImage, hoverImage }) => {
+  const [isHovered, setIsHovered] = useState(false);
+  const [activeImageIndex, setActiveImageIndex] = useState(0);
+  const fallback = `https://placehold.co/600x600/f3f4f6/517b4b?text=${encodeURIComponent(name)}`;
+
+  const images = useMemo(() => {
+    const seen = new Set<string>();
+    const ordered = [normalizeAssetUrl(primaryImage), normalizeAssetUrl(hoverImage)].filter(
+      (image): image is string => Boolean(image)
+    );
+    const unique = ordered.filter((image) => {
+      if (seen.has(image)) return false;
+      seen.add(image);
+      return true;
+    });
+    return unique.length > 0 ? unique : [fallback];
+  }, [fallback, hoverImage, primaryImage]);
+
+  useEffect(() => {
+    if (!isHovered || images.length <= 1) {
+      setActiveImageIndex(0);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setActiveImageIndex((current) => (current + 1) % images.length);
+    }, 850);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [images.length, isHovered]);
+
+  return (
+    <Link
+      to={`/product/${slug}`}
+      className="group w-full md:w-32 h-32 rounded-xl overflow-hidden bg-muted/20 shrink-0 relative"
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+    >
+      {images.map((image, index) => (
+        <img
+          key={`${slug}-${image}-${index}`}
+          src={image}
+          alt={index === 0 ? name : `${name} view ${index + 1}`}
+          className={`absolute inset-0 h-full w-full object-contain transition-opacity duration-300 ${
+            activeImageIndex === index ? 'opacity-100' : 'opacity-0'
+          }`}
+        />
+      ))}
+    </Link>
+  );
+};
+
 export const ProductListingPage: React.FC = () => {
   const [searchParams, setSearchParams] = useSearchParams();
   const rootRef = useRef<HTMLDivElement>(null);
@@ -549,9 +610,12 @@ export const ProductListingPage: React.FC = () => {
               return (
                 <div key={product.id} className="rounded-2xl border border-border bg-white/75 backdrop-blur-sm p-4 md:p-5">
                   <div className="flex flex-col md:flex-row md:items-center gap-4">
-                    <Link to={`/product/${product.slug}`} className="w-full md:w-32 h-32 rounded-xl overflow-hidden bg-muted/20 shrink-0">
-                      <img src={product.primary_image || fallbackImage} alt={product.name} className="w-full h-full object-contain" />
-                    </Link>
+                    <ListCardImage
+                      slug={product.slug}
+                      name={product.name}
+                      primaryImage={product.primary_image}
+                      hoverImage={product.hover_image}
+                    />
                     <div className="min-w-0 flex-1 space-y-1">
                       <p className="text-[11px] uppercase tracking-[0.14em] text-muted-foreground">{product.category_name}</p>
                       <Link to={`/product/${product.slug}`} className="block text-lg font-semibold text-foreground hover:text-primary transition-colors truncate">
