@@ -2,6 +2,129 @@
 <html lang="en">
   <head>
     <meta charset="UTF-8" />
+    <script>
+      (function bootstrapEarlyGTM() {
+        var gtmPattern = /^GTM-[A-Z0-9]+$/i;
+        var dataLayerName = 'dataLayer';
+        window[dataLayerName] = window[dataLayerName] || [];
+
+        function toBoolean(value) {
+          if (typeof value === 'boolean') return value;
+          var normalized = String(value == null ? '' : value).trim().toLowerCase();
+          return normalized === 'true' || normalized === '1' || normalized === 'yes';
+        }
+
+        function getSettingFromArray(settings, key) {
+          if (!Array.isArray(settings)) return undefined;
+          for (var i = 0; i < settings.length; i += 1) {
+            var entry = settings[i] || {};
+            if (String(entry.key || '').trim() === key) return entry.value;
+          }
+          return undefined;
+        }
+
+        function ensureNoScript(gtmId) {
+          var existingNoScript = document.getElementById('aurora-inline-gtm-noscript');
+          if (existingNoScript) return;
+
+          var encodedId = encodeURIComponent(gtmId);
+          var existingIframe = Array.prototype.slice.call(document.querySelectorAll('noscript iframe')).find(function (iframe) {
+            var src = String(iframe.getAttribute('src') || '');
+            return (
+              src.indexOf('https://www.googletagmanager.com/ns.html') !== -1 &&
+              (src.indexOf('id=' + encodedId) !== -1 || src.indexOf('id=' + gtmId) !== -1)
+            );
+          });
+          if (existingIframe) return;
+
+          var noScript = document.createElement('noscript');
+          noScript.id = 'aurora-inline-gtm-noscript';
+          var iframe = document.createElement('iframe');
+          iframe.src = 'https://www.googletagmanager.com/ns.html?id=' + encodedId;
+          iframe.height = '0';
+          iframe.width = '0';
+          iframe.style.display = 'none';
+          iframe.style.visibility = 'hidden';
+          noScript.appendChild(iframe);
+          if (document.body.firstChild) {
+            document.body.insertBefore(noScript, document.body.firstChild);
+          } else {
+            document.body.appendChild(noScript);
+          }
+        }
+
+        function injectGTM(gtmId) {
+          var safeId = String(gtmId || '').trim().toUpperCase();
+          if (!gtmPattern.test(safeId)) return;
+
+          var encodedId = encodeURIComponent(safeId);
+          var hasScript = Array.prototype.slice.call(document.getElementsByTagName('script')).some(function (node) {
+            var src = String(node.getAttribute('src') || node.src || '');
+            return (
+              src.indexOf('https://www.googletagmanager.com/gtm.js') !== -1 &&
+              (src.indexOf('id=' + encodedId) !== -1 || src.indexOf('id=' + safeId) !== -1)
+            );
+          });
+
+          if (!hasScript) {
+            window[dataLayerName].push({ 'gtm.start': Date.now(), event: 'gtm.js' });
+            var firstScript = document.getElementsByTagName('script')[0];
+            var gtmScript = document.createElement('script');
+            gtmScript.async = true;
+            gtmScript.src = 'https://www.googletagmanager.com/gtm.js?id=' + encodedId;
+            if (firstScript && firstScript.parentNode) {
+              firstScript.parentNode.insertBefore(gtmScript, firstScript);
+            } else if (document.head) {
+              document.head.appendChild(gtmScript);
+            }
+          }
+
+          if (document.body) {
+            ensureNoScript(safeId);
+          } else {
+            document.addEventListener('DOMContentLoaded', function () { ensureNoScript(safeId); }, { once: true });
+          }
+        }
+
+        function parsePublicPayload(raw) {
+          var payload = (raw && raw.data && raw.data.data) || (raw && raw.data) || raw || {};
+          var objectShape = payload && payload.settings && typeof payload.settings === 'object'
+            ? payload.settings
+            : payload;
+          var gtmFromArray = getSettingFromArray(payload && payload.settings, 'gtm_container_id');
+          var enabledFromArray = getSettingFromArray(payload && payload.settings, 'is_gtm_enabled');
+          var gtmId = String(
+            (objectShape && (objectShape.gtm_container_id || objectShape.gtm_id)) ||
+            gtmFromArray ||
+            ''
+          ).trim();
+          var isEnabled = toBoolean(
+            (objectShape && (objectShape.is_gtm_enabled || (objectShape.enabled && objectShape.enabled.gtm))) ||
+            enabledFromArray ||
+            false
+          );
+          return { gtmId: gtmId, isEnabled: isEnabled };
+        }
+
+        fetch('/api/v1/features/public-settings/', {
+          method: 'GET',
+          credentials: 'include',
+          headers: { Accept: 'application/json' },
+        })
+          .then(function (response) {
+            if (!response.ok) return null;
+            return response.json();
+          })
+          .then(function (json) {
+            if (!json) return;
+            var parsed = parsePublicPayload(json);
+            if (parsed.isEnabled && parsed.gtmId) injectGTM(parsed.gtmId);
+          })
+          .catch(function () {
+            // GTM bootstrap is optional and should never block rendering.
+          });
+      })();
+    </script>
     <link rel="icon" href="data:," />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta

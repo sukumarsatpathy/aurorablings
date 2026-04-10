@@ -53,8 +53,6 @@ import apiClient from './services/api/client';
 import { SessionTimeoutManager } from './components/auth/SessionTimeoutManager';
 import { useBranding } from './hooks/useBranding';
 import { CookieConsentRoot } from './privacy/CookieConsentRoot';
-import trackingLoader from './services/trackingLoader';
-import trackingApi from './services/trackingApi';
 import { applySeo } from './lib/seo';
 
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
@@ -348,25 +346,6 @@ function AppContent() {
       }
     });
   }, [branding.faviconUrl]);
-
-  useEffect(() => {
-    let mounted = true;
-    const hydrateTracking = async () => {
-      try {
-        const config = await trackingApi.getPublicGTMConfig();
-        if (!mounted) return;
-        if (config?.is_gtm_enabled && config?.gtm_container_id) {
-          trackingLoader.loadGTM(config.gtm_container_id);
-        }
-      } catch {
-        // GTM is optional and should never block app startup.
-      }
-    };
-    void hydrateTracking();
-    return () => {
-      mounted = false;
-    };
-  }, []);
 
   return (
     <>

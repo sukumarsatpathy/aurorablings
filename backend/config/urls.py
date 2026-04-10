@@ -1,4 +1,5 @@
 from django.contrib import admin
+from django.contrib.sitemaps.views import sitemap
 from django.urls import path, include, re_path
 from django.conf import settings
 from django.conf.urls.static import static
@@ -11,6 +12,7 @@ from drf_spectacular.views import (
 from pathlib import Path
 from apps.catalog import share_views as catalog_share_views
 from apps.features.views import PublicRuntimeSettingsView
+from core.sitemaps import ProductPagesSitemap, StaticPagesSitemap, robots_txt_view
 
 
 def _serve_frontend_index_or_root_redirect():
@@ -33,6 +35,13 @@ def spa_admin_route(request, _path: str = ""):
 
 
 urlpatterns = [
+    path(
+        "sitemap.xml",
+        sitemap,
+        {"sitemaps": {"static": StaticPagesSitemap, "products": ProductPagesSitemap}},
+        name="sitemap",
+    ),
+    path("robots.txt", robots_txt_view, name="robots-txt"),
     path("product/<slug:product_ref>", catalog_share_views.product_share_view, name="product-share"),
     path("product/<slug:product_ref>/", catalog_share_views.product_share_view, name="product-share-slash"),
     path("health/", include("apps.health.deploy_urls", namespace="public_health")),

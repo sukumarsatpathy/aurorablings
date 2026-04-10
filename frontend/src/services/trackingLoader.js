@@ -31,6 +31,12 @@ const ensureScript = ({ id, src, async = true }) => {
     return;
   }
 
+  const alreadyPresent = Array.from(document.getElementsByTagName('script')).some((node) => {
+    const nodeSrc = String(node.getAttribute('src') || node.src || '');
+    return nodeSrc === src || nodeSrc.includes(src);
+  });
+  if (alreadyPresent) return;
+
   const script = document.createElement('script');
   script.id = id;
   script.async = async;
@@ -45,6 +51,15 @@ const ensureScript = ({ id, src, async = true }) => {
 
 const ensureGTMNoScript = (gtmId) => {
   const iframeSrc = `https://www.googletagmanager.com/ns.html?id=${encodeURIComponent(gtmId)}`;
+  const existingNoScriptIframe = Array.from(document.querySelectorAll('noscript iframe')).find((iframe) => {
+    const src = String(iframe.getAttribute('src') || '');
+    return (
+      src.includes('https://www.googletagmanager.com/ns.html') &&
+      (src.includes(`id=${encodeURIComponent(gtmId)}`) || src.includes(`id=${gtmId}`))
+    );
+  });
+  if (existingNoScriptIframe) return;
+
   const existingNoScript = document.getElementById(SCRIPT_IDS.gtmNoscript);
   if (existingNoScript) {
     const existingIframe = existingNoScript.querySelector(`#${SCRIPT_IDS.gtmNoscriptIframe}`);
