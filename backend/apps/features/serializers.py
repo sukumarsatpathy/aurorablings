@@ -98,6 +98,11 @@ class PublicSettingSerializer(serializers.ModelSerializer):
     def get_typed_value(self, obj): return obj.typed_value
 
 
+class PublicTrackingSettingsSerializer(serializers.Serializer):
+    clarity_tracking_id = serializers.CharField(max_length=40, allow_blank=True)
+    clarity_enabled = serializers.BooleanField()
+
+
 # ── Write serializers ──────────────────────────────────────────
 
 class EnableFeatureSerializer(serializers.Serializer):

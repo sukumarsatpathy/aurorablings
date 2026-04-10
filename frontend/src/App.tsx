@@ -54,6 +54,8 @@ import { SessionTimeoutManager } from './components/auth/SessionTimeoutManager';
 import { useBranding } from './hooks/useBranding';
 import { CookieConsentRoot } from './privacy/CookieConsentRoot';
 import { applySeo } from './lib/seo';
+import ClarityTracker from './components/tracking/ClarityTracker';
+import { useTrackingSettings } from './hooks/useTrackingSettings';
 
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 const isPrivilegedRole = (role?: string) => {
@@ -292,6 +294,7 @@ function AppContent() {
   useLenis(); // Smooth scroll initialization
   const branding = useBranding();
   const location = useLocation();
+  const trackingSettings = useTrackingSettings();
 
   useEffect(() => {
     const genericDescription = branding.tagline
@@ -349,6 +352,10 @@ function AppContent() {
 
   return (
     <>
+      <ClarityTracker
+        trackingId={trackingSettings.clarity_tracking_id}
+        enabled={trackingSettings.clarity_enabled}
+      />
       <SessionTimeoutManager preferredTitle={branding.tabTitle} />
       <CookieConsentRoot />
       <Routes>

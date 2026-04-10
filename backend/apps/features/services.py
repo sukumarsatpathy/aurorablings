@@ -50,6 +50,11 @@ logger = get_logger(__name__)
 
 TURNSTILE_CONFIG_CACHE_KEY = "settings:turnstile:config"
 TURNSTILE_CONFIG_TTL_SECONDS = 60
+CLARITY_RUNTIME_CACHE_KEY = "settings:clarity:runtime"
+CLARITY_RUNTIME_TTL_SECONDS = 60
+CLARITY_TRACKING_ID_KEY = "CLARITY_TRACKING_ID"
+CLARITY_ENABLED_KEY = "CLARITY_ENABLED"
+CLARITY_TRACKING_ID_MAX_LENGTH = 40
 ALWAYS_PUBLIC_SETTING_KEYS = {
     "branding_logo_url",
     "branding_favicon_url",
@@ -363,6 +368,31 @@ def get_turnstile_config() -> dict:
     return data
 
 
+def get_clarity_runtime_config() -> dict:
+    """
+    Return minimal runtime Clarity config for public clients.
+
+    Result:
+      {"clarity_tracking_id": str, "clarity_enabled": bool}
+    """
+    cached = cache.get(CLARITY_RUNTIME_CACHE_KEY)
+    if isinstance(cached, dict):
+        return cached
+
+    tracking_id_raw = str(get_setting(CLARITY_TRACKING_ID_KEY, default="") or "").strip()
+    enabled_raw = get_setting(CLARITY_ENABLED_KEY, default=False)
+    tracking_id = tracking_id_raw[:CLARITY_TRACKING_ID_MAX_LENGTH]
+    is_valid_length = 4 <= len(tracking_id) <= CLARITY_TRACKING_ID_MAX_LENGTH
+    clarity_enabled = bool(enabled_raw) and is_valid_length
+
+    data = {
+        "clarity_tracking_id": tracking_id if is_valid_length else "",
+        "clarity_enabled": clarity_enabled,
+    }
+    cache.set(CLARITY_RUNTIME_CACHE_KEY, data, timeout=CLARITY_RUNTIME_TTL_SECONDS)
+    return data
+
+
 @transaction.atomic
 def set_setting(key: str, value, by_user=None) -> AppSetting:
     """
@@ -385,6 +415,8 @@ def set_setting(key: str, value, by_user=None) -> AppSetting:
     cleanup_replaced_media(old_value, setting.value)
 
     _cache.delete_setting_cache(key)
+    if key in {CLARITY_TRACKING_ID_KEY, CLARITY_ENABLED_KEY}:
+        cache.delete(CLARITY_RUNTIME_CACHE_KEY)
     logger.info("setting_updated", key=key, by=str(by_user))
     return setting
 
@@ -413,6 +445,8 @@ def ensure_setting(key: str, value, **defaults) -> AppSetting:
     if created:
         logger.info("setting_created", key=key)
         _cache.delete_setting_cache(key)
+        if key in {CLARITY_TRACKING_ID_KEY, CLARITY_ENABLED_KEY}:
+            cache.delete(CLARITY_RUNTIME_CACHE_KEY)
     return setting
 
 

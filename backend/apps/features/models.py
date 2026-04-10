@@ -334,3 +334,5 @@ def _invalidate_provider_config_cache(feature_code: str, provider_key: str) -> N
 def _invalidate_setting_cache(key: str) -> None:
     cache.delete(f"setting:{key}")
     cache.delete("settings:all_public")  # blow the batch cache too
+    if key in {"CLARITY_TRACKING_ID", "CLARITY_ENABLED"}:
+        cache.delete("settings:clarity:runtime")

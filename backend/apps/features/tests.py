@@ -18,7 +18,14 @@ from rest_framework.test import APIClient
 from audit.models import ActivityLog, AuditAction
 from apps.features.models import AppSetting
 from apps.features import cache as feature_cache
-from apps.features.services import TURNSTILE_CONFIG_CACHE_KEY, get_turnstile_config
+from apps.features.services import (
+    TURNSTILE_CONFIG_CACHE_KEY,
+    CLARITY_RUNTIME_CACHE_KEY,
+    CLARITY_TRACKING_ID_KEY,
+    CLARITY_ENABLED_KEY,
+    get_turnstile_config,
+    get_clarity_runtime_config,
+)
 from core.turnstile import verify_turnstile_token
 
 User = get_user_model()
@@ -130,6 +137,48 @@ class TurnstileVerificationTests(TestCase):
         mock_post.return_value = mock_response
 
         self.assertFalse(verify_turnstile_token(token="bad-token", remote_ip="1.2.3.4", action="test.invalid"))
+
+
+class PublicTrackingSettingsTests(TestCase):
+    def setUp(self):
+        cache.delete(CLARITY_RUNTIME_CACHE_KEY)
+        feature_cache.delete_setting_cache(CLARITY_TRACKING_ID_KEY)
+        feature_cache.delete_setting_cache(CLARITY_ENABLED_KEY)
+
+    def tearDown(self):
+        cache.delete(CLARITY_RUNTIME_CACHE_KEY)
+        feature_cache.delete_setting_cache(CLARITY_TRACKING_ID_KEY)
+        feature_cache.delete_setting_cache(CLARITY_ENABLED_KEY)
+
+    def test_public_v1_settings_endpoint_returns_clarity_shape(self):
+        AppSetting.objects.update_or_create(
+            key=CLARITY_TRACKING_ID_KEY,
+            defaults={"value": "abcd1234", "value_type": "string", "category": "advanced"},
+        )
+        AppSetting.objects.update_or_create(
+            key=CLARITY_ENABLED_KEY,
+            defaults={"value": "true", "value_type": "boolean", "category": "advanced"},
+        )
+
+        response = APIClient().get("/api/v1/settings/public/")
+        self.assertEqual(response.status_code, 200)
+        payload = response.json().get("data", {})
+        self.assertEqual(payload.get("clarity_tracking_id"), "abcd1234")
+        self.assertTrue(payload.get("clarity_enabled"))
+
+    def test_clarity_disabled_when_tracking_id_is_invalid_length(self):
+        AppSetting.objects.update_or_create(
+            key=CLARITY_TRACKING_ID_KEY,
+            defaults={"value": "a", "value_type": "string", "category": "advanced"},
+        )
+        AppSetting.objects.update_or_create(
+            key=CLARITY_ENABLED_KEY,
+            defaults={"value": "true", "value_type": "boolean", "category": "advanced"},
+        )
+
+        data = get_clarity_runtime_config()
+        self.assertEqual(data.get("clarity_tracking_id"), "")
+        self.assertFalse(data.get("clarity_enabled"))
 
 
 class BulkSettingsSecurityTests(TestCase):

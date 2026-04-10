@@ -46,6 +46,7 @@ from .security import (
 from .serializers import (
     FeatureSerializer, ProviderConfigReadSerializer,
     AppSettingSerializer, PublicSettingSerializer,
+    PublicTrackingSettingsSerializer,
     FeatureWriteSerializer,
     AppSettingWriteSerializer,
     EnableFeatureSerializer, SetRolloutSerializer,
@@ -84,6 +85,19 @@ class PublicRuntimeSettingsView(APIView):
                 "turnstile_site_key": str(turnstile.get("site_key") or ""),
             }
         )
+
+
+class PublicTrackingSettingsView(APIView):
+    """
+    Public runtime tracking settings.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        data = services.get_clarity_runtime_config()
+        serializer = PublicTrackingSettingsSerializer(data=data)
+        serializer.is_valid(raise_exception=True)
+        return success_response(data=serializer.validated_data)
 
 
 # ─────────────────────────────────────────────────────────────

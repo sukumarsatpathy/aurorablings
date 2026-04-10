@@ -11,7 +11,7 @@ from drf_spectacular.views import (
 )
 from pathlib import Path
 from apps.catalog import share_views as catalog_share_views
-from apps.features.views import PublicRuntimeSettingsView
+from apps.features.views import PublicRuntimeSettingsView, PublicTrackingSettingsView
 from core.sitemaps import ProductPagesSitemap, StaticPagesSitemap, robots_txt_view
 
 
@@ -47,6 +47,8 @@ urlpatterns = [
     path("health/", include("apps.health.deploy_urls", namespace="public_health")),
     path("api/settings/public", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings"),
     path("api/settings/public/", PublicRuntimeSettingsView.as_view(), name="public-runtime-settings-slash"),
+    path("api/v1/settings/public", PublicTrackingSettingsView.as_view(), name="public-tracking-settings"),
+    path("api/v1/settings/public/", PublicTrackingSettingsView.as_view(), name="public-tracking-settings-slash"),
     path("api/privacy/", include(("apps.privacy.urls", "privacy"), namespace="privacy-public")),
     path("api/notify/", include("apps.notifications.notify_urls")),
     path("api/address/", include("apps.address.api.urls", namespace="address")),
