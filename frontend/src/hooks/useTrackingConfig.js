@@ -7,11 +7,13 @@ const EMPTY_CONFIG = {
   gtm_id: '',
   meta_pixel_id: '',
   ga4_id: '',
+  google_ads_id: '',
   clarity_id: '',
   enabled: {
     gtm: false,
     meta: false,
     ga4: false,
+    google_ads: false,
     clarity: false,
   },
   last_updated: null,
@@ -21,6 +23,7 @@ const FIELD_BY_PROVIDER = {
   gtm: 'gtm_id',
   meta: 'meta_pixel_id',
   ga4: 'ga4_id',
+  google_ads: 'google_ads_id',
   clarity: 'clarity_id',
 };
 

@@ -10,6 +10,7 @@ export type SettingsCategoryMenu =
   | 'gtm_settings'
   | 'pixel_settings'
   | 'analytics_settings'
+  | 'google_ads_settings'
   | 'clarity_settings';
 
 export type DynamicFieldType = 'text' | 'password' | 'select' | 'toggle';

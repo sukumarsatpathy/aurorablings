@@ -9,6 +9,8 @@ const META_PIXEL_KEY = 'meta_pixel_id';
 const META_ENABLED_KEY = 'is_meta_enabled';
 const GA4_KEY = 'ga4_id';
 const GA4_ENABLED_KEY = 'is_ga4_enabled';
+const GOOGLE_ADS_KEY = 'google_ads_id';
+const GOOGLE_ADS_ENABLED_KEY = 'is_google_ads_enabled';
 const CLARITY_TRACKING_KEY = 'CLARITY_TRACKING_ID';
 const CLARITY_ENABLED_KEY = 'CLARITY_ENABLED';
 
@@ -21,11 +23,13 @@ const toServerShape = (config) => ({
   gtm_id: config.gtm_id || '',
   meta_pixel_id: config.meta_pixel_id || '',
   ga4_id: config.ga4_id || '',
+  google_ads_id: config.google_ads_id || '',
   clarity_id: config.clarity_id || '',
   enabled: {
     gtm: Boolean(config.enabled?.gtm),
     meta: Boolean(config.enabled?.meta),
     ga4: Boolean(config.enabled?.ga4),
+    google_ads: Boolean(config.enabled?.google_ads),
     clarity: Boolean(config.enabled?.clarity),
   },
 });
@@ -66,6 +70,8 @@ export const getTrackingConfig = async () => {
     const metaEnabled = toBooleanSetting(getSetting(META_ENABLED_KEY)?.value);
     const ga4Id = String(getSetting(GA4_KEY)?.value || '').trim();
     const ga4Enabled = toBooleanSetting(getSetting(GA4_ENABLED_KEY)?.value);
+    const googleAdsId = String(getSetting(GOOGLE_ADS_KEY)?.value || '').trim();
+    const googleAdsEnabled = toBooleanSetting(getSetting(GOOGLE_ADS_ENABLED_KEY)?.value);
     const clarityId = String(getSetting(CLARITY_TRACKING_KEY)?.value || '').trim();
     const clarityEnabled = toBooleanSetting(getSetting(CLARITY_ENABLED_KEY)?.value);
 
@@ -79,11 +85,13 @@ export const getTrackingConfig = async () => {
       gtm_id: gtmId,
       meta_pixel_id: metaId,
       ga4_id: ga4Id,
+      google_ads_id: googleAdsId,
       clarity_id: clarityId,
       enabled: {
         gtm: gtmEnabled,
         meta: metaEnabled,
         ga4: ga4Enabled,
+        google_ads: googleAdsEnabled,
         clarity: clarityEnabled,
       },
       last_updated: allUpdatedAt[0] || null,
@@ -136,6 +144,18 @@ export const saveTrackingConfig = async (config) => {
         category: 'advanced',
         label: 'Enable GA4',
         description: 'Controls whether GA4 should be injected at runtime.',
+        is_public: false,
+      }),
+      upsertFeatureSetting(GOOGLE_ADS_KEY, safe.google_ads_id, 'string', {
+        category: 'advanced',
+        label: 'Google Ads Conversion ID',
+        description: 'Google Ads conversion ID used for conversion tracking (AW-XXXXXXXXXX).',
+        is_public: false,
+      }),
+      upsertFeatureSetting(GOOGLE_ADS_ENABLED_KEY, String(Boolean(safe.enabled?.google_ads)), 'boolean', {
+        category: 'advanced',
+        label: 'Enable Google Ads',
+        description: 'Controls whether Google Ads gtag should be injected at runtime.',
         is_public: false,
       }),
       upsertFeatureSetting(CLARITY_TRACKING_KEY, safe.clarity_id, 'string', {

@@ -9,11 +9,13 @@ declare module './services/trackingLoader' {
     gtm_id?: string;
     meta_pixel_id?: string;
     ga4_id?: string;
+    google_ads_id?: string;
     clarity_id?: string;
     enabled?: {
       gtm?: boolean;
       meta?: boolean;
       ga4?: boolean;
+      google_ads?: boolean;
       clarity?: boolean;
     };
     last_updated?: string | null;
@@ -30,6 +32,7 @@ declare module './services/trackingLoader' {
     loadGTM: (gtmId: string) => boolean;
     loadMetaPixel: (pixelId: string) => boolean;
     loadGA4: (gaId: string) => boolean;
+    loadGoogleAds: (adsId: string) => boolean;
     loadClarity: (clarityId: string) => boolean;
   };
 
@@ -38,6 +41,7 @@ declare module './services/trackingLoader' {
   export const loadGTM: (gtmId: string) => boolean;
   export const loadMetaPixel: (pixelId: string) => boolean;
   export const loadGA4: (gaId: string) => boolean;
+  export const loadGoogleAds: (adsId: string) => boolean;
   export const loadClarity: (clarityId: string) => boolean;
   export default trackingLoader;
 }
@@ -47,11 +51,13 @@ declare module './services/trackingApi' {
     gtm_id?: string;
     meta_pixel_id?: string;
     ga4_id?: string;
+    google_ads_id?: string;
     clarity_id?: string;
     enabled?: {
       gtm?: boolean;
       meta?: boolean;
       ga4?: boolean;
+      google_ads?: boolean;
       clarity?: boolean;
     };
     last_updated?: string | null;

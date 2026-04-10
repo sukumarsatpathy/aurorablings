@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, CreditCard, Mail, Truck, Palette, LockKeyhole, Tags, LineChart, Activity } from 'lucide-react';
+import { ShieldCheck, CreditCard, Mail, Truck, Palette, LockKeyhole, Tags, LineChart, Activity, Target } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SettingsCategoryMenu } from './types';
 
@@ -22,6 +22,7 @@ export const SettingsSidebar: React.FC<Props> = ({ active, onChange }) => {
     { key: 'gtm_settings', label: 'GTM Settings', icon: Tags },
     { key: 'pixel_settings', label: 'Pixel Settings', icon: Activity },
     { key: 'analytics_settings', label: 'Analytics Settings', icon: LineChart },
+    { key: 'google_ads_settings', label: 'Google Ads Settings', icon: Target },
     { key: 'clarity_settings', label: 'Clarity Settings', icon: Activity },
   ];
 

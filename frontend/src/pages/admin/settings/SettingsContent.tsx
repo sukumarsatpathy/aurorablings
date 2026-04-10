@@ -29,6 +29,13 @@ const TRACKING_PROVIDER_META = {
     fieldName: 'ga4_id',
     placeholder: 'G-XXXXXXXXXX',
   },
+  google_ads_settings: {
+    key: 'google_ads',
+    title: 'Google Ads Settings',
+    description: 'Google Ads conversion tracking using Google tag (gtag.js).',
+    fieldName: 'google_ads_id',
+    placeholder: 'AW-1234567890',
+  },
   clarity_settings: {
     key: 'clarity',
     title: 'Clarity Settings',
@@ -96,7 +103,8 @@ const EmbeddedGTMSettings: React.FC<Pick<Props, 'canEdit' | 'onToast'>> = ({ can
 };
 
 const EmbeddedTrackingProviderSettings: React.FC<
-  Pick<Props, 'canEdit' | 'onToast'> & { category: 'pixel_settings' | 'analytics_settings' | 'clarity_settings' }
+  Pick<Props, 'canEdit' | 'onToast'> &
+    { category: 'pixel_settings' | 'analytics_settings' | 'google_ads_settings' | 'clarity_settings' }
 > = ({ category, canEdit, onToast }) => {
   const provider = TRACKING_PROVIDER_META[category];
   const { config, loading, saving, errorsByField, updateId, updateEnabled, saveConfig, testProvider } = useTrackingConfig();
@@ -164,7 +172,12 @@ export const SettingsContent: React.FC<Props> = ({
     return <EmbeddedGTMSettings canEdit={canEdit} onToast={onToast} />;
   }
 
-  if (category === 'pixel_settings' || category === 'analytics_settings' || category === 'clarity_settings') {
+  if (
+    category === 'pixel_settings' ||
+    category === 'analytics_settings' ||
+    category === 'google_ads_settings' ||
+    category === 'clarity_settings'
+  ) {
     return <EmbeddedTrackingProviderSettings category={category} canEdit={canEdit} onToast={onToast} />;
   }
 

@@ -1,3 +1,4 @@
+import { useId } from 'react';
 import { Loader2, Save, FlaskConical } from 'lucide-react';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
@@ -22,6 +23,9 @@ const TrackingCard = ({
   onTest,
 }) => {
   const isBusy = loading || saving;
+  const domIdPrefix = useId().replace(/:/g, '');
+  const toggleId = `${domIdPrefix}-toggle`;
+  const trackingIdInputId = `${domIdPrefix}-tracking-id`;
 
   return (
     <Card className="h-full border-border/60 bg-card/95 shadow-sm hover:translate-y-0 hover:shadow-md">
@@ -42,7 +46,7 @@ const TrackingCard = ({
             <p className="text-xs text-muted-foreground">Inject script dynamically on valid config.</p>
           </div>
           <ToggleSwitch
-            id={`toggle-${providerKey}`}
+            id={toggleId}
             checked={enabled}
             disabled={isBusy}
             onChange={onToggle}
@@ -51,7 +55,7 @@ const TrackingCard = ({
         </div>
 
         <InputField
-          id={`tracking-id-${providerKey}`}
+          id={trackingIdInputId}
           label="Tracking ID"
           value={idValue}
           placeholder={placeholder}

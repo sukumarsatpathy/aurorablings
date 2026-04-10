@@ -31,6 +31,7 @@ export const categoryMenuToSettingCategory = (category: SettingsCategoryMenu): S
     case 'gtm_settings':
     case 'pixel_settings':
     case 'analytics_settings':
+    case 'google_ads_settings':
     case 'clarity_settings':
       return 'advanced';
     default:

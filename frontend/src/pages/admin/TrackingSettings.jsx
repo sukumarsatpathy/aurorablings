@@ -28,6 +28,13 @@ const PROVIDERS = [
     placeholder: 'G-XXXXXXXXXX',
   },
   {
+    key: 'google_ads',
+    title: 'Google Ads',
+    description: 'Google Ads conversion tracking using Google tag (gtag.js).',
+    fieldName: 'google_ads_id',
+    placeholder: 'AW-1234567890',
+  },
+  {
     key: 'clarity',
     title: 'Microsoft Clarity',
     description: 'Session recordings, heatmaps, and behavior insights.',

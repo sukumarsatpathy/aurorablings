@@ -2,11 +2,13 @@ export interface TrackingConfigShape {
   gtm_id?: string;
   meta_pixel_id?: string;
   ga4_id?: string;
+  google_ads_id?: string;
   clarity_id?: string;
   enabled?: {
     gtm?: boolean;
     meta?: boolean;
     ga4?: boolean;
+    google_ads?: boolean;
     clarity?: boolean;
   };
   last_updated?: string | null;

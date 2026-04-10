@@ -4,6 +4,7 @@ const DIGITS_ONLY_REGEX = /[^0-9]/g;
 const TRACKING_PATTERNS = {
   gtm: /^GTM-[A-Z0-9]+$/i,
   ga4: /^G-[A-Z0-9]+$/i,
+  google_ads: /^AW-[0-9]+$/i,
   meta: /^[0-9]{5,20}$/,
   clarity: /^[a-zA-Z0-9][a-zA-Z0-9_-]{3,39}$/,
 };
@@ -11,6 +12,7 @@ const TRACKING_PATTERNS = {
 const FIELD_BY_PROVIDER = {
   gtm: 'gtm_id',
   ga4: 'ga4_id',
+  google_ads: 'google_ads_id',
   meta: 'meta_pixel_id',
   clarity: 'clarity_id',
 };
@@ -66,6 +68,7 @@ export const validateTrackingValue = (provider, value) => {
     const hints = {
       gtm: 'GTM ID must start with GTM- (example: GTM-ABC123).',
       ga4: 'GA4 ID must start with G- (example: G-ABC123XYZ).',
+      google_ads: 'Google Ads ID must start with AW- (example: AW-1234567890).',
       meta: 'Meta Pixel ID must be numeric.',
       clarity: 'Clarity ID must contain letters/numbers and may include _ or -.',
     };
@@ -80,11 +83,13 @@ export const sanitizeTrackingConfig = (config) => {
     gtm_id: sanitizeTrackingValue('gtm', config?.gtm_id),
     meta_pixel_id: sanitizeTrackingValue('meta', config?.meta_pixel_id),
     ga4_id: sanitizeTrackingValue('ga4', config?.ga4_id),
+    google_ads_id: sanitizeTrackingValue('google_ads', config?.google_ads_id),
     clarity_id: sanitizeTrackingValue('clarity', config?.clarity_id),
     enabled: {
       gtm: Boolean(config?.enabled?.gtm),
       meta: Boolean(config?.enabled?.meta),
       ga4: Boolean(config?.enabled?.ga4),
+      google_ads: Boolean(config?.enabled?.google_ads),
       clarity: Boolean(config?.enabled?.clarity),
     },
     last_updated: config?.last_updated || config?.updated_at || null,

@@ -4,19 +4,25 @@ const SCRIPT_IDS = {
   gtm: 'aurora-tracking-gtm',
   gtmNoscript: 'aurora-tracking-gtm-noscript',
   gtmNoscriptIframe: 'aurora-tracking-gtm-noscript-iframe',
+  gtag: 'aurora-tracking-gtag',
   ga4: 'aurora-tracking-ga4',
+  googleAds: 'aurora-tracking-google-ads',
   meta: 'aurora-tracking-meta',
   clarity: 'aurora-tracking-clarity',
 };
 
 const loadedState = {
   gtm: false,
+  gtag: false,
   ga4: false,
+  google_ads: false,
   meta: false,
   clarity: false,
   ids: {
     gtm: null,
+    gtag: null,
     ga4: null,
+    google_ads: null,
     meta: null,
     clarity: null,
   },
@@ -169,15 +175,50 @@ export const loadGA4 = (gaId) => {
       };
     }
 
-    ensureScript({
-      id: SCRIPT_IDS.ga4,
-      src: `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(safeId)}`,
-    });
+    if (!loadedState.gtag) {
+      ensureScript({
+        id: SCRIPT_IDS.gtag,
+        src: `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(safeId)}`,
+      });
+      loadedState.gtag = true;
+      loadedState.ids.gtag = safeId;
+    }
 
     window.gtag('js', new Date());
     window.gtag('config', safeId, { send_page_view: true });
     loadedState.ga4 = true;
     loadedState.ids.ga4 = safeId;
+  }
+
+  return true;
+};
+
+export const loadGoogleAds = (adsId) => {
+  const result = validateTrackingValue('google_ads', adsId);
+  if (!result.isValid) return false;
+
+  const safeId = result.sanitized;
+  if (!loadedState.google_ads || loadedState.ids.google_ads !== safeId) {
+    ensureDataLayer();
+    if (!window.gtag) {
+      window.gtag = function gtag() {
+        window.dataLayer.push(arguments);
+      };
+    }
+
+    if (!loadedState.gtag) {
+      ensureScript({
+        id: SCRIPT_IDS.gtag,
+        src: `https://www.googletagmanager.com/gtag/js?id=${encodeURIComponent(safeId)}`,
+      });
+      loadedState.gtag = true;
+      loadedState.ids.gtag = safeId;
+    }
+
+    window.gtag('js', new Date());
+    window.gtag('config', safeId);
+    loadedState.google_ads = true;
+    loadedState.ids.google_ads = safeId;
   }
 
   return true;
@@ -210,6 +251,8 @@ const applyProvider = (provider, enabled, idValue) => {
       return loadMetaPixel(idValue);
     case 'ga4':
       return loadGA4(idValue);
+    case 'google_ads':
+      return loadGoogleAds(idValue);
     case 'clarity':
       return loadClarity(idValue);
     default:
@@ -229,6 +272,7 @@ export const init = (trackingConfig) => {
     ['gtm', safe.enabled.gtm, safe.gtm_id],
     ['meta', safe.enabled.meta, safe.meta_pixel_id],
     ['ga4', safe.enabled.ga4, safe.ga4_id],
+    ['google_ads', safe.enabled.google_ads, safe.google_ads_id],
     ['clarity', safe.enabled.clarity, safe.clarity_id],
   ];
 
@@ -252,7 +296,7 @@ export const testTracking = (provider) => {
 
   ensureDataLayer().push(payload);
 
-  if (safeProvider === 'ga4' && typeof window.gtag === 'function') {
+  if ((safeProvider === 'ga4' || safeProvider === 'google_ads') && typeof window.gtag === 'function') {
     window.gtag('event', eventName, { debug_mode: true });
   }
 
@@ -292,6 +336,7 @@ const trackingLoader = {
   loadGTM,
   loadMetaPixel,
   loadGA4,
+  loadGoogleAds,
   loadClarity,
 };
 
