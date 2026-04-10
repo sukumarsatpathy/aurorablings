@@ -1,6 +1,16 @@
 import type { AppSetting, SettingCategory } from '@/types/setting';
 
-export type SettingsCategoryMenu = 'general' | 'branding' | 'payment' | 'notification' | 'shipping' | 'advanced';
+export type SettingsCategoryMenu =
+  | 'general'
+  | 'branding'
+  | 'payment'
+  | 'notification'
+  | 'shipping'
+  | 'advanced'
+  | 'gtm_settings'
+  | 'pixel_settings'
+  | 'analytics_settings'
+  | 'clarity_settings';
 
 export type DynamicFieldType = 'text' | 'password' | 'select' | 'toggle';
 

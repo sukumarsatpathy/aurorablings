@@ -27,7 +27,15 @@ const coerceValueToString = (value: unknown, valueType: SettingValueType): strin
 };
 
 export const categoryMenuToSettingCategory = (category: SettingsCategoryMenu): SettingCategory => {
-  return category;
+  switch (category) {
+    case 'gtm_settings':
+    case 'pixel_settings':
+    case 'analytics_settings':
+    case 'clarity_settings':
+      return 'advanced';
+    default:
+      return category;
+  }
 };
 
 export const getDefaultPluginSchema = (pluginKey: string): DynamicFormSchema => {

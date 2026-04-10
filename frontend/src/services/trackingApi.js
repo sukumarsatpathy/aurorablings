@@ -5,6 +5,12 @@ const TRACKING_ENDPOINT = '/v1/settings/tracking/';
 const FEATURE_SETTINGS_ENDPOINT = '/v1/features/settings/';
 const GTM_CONTAINER_KEY = 'gtm_container_id';
 const GTM_ENABLED_KEY = 'is_gtm_enabled';
+const META_PIXEL_KEY = 'meta_pixel_id';
+const META_ENABLED_KEY = 'is_meta_enabled';
+const GA4_KEY = 'ga4_id';
+const GA4_ENABLED_KEY = 'is_ga4_enabled';
+const CLARITY_TRACKING_KEY = 'CLARITY_TRACKING_ID';
+const CLARITY_ENABLED_KEY = 'CLARITY_ENABLED';
 
 const authHeaders = () => {
   const token = localStorage.getItem('auth_token');
@@ -34,18 +40,123 @@ const normalizeServerResponse = (payload) => {
 };
 
 export const getTrackingConfig = async () => {
-  const response = await apiClient.get(TRACKING_ENDPOINT, {
-    headers: authHeaders(),
-  });
-  return normalizeServerResponse(response);
+  try {
+    const response = await apiClient.get(TRACKING_ENDPOINT, {
+      headers: authHeaders(),
+    });
+    return normalizeServerResponse(response);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+
+    const response = await apiClient.get(FEATURE_SETTINGS_ENDPOINT, {
+      headers: authHeaders(),
+    });
+    const rows = Array.isArray(response?.data?.data)
+      ? response.data.data
+      : Array.isArray(response?.data?.data?.results)
+        ? response.data.data.results
+        : Array.isArray(response?.data?.results)
+          ? response.data.results
+          : [];
+
+    const getSetting = (key) => rows.find((row) => String(row?.key || '').trim() === key);
+    const gtmId = String(getSetting(GTM_CONTAINER_KEY)?.value || '').trim();
+    const gtmEnabled = toBooleanSetting(getSetting(GTM_ENABLED_KEY)?.value);
+    const metaId = String(getSetting(META_PIXEL_KEY)?.value || '').trim();
+    const metaEnabled = toBooleanSetting(getSetting(META_ENABLED_KEY)?.value);
+    const ga4Id = String(getSetting(GA4_KEY)?.value || '').trim();
+    const ga4Enabled = toBooleanSetting(getSetting(GA4_ENABLED_KEY)?.value);
+    const clarityId = String(getSetting(CLARITY_TRACKING_KEY)?.value || '').trim();
+    const clarityEnabled = toBooleanSetting(getSetting(CLARITY_ENABLED_KEY)?.value);
+
+    const allUpdatedAt = rows
+      .map((row) => row?.updated_at)
+      .filter(Boolean)
+      .sort()
+      .reverse();
+
+    return {
+      gtm_id: gtmId,
+      meta_pixel_id: metaId,
+      ga4_id: ga4Id,
+      clarity_id: clarityId,
+      enabled: {
+        gtm: gtmEnabled,
+        meta: metaEnabled,
+        ga4: ga4Enabled,
+        clarity: clarityEnabled,
+      },
+      last_updated: allUpdatedAt[0] || null,
+    };
+  }
 };
 
 export const saveTrackingConfig = async (config) => {
   const safe = sanitizeTrackingConfig(config);
-  const response = await apiClient.post(TRACKING_ENDPOINT, toServerShape(safe), {
-    headers: authHeaders(),
-  });
-  return normalizeServerResponse(response);
+  try {
+    const response = await apiClient.post(TRACKING_ENDPOINT, toServerShape(safe), {
+      headers: authHeaders(),
+    });
+    return normalizeServerResponse(response);
+  } catch (error) {
+    if (!isNotFound(error)) throw error;
+
+    await Promise.all([
+      upsertFeatureSetting(GTM_CONTAINER_KEY, safe.gtm_id, 'string', {
+        category: 'advanced',
+        label: 'GTM Container ID',
+        description: 'Google Tag Manager container ID used for storefront tracking.',
+        is_public: true,
+      }),
+      upsertFeatureSetting(GTM_ENABLED_KEY, String(Boolean(safe.enabled?.gtm)), 'boolean', {
+        category: 'advanced',
+        label: 'Enable GTM',
+        description: 'Controls whether GTM script should be injected at runtime.',
+        is_public: true,
+      }),
+      upsertFeatureSetting(META_PIXEL_KEY, safe.meta_pixel_id, 'string', {
+        category: 'advanced',
+        label: 'Meta Pixel ID',
+        description: 'Meta Pixel ID for conversion tracking.',
+        is_public: false,
+      }),
+      upsertFeatureSetting(META_ENABLED_KEY, String(Boolean(safe.enabled?.meta)), 'boolean', {
+        category: 'advanced',
+        label: 'Enable Meta Pixel',
+        description: 'Controls whether Meta Pixel should be injected at runtime.',
+        is_public: false,
+      }),
+      upsertFeatureSetting(GA4_KEY, safe.ga4_id, 'string', {
+        category: 'advanced',
+        label: 'GA4 Measurement ID',
+        description: 'Google Analytics 4 measurement ID.',
+        is_public: false,
+      }),
+      upsertFeatureSetting(GA4_ENABLED_KEY, String(Boolean(safe.enabled?.ga4)), 'boolean', {
+        category: 'advanced',
+        label: 'Enable GA4',
+        description: 'Controls whether GA4 should be injected at runtime.',
+        is_public: false,
+      }),
+      upsertFeatureSetting(CLARITY_TRACKING_KEY, safe.clarity_id, 'string', {
+        category: 'advanced',
+        label: 'Clarity Tracking ID',
+        description: 'Microsoft Clarity project tracking ID used for storefront runtime analytics.',
+        is_public: false,
+      }),
+      upsertFeatureSetting(CLARITY_ENABLED_KEY, String(Boolean(safe.enabled?.clarity)), 'boolean', {
+        category: 'advanced',
+        label: 'Enable Clarity',
+        description: 'Controls whether Microsoft Clarity is injected on storefront pages.',
+        is_public: false,
+      }),
+    ]);
+
+    return {
+      ...safe,
+      last_updated: new Date().toISOString(),
+    };
+  }
 };
 
 const normalizeGTMResponse = (payload) => {

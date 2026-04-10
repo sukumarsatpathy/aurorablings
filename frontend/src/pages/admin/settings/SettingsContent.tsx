@@ -7,8 +7,36 @@ import type { AppSetting } from '@/types/setting';
 import { categoryMenuToSettingCategory } from './helpers';
 import { PaymentSettings } from './PaymentSettings';
 import type { SettingsCategoryMenu } from './types';
+import GTMCard from '@/components/tracking/GTMCard';
+import TrackingCard from '@/components/tracking/TrackingCard';
+import useGTMConfig from '@/hooks/useGTMConfig';
+import useTrackingConfig from '@/hooks/useTrackingConfig';
+import { sanitizeTrackingValue, validateTrackingValue } from '@/utils/validators';
 
 const SECRET_SETTING_KEYS = new Set(['turnstile_secret_key']);
+const TRACKING_PROVIDER_META = {
+  pixel_settings: {
+    key: 'meta',
+    title: 'Pixel Settings',
+    description: 'Meta conversion and audience tracking for campaigns.',
+    fieldName: 'meta_pixel_id',
+    placeholder: '123456789012345',
+  },
+  analytics_settings: {
+    key: 'ga4',
+    title: 'Analytics Settings',
+    description: 'Google Analytics (GA4) event and page-view tracking.',
+    fieldName: 'ga4_id',
+    placeholder: 'G-XXXXXXXXXX',
+  },
+  clarity_settings: {
+    key: 'clarity',
+    title: 'Clarity Settings',
+    description: 'Microsoft Clarity session replay and heatmap tracking.',
+    fieldName: 'clarity_id',
+    placeholder: 'abcd12xy',
+  },
+} as const;
 
 interface Props {
   category: SettingsCategoryMenu;
@@ -18,6 +46,113 @@ interface Props {
   onToast: (variant: 'success' | 'error' | 'info', message: string) => void;
 }
 
+const EmbeddedGTMSettings: React.FC<Pick<Props, 'canEdit' | 'onToast'>> = ({ canEdit, onToast }) => {
+  const { config, loading, saving, validation, setEnabled, setGtmId, saveConfig, runTest } = useGTMConfig();
+
+  const status = useMemo(() => {
+    if (!config.gtm_container_id) return 'Not Configured';
+    if (!validation.isValid) return 'Invalid';
+    if (config.is_gtm_enabled) return 'Active';
+    return 'Disabled';
+  }, [config.gtm_container_id, config.is_gtm_enabled, validation.isValid]);
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground">GTM Settings</h2>
+        <p className="text-xs text-muted-foreground">Manage Google Tag Manager container and runtime injection.</p>
+      </div>
+      <GTMCard
+        enabled={config.is_gtm_enabled}
+        gtmId={config.gtm_container_id}
+        validationMessage={config.is_gtm_enabled && !validation.isValid ? validation.error : ''}
+        status={status}
+        loading={loading || !canEdit}
+        saving={saving}
+        canSave={canEdit && (!config.is_gtm_enabled || validation.isValid)}
+        onToggle={(checked: boolean) => {
+          if (!canEdit) return;
+          setEnabled(checked);
+        }}
+        onIdChange={(value: string) => {
+          if (!canEdit) return;
+          setGtmId(value);
+        }}
+        onSave={async () => {
+          if (!canEdit) {
+            onToast('info', 'Read-only mode. You cannot edit settings.');
+            return;
+          }
+          const result = await saveConfig();
+          onToast(result.ok ? 'success' : 'error', result.message);
+        }}
+        onTest={() => {
+          const result = runTest();
+          onToast(result.ok ? 'success' : 'error', result.message);
+        }}
+      />
+    </div>
+  );
+};
+
+const EmbeddedTrackingProviderSettings: React.FC<
+  Pick<Props, 'canEdit' | 'onToast'> & { category: 'pixel_settings' | 'analytics_settings' | 'clarity_settings' }
+> = ({ category, canEdit, onToast }) => {
+  const provider = TRACKING_PROVIDER_META[category];
+  const { config, loading, saving, errorsByField, updateId, updateEnabled, saveConfig, testProvider } = useTrackingConfig();
+  const trackingConfig = (config || {}) as any;
+  const trackingErrors = (errorsByField || {}) as Record<string, string>;
+
+  const currentValue = String(trackingConfig[provider.fieldName] || '');
+  const fieldError = trackingErrors[provider.fieldName];
+  const formatValidation = validateTrackingValue(provider.key, currentValue);
+  const showLiveError =
+    Boolean(trackingConfig.enabled?.[provider.key]) && currentValue && !formatValidation.isValid
+      ? formatValidation.error
+      : '';
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h2 className="text-lg font-semibold text-foreground">{provider.title}</h2>
+        <p className="text-xs text-muted-foreground">{provider.description}</p>
+      </div>
+      <TrackingCard
+        providerKey={provider.key}
+        title={provider.title}
+        description={provider.description}
+        enabled={Boolean(trackingConfig.enabled?.[provider.key])}
+        idValue={currentValue}
+        placeholder={provider.placeholder}
+        fieldName={provider.fieldName}
+        error={fieldError || showLiveError}
+        loading={loading || !canEdit}
+        saving={saving}
+        onToggle={(checked: boolean) => {
+          if (!canEdit) return;
+          updateEnabled(provider.key, checked);
+        }}
+        onIdChange={(fieldName: string, value: string) => {
+          if (!canEdit) return;
+          updateId(fieldName, sanitizeTrackingValue(provider.key, value));
+        }}
+        onSave={async () => {
+          if (!canEdit) {
+            onToast('info', 'Read-only mode. You cannot edit settings.');
+            return;
+          }
+          const result = await saveConfig();
+          onToast(result.ok ? 'success' : 'error', result.message);
+        }}
+        onTest={() => {
+          const result = testProvider(provider.key);
+          onToast(result.ok ? 'success' : 'error', result.message);
+        }}
+      />
+    </div>
+  );
+};
+
 export const SettingsContent: React.FC<Props> = ({
   category,
   settings,
@@ -25,6 +160,14 @@ export const SettingsContent: React.FC<Props> = ({
   onRefresh,
   onToast,
 }) => {
+  if (category === 'gtm_settings') {
+    return <EmbeddedGTMSettings canEdit={canEdit} onToast={onToast} />;
+  }
+
+  if (category === 'pixel_settings' || category === 'analytics_settings' || category === 'clarity_settings') {
+    return <EmbeddedTrackingProviderSettings category={category} canEdit={canEdit} onToast={onToast} />;
+  }
+
   const settingCategory = categoryMenuToSettingCategory(category);
   const categorySettings = useMemo(
     () => settings.filter((s) => s.category === settingCategory),
