@@ -5,6 +5,7 @@ from urllib.parse import urlparse
 
 from django.conf import settings
 from django.contrib.sitemaps import Sitemap
+from django.db import DatabaseError
 from django.http import HttpRequest, HttpResponse
 
 from apps.catalog.models import Product
@@ -44,7 +45,10 @@ class FrontendAwareSitemap(Sitemap):
             parsed = urlparse(frontend_url)
             site = SimpleNamespace(domain=parsed.netloc or "")
             protocol = parsed.scheme or protocol or "https"
-        return super().get_urls(page=page, site=site, protocol=protocol)
+        try:
+            return super().get_urls(page=page, site=site, protocol=protocol)
+        except DatabaseError:
+            return []
 
 
 class StaticPagesSitemap(FrontendAwareSitemap):
@@ -72,7 +76,11 @@ class ProductPagesSitemap(FrontendAwareSitemap):
     priority = 0.9
 
     def items(self):
-        return Product.published.only("slug", "updated_at").exclude(slug="")
+        try:
+            return Product.published.only("slug", "updated_at").exclude(slug="")
+        except DatabaseError:
+            # Keep sitemap endpoint alive during transient DB issues.
+            return Product.objects.none()
 
     def location(self, obj: Product):
         return f"/product/{obj.slug}"
