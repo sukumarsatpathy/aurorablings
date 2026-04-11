@@ -1,4 +1,5 @@
 import React, { useCallback, useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 import { Badge } from '@/components/ui/Badge';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -226,7 +227,22 @@ export const AccountOrdersPage: React.FC = () => {
                         {item.variant_name} • SKU {item.sku} • Qty {item.quantity}
                       </p>
                     </div>
-                    <p className="font-semibold">{formatCurrency(Number(item.line_total || 0))}</p>
+                    <div className="flex items-center gap-2">
+                      <p className="font-semibold">{formatCurrency(Number(item.line_total || 0))}</p>
+                      {item.product_id ? (
+                        item.can_review || item.has_reviewed || item.my_review_id ? (
+                          <Button asChild size="sm" variant="outline" className="rounded-lg">
+                            <Link to={`/product/${item.product_id}?review=1`}>
+                              {item.has_reviewed || item.my_review_id ? 'Edit Review' : 'Write Review'}
+                            </Link>
+                          </Button>
+                        ) : (
+                          <Button size="sm" variant="outline" className="rounded-lg" disabled title={item.review_eligibility_reason || ''}>
+                            Write Review
+                          </Button>
+                        )
+                      ) : null}
+                    </div>
                   </div>
                 ))}
               </div>

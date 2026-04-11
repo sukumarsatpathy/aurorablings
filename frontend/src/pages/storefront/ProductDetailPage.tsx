@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Link, useNavigate, useParams } from 'react-router-dom';
+import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronRight, Minus, Plus, ShoppingCart, Star } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
@@ -75,11 +75,14 @@ const extractProduct = (payload: any): CatalogProductDetail | null => {
 export const ProductDetailPage: React.FC = () => {
   const bulletIconUrl = 'https://cdn-icons-png.flaticon.com/128/10186/10186826.png';
   const navigate = useNavigate();
+  const [searchParams] = useSearchParams();
   const { id } = useParams<{ id: string }>();
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string>('');
   const [product, setProduct] = useState<CatalogProductDetail | null>(null);
   const [activeImage, setActiveImage] = useState(0);
+  const [isGalleryHovered, setIsGalleryHovered] = useState(false);
+  const [hoverImageIndex, setHoverImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
   const [selectedVariantId, setSelectedVariantId] = useState<string>('');
   const [notifyName, setNotifyName] = useState('');
@@ -92,6 +95,7 @@ export const ProductDetailPage: React.FC = () => {
   const [cartMessage, setCartMessage] = useState('');
   const detailsSectionRef = useRef<HTMLElement>(null);
   const { formatCurrency } = useCurrency();
+  const openReviewComposer = searchParams.get('review') === '1';
 
   useStagger(detailsSectionRef, {
     itemSelector: '[data-stagger-item]',
@@ -144,6 +148,8 @@ export const ProductDetailPage: React.FC = () => {
     return ['https://placehold.co/1000x1000/f3f4f6/517b4b?text=Product'];
   }, [product]);
 
+  const displayedImageIndex = isGalleryHovered ? hoverImageIndex : activeImage;
+
   const activeVariants = useMemo(() => {
     return (product?.variants || []).filter((variant) => variant.is_active !== false);
   }, [product?.variants]);
@@ -157,6 +163,25 @@ export const ProductDetailPage: React.FC = () => {
     if (!defaultVariant) return;
     setSelectedVariantId(defaultVariant.id);
   }, [defaultVariant?.id]);
+
+  useEffect(() => {
+    setHoverImageIndex(activeImage);
+  }, [activeImage]);
+
+  useEffect(() => {
+    if (!isGalleryHovered || images.length <= 1) {
+      setHoverImageIndex(activeImage);
+      return;
+    }
+
+    const intervalId = window.setInterval(() => {
+      setHoverImageIndex((current) => (current + 1) % images.length);
+    }, 900);
+
+    return () => {
+      window.clearInterval(intervalId);
+    };
+  }, [activeImage, images.length, isGalleryHovered]);
 
   const selectedVariant = useMemo(() => {
     if (!activeVariants.length) return null;
@@ -172,14 +197,15 @@ export const ProductDetailPage: React.FC = () => {
   const ratingCount = Number((product as any)?.review_count || 0);
 
   const featureRows = useMemo(() => {
-    const rows = (product?.info_items || []).slice(0, 4).map((item) => `${item.title} : ${item.value}`);
-    if (rows.length > 0) return rows;
-    return [
-      'Closure : Hook & Loop',
-      'Sole : Polyvinyl Chloride',
-      'Width : Medium',
-      'Outer Material : Premium Quality',
-    ];
+    const rows = (product?.info_items || [])
+      .filter((item) => String(item?.title || '').trim() || String(item?.value || '').trim())
+      .map((item) => {
+        const title = String(item?.title || '').trim();
+        const value = String(item?.value || '').trim();
+        if (title && value) return `${title} : ${value}`;
+        return title || value;
+      });
+    return rows;
   }, [product?.info_items]);
 
   const sizeOptions = useMemo(() => {
@@ -243,7 +269,7 @@ export const ProductDetailPage: React.FC = () => {
 
     const title = product.name ? `${product.name} | Aurora Blings` : 'Aurora Blings';
     const descriptionSource =
-      product.short_description ||
+      stripHtml(product.short_description || '') ||
       stripHtml(product.description || '') ||
       'Premium quality product.';
     const primaryMedia = (product.media || []).find((item) => item.is_primary) || product.media?.[0];
@@ -353,8 +379,12 @@ export const ProductDetailPage: React.FC = () => {
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-10">
           <div className="lg:col-span-7 flex flex-col md:flex-row-reverse gap-4">
-            <div className="flex-1 rounded-2xl overflow-hidden border border-border bg-muted/20 aspect-square">
-              <img src={images[activeImage]} alt={product.name} className="w-full h-full object-contain" />
+            <div
+              className="flex-1 rounded-2xl overflow-hidden border border-border bg-muted/20 aspect-square"
+              onMouseEnter={() => setIsGalleryHovered(true)}
+              onMouseLeave={() => setIsGalleryHovered(false)}
+            >
+              <img src={images[displayedImageIndex]} alt={product.name} className="w-full h-full object-contain transition-opacity duration-300" />
             </div>
             <div className="flex md:flex-col gap-3">
               {images.map((img, idx) => (
@@ -362,7 +392,7 @@ export const ProductDetailPage: React.FC = () => {
                   key={`${img}-${idx}`}
                   type="button"
                   onClick={() => setActiveImage(idx)}
-                  className={`w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden border-2 ${activeImage === idx ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
+                  className={`w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden border-2 ${displayedImageIndex === idx ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
                 >
                   <img src={img} alt="" className="w-full h-full object-cover" />
                 </button>
@@ -528,38 +558,24 @@ export const ProductDetailPage: React.FC = () => {
         </div>
 
         <section ref={detailsSectionRef} className="mt-14 space-y-4">
-          <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+          <div className="grid grid-cols-1 gap-4">
             <div data-stagger-item className="border border-border rounded-2xl bg-white/75 backdrop-blur-sm p-6 md:p-8">
-            <div className="space-y-3">
-              <h4 className="text-base font-bold">Description</h4>
-              <div
-                className="prose prose-sm max-w-none text-foreground"
-                dangerouslySetInnerHTML={{ __html: product.description || '<p>No description available.</p>' }}
-              />
-            </div>
-            </div>
-
-            <div data-stagger-item className="border border-border rounded-2xl bg-white/75 backdrop-blur-sm p-6 md:p-8">
-            <div className="space-y-3">
-              <h4 className="text-base font-bold">Additional Information</h4>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-x-8 gap-y-3">
-                {(product.info_items || []).length > 0 ? (
-                  (product.info_items || []).map((item) => (
-                    <div key={item.id} className="flex items-start justify-between gap-3 border-b border-border/60 pb-2">
-                      <span className="font-semibold text-foreground">{item.title}</span>
-                      <span className="text-muted-foreground text-right">{item.value}</span>
-                    </div>
-                  ))
-                ) : (
-                  <p className="text-muted-foreground">No additional information available.</p>
-                )}
+              <div className="space-y-3">
+                <h4 className="text-base font-bold">Description</h4>
+                <div
+                  className="prose prose-sm max-w-none text-foreground"
+                  dangerouslySetInnerHTML={{ __html: product.description || '<p>No description available.</p>' }}
+                />
               </div>
-            </div>
             </div>
           </div>
 
           <div data-stagger-item className="border border-border rounded-2xl bg-white/75 backdrop-blur-sm p-6 md:p-8">
-            <ProductReviewsSection productId={product.id} />
+            <ProductReviewsSection
+              productId={product.id}
+              showWriteReviewAction={false}
+              autoOpenComposer={openReviewComposer}
+            />
           </div>
         </section>
       </div>

@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { MessageSquare, ThumbsDown, ThumbsUp, Star, Sparkles, ShieldCheck } from 'lucide-react';
@@ -239,11 +239,20 @@ function ReviewCard({ review, onVote }: { review: ProductReview; onVote: (review
   );
 }
 
-export function ProductReviewsSection({ productId }: { productId: string }) {
+export function ProductReviewsSection({
+  productId,
+  showWriteReviewAction = true,
+  autoOpenComposer = false,
+}: {
+  productId: string;
+  showWriteReviewAction?: boolean;
+  autoOpenComposer?: boolean;
+}) {
   const queryClient = useQueryClient();
   const [sort, setSort] = useState<ReviewSort>('featured_first');
   const [page, setPage] = useState(1);
   const [isModalOpen, setIsModalOpen] = useState(false);
+  const hasAutoOpened = useRef(false);
 
   const token = localStorage.getItem('auth_token');
 
@@ -252,6 +261,15 @@ export function ProductReviewsSection({ productId }: { productId: string }) {
   const { myReview } = useMyReview(productId);
   const hasExistingReview = Boolean(myReview || summary?.has_reviewed);
   const canWriteReview = Boolean(token && (hasExistingReview || summary?.can_review));
+
+  useEffect(() => {
+    if (!autoOpenComposer || hasAutoOpened.current) return;
+    if (summaryLoading) return;
+    hasAutoOpened.current = true;
+    if (canWriteReview) {
+      setIsModalOpen(true);
+    }
+  }, [autoOpenComposer, canWriteReview, summaryLoading]);
 
   const voteMutation = useMutation({
     mutationFn: ({ reviewId, vote }: { reviewId: string; vote: 'helpful' | 'unhelpful' }) => reviewsService.voteReview(reviewId, vote),
@@ -280,16 +298,18 @@ export function ProductReviewsSection({ productId }: { productId: string }) {
           <p className="mt-1 text-sm text-muted-foreground">Real experiences from Aurora Blings customers.</p>
         </div>
 
-        {!token ? (
-          <Button asChild variant="outline"><Link to={`/login?next=${encodeURIComponent(`/product/${productId}`)}`}>Login to write a review</Link></Button>
-        ) : !canWriteReview ? (
-          <div className="text-right">
-            <Button disabled variant="outline">Write a Review</Button>
-            {summary?.eligibility_reason ? <p className="mt-2 text-xs text-muted-foreground">{summary.eligibility_reason}</p> : null}
-          </div>
-        ) : (
-          <Button onClick={() => setIsModalOpen(true)}>{hasExistingReview ? 'Edit Your Review' : 'Write a Review'}</Button>
-        )}
+        {showWriteReviewAction ? (
+          !token ? (
+            <Button asChild variant="outline"><Link to={`/login?next=${encodeURIComponent(`/product/${productId}`)}`}>Login to write a review</Link></Button>
+          ) : !canWriteReview ? (
+            <div className="text-right">
+              <Button disabled variant="outline">Write a Review</Button>
+              {summary?.eligibility_reason ? <p className="mt-2 text-xs text-muted-foreground">{summary.eligibility_reason}</p> : null}
+            </div>
+          ) : (
+            <Button onClick={() => setIsModalOpen(true)}>{hasExistingReview ? 'Edit Your Review' : 'Write a Review'}</Button>
+          )
+        ) : null}
       </div>
 
       <div className="grid grid-cols-1 gap-6 rounded-2xl border border-border bg-white p-6 shadow-sm lg:grid-cols-3">

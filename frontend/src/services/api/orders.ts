@@ -61,6 +61,11 @@ export interface AdminOrderDetail extends AdminOrderListRow {
     unit_price: string;
     line_total: string;
     product_image?: string | null;
+    product_id?: string | null;
+    can_review?: boolean;
+    has_reviewed?: boolean;
+    my_review_id?: string | null;
+    review_eligibility_reason?: string;
   }>;
   status_history: Array<{
     id: string;
@@ -134,6 +139,11 @@ export interface CustomerOrderDetail extends CustomerOrderListRow {
     unit_price: string;
     line_total: string;
     product_image?: string | null;
+    product_id?: string | null;
+    can_review?: boolean;
+    has_reviewed?: boolean;
+    my_review_id?: string | null;
+    review_eligibility_reason?: string;
   }>;
   status_history: Array<{
     id: string;

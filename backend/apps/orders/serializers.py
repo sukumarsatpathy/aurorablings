@@ -17,13 +17,19 @@ class OrderStatusHistorySerializer(serializers.ModelSerializer):
 
 class OrderItemSerializer(serializers.ModelSerializer):
     product_image = serializers.SerializerMethodField()
+    product_id = serializers.SerializerMethodField()
+    can_review = serializers.SerializerMethodField()
+    has_reviewed = serializers.SerializerMethodField()
+    my_review_id = serializers.SerializerMethodField()
+    review_eligibility_reason = serializers.SerializerMethodField()
 
     class Meta:
         model  = OrderItem
         fields = [
             "id", "sku", "product_name", "variant_name",
             "quantity", "unit_price", "compare_at_price", "line_total",
-            "product_snapshot", "product_image",
+            "product_snapshot", "product_image", "product_id",
+            "can_review", "has_reviewed", "my_review_id", "review_eligibility_reason",
         ]
         read_only_fields = fields
 
@@ -40,6 +46,76 @@ class OrderItemSerializer(serializers.ModelSerializer):
             if media and getattr(media, "image", None):
                 return build_media_url(media.image, request=request)
         return None
+
+    def _resolve_product_id(self, obj) -> str | None:
+        snapshot = obj.product_snapshot or {}
+        from_snapshot = str(snapshot.get("product_id") or "").strip()
+        if from_snapshot:
+            return from_snapshot
+        variant = getattr(obj, "variant", None)
+        product_id = getattr(variant, "product_id", None) if variant else None
+        return str(product_id) if product_id else None
+
+    def _review_meta(self, obj) -> dict[str, object]:
+        item_key = str(obj.id)
+        cache = getattr(self, "_review_meta_cache", {})
+        if item_key in cache:
+            return cache[item_key]
+
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        product_id = self._resolve_product_id(obj)
+
+        meta = {
+            "product_id": product_id,
+            "can_review": False,
+            "has_reviewed": False,
+            "my_review_id": None,
+            "review_eligibility_reason": "Login to review this product.",
+        }
+
+        if not product_id:
+            meta["review_eligibility_reason"] = "Review unavailable for this item."
+        elif not user or not getattr(user, "is_authenticated", False):
+            meta["review_eligibility_reason"] = "Login to review this product."
+        else:
+            from apps.reviews.models import ProductReview
+
+            existing_review_id = (
+                ProductReview.objects
+                .filter(product_id=product_id, user_id=user.id, is_soft_deleted=False)
+                .values_list("id", flat=True)
+                .first()
+            )
+            if existing_review_id:
+                meta["has_reviewed"] = True
+                meta["my_review_id"] = str(existing_review_id)
+                meta["review_eligibility_reason"] = "You have already submitted a review for this product."
+            elif obj.order.status not in {OrderStatus.DELIVERED, OrderStatus.COMPLETED}:
+                meta["review_eligibility_reason"] = "Reviews are available after a delivered purchase."
+            else:
+                meta["can_review"] = True
+                meta["review_eligibility_reason"] = ""
+
+        cache[item_key] = meta
+        self._review_meta_cache = cache
+        return meta
+
+    def get_product_id(self, obj) -> str | None:
+        return self._review_meta(obj)["product_id"]  # type: ignore[index]
+
+    def get_can_review(self, obj) -> bool:
+        return bool(self._review_meta(obj)["can_review"])
+
+    def get_has_reviewed(self, obj) -> bool:
+        return bool(self._review_meta(obj)["has_reviewed"])
+
+    def get_my_review_id(self, obj) -> str | None:
+        value = self._review_meta(obj)["my_review_id"]
+        return str(value) if value else None
+
+    def get_review_eligibility_reason(self, obj) -> str:
+        return str(self._review_meta(obj)["review_eligibility_reason"] or "")
 
 
 class OrderListSerializer(serializers.ModelSerializer):
