@@ -19,6 +19,7 @@ export const Shipments: React.FC = () => {
   const [rows, setRows] = useState<any[]>([]);
   const [loading, setLoading] = useState(true);
   const [search, setSearch] = useState('');
+  const [actionLoading, setActionLoading] = useState('');
 
   const loadRows = async () => {
     try {
@@ -46,10 +47,33 @@ export const Shipments: React.FC = () => {
     { header: 'Status', accessorKey: 'status', cell: (r: any) => <StatusBadge status={toTitle(r.status || 'created')} type="order" /> },
     { header: 'AWB', accessorKey: 'awb_code', cell: (r: any) => r.awb_code || '-' },
     { header: 'Courier', accessorKey: 'courier_name', cell: (r: any) => r.courier_name || '-' },
+    { header: 'Timeline', accessorKey: 'events', cell: (r: any) => `${(r.events || []).length} event(s)` },
     {
       header: 'Tracking',
       accessorKey: 'tracking_url',
       cell: (r: any) => r.tracking_url ? <a href={r.tracking_url} className="text-primary underline" target="_blank" rel="noreferrer">Open</a> : '-',
+    },
+    {
+      header: 'Actions',
+      accessorKey: 'id',
+      cell: (r: any) => (
+        <Button
+          size="sm"
+          variant="outline"
+          disabled={actionLoading === r.id}
+          onClick={async () => {
+            try {
+              setActionLoading(r.id);
+              await shippingService.refreshTracking(r.id);
+              await loadRows();
+            } finally {
+              setActionLoading('');
+            }
+          }}
+        >
+          {actionLoading === r.id ? 'Refreshing...' : 'Refresh'}
+        </Button>
+      ),
     },
     { header: 'Created', accessorKey: 'created_at', cell: (r: any) => new Date(r.created_at).toLocaleString() },
   ];

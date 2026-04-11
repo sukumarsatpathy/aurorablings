@@ -17,7 +17,7 @@ class BaseShippingProvider:
     name: str = ""
 
     def authenticate(self) -> ProviderResponse:
-        raise NotImplementedError
+        return ProviderResponse(success=True, data={})
 
     def create_order(self, order) -> ProviderResponse:
         raise NotImplementedError
@@ -45,3 +45,6 @@ class BaseShippingProvider:
 
     def normalize_status(self, payload: dict[str, Any]) -> str:
         raise NotImplementedError
+
+    def build_event_idempotency_key(self, payload: dict[str, Any]) -> str:
+        return ""

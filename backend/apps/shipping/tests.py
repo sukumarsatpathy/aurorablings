@@ -8,7 +8,14 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User
 from apps.features.models import AppSetting
-from apps.orders.models import Order, OrderStatus, PaymentStatus, PaymentMethod
+from apps.orders.models import (
+    Order,
+    OrderStatus,
+    PaymentStatus,
+    PaymentMethod,
+    ShippingApprovalStatus,
+    FulfillmentMethod,
+)
 from apps.shipping import services
 from apps.shipping.models import Shipment, ShipmentEvent, ShipmentStatus, ShipmentEventSource
 from apps.shipping.providers.base import ProviderResponse
@@ -116,6 +123,8 @@ class ShippingIntegrationTests(TestCase):
             status=OrderStatus.PAID,
             payment_status=PaymentStatus.PAID,
             payment_method=PaymentMethod.RAZORPAY,
+            shipping_approval_status=ShippingApprovalStatus.APPROVED,
+            fulfillment_method=FulfillmentMethod.SHIPROCKET,
             shipping_address=address,
             billing_address=address,
             subtotal="1000",
@@ -134,8 +143,8 @@ class ShippingIntegrationTests(TestCase):
     @mock.patch("apps.shipping.services.resolve_provider", return_value=_FakeProvider())
     def test_shipment_creation_only_for_eligible_orders(self, _resolve):
         order = self._build_paid_order()
-        order.status = OrderStatus.PLACED
-        order.save(update_fields=["status"])
+        order.shipping_approval_status = ShippingApprovalStatus.PENDING_SHIPPING_APPROVAL
+        order.save(update_fields=["shipping_approval_status"])
         with self.assertRaises(Exception):
             services.create_or_update_shipment_for_order(order_id=str(order.id))
 
@@ -218,12 +227,14 @@ class ShippingIntegrationTests(TestCase):
         self.assertEqual(shipment.status, ShipmentStatus.CANCELLED)
 
     @mock.patch("apps.shipping.tasks.create_shipment_for_order.delay")
-    def test_order_mark_paid_queues_shipment_task(self, mock_delay):
+    def test_order_mark_paid_does_not_auto_queue_shipment_task(self, mock_delay):
         order = Order.objects.create(
             user=self.admin,
             status=OrderStatus.PLACED,
             payment_status=PaymentStatus.PENDING,
             payment_method=PaymentMethod.RAZORPAY,
+            shipping_approval_status=ShippingApprovalStatus.PENDING_SHIPPING_APPROVAL,
+            fulfillment_method=FulfillmentMethod.UNASSIGNED,
             shipping_address={
                 "full_name": "Alice",
                 "line1": "12 Main Street",
@@ -251,4 +262,4 @@ class ShippingIntegrationTests(TestCase):
         from apps.orders.services import mark_paid
 
         mark_paid(order=order, payment_reference="pay_1", changed_by=self.admin)
-        mock_delay.assert_called_once_with(str(order.id))
+        mock_delay.assert_not_called()

@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from .models import Shipment, ShipmentEvent
+from apps.orders.models import FulfillmentMethod
 
 
 class ShipmentEventSerializer(serializers.ModelSerializer):
@@ -43,6 +44,12 @@ class ShipmentSerializer(serializers.ModelSerializer):
             "pickup_scheduled_at",
             "shipped_at",
             "delivered_at",
+            "approved_at",
+            "local_rider_name",
+            "local_rider_phone",
+            "local_notes",
+            "local_expected_delivery_date",
+            "local_delivery_status",
             "raw_provider_response",
             "error_code",
             "error_message",
@@ -61,3 +68,28 @@ class ShipmentActionSerializer(serializers.Serializer):
 
 class TrackingWebhookSerializer(serializers.Serializer):
     payload = serializers.JSONField(required=False)
+
+
+class ShippingApprovalSerializer(serializers.Serializer):
+    fulfillment_method = serializers.ChoiceField(
+        choices=[
+            FulfillmentMethod.LOCAL_DELIVERY,
+            FulfillmentMethod.NIMBUSPOST,
+            FulfillmentMethod.SHIPROCKET,
+        ]
+    )
+    notes = serializers.CharField(required=False, allow_blank=True, default="")
+    rider_name = serializers.CharField(required=False, allow_blank=True, default="")
+    rider_phone = serializers.CharField(required=False, allow_blank=True, default="")
+    local_notes = serializers.CharField(required=False, allow_blank=True, default="")
+    local_expected_delivery_date = serializers.DateField(required=False, allow_null=True)
+
+
+class LocalDeliveryStatusSerializer(serializers.Serializer):
+    local_delivery_status = serializers.ChoiceField(
+        choices=["assigned", "out_for_delivery", "delivered", "cancelled"],
+    )
+    rider_name = serializers.CharField(required=False, allow_blank=True, default="")
+    rider_phone = serializers.CharField(required=False, allow_blank=True, default="")
+    local_notes = serializers.CharField(required=False, allow_blank=True, default="")
+    local_expected_delivery_date = serializers.DateField(required=False, allow_null=True)

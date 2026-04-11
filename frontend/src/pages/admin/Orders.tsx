@@ -36,8 +36,13 @@ const extractRows = (payload: any): any[] => {
 const statusOptions = ['draft', 'placed', 'paid', 'processing', 'shipped', 'delivered', 'completed', 'cancelled', 'refunded'];
 const paymentStatusOptions = ['pending', 'paid', 'failed', 'refunded', 'partially_refunded'];
 const paymentMethodOptions = ['cod', 'cashfree', 'razorpay', 'phonepe', 'stripe', 'upi', 'bank_transfer'];
+type FulfillmentChoice = '' | 'local_delivery' | 'nimbuspost' | 'shiprocket';
 
 const toTitle = (value: string) => value.replace(/_/g, ' ').replace(/\b\w/g, (m) => m.toUpperCase());
+const normalizeFulfillmentMethod = (value: string): FulfillmentChoice => {
+  if (value === 'nimbuspost' || value === 'shiprocket' || value === 'local_delivery') return value;
+  return '';
+};
 
 type UiToast = {
   id: string;
@@ -140,6 +145,14 @@ export const Orders: React.FC = () => {
   const [draftItems, setDraftItems] = useState<DraftOrderItem[]>([]);
   const [calcLoading, setCalcLoading] = useState(false);
   const [shipmentActionLoading, setShipmentActionLoading] = useState('');
+  const [approvalLoading, setApprovalLoading] = useState(false);
+  const [fulfillmentMethod, setFulfillmentMethod] = useState<FulfillmentChoice>('');
+  const [approvalNotes, setApprovalNotes] = useState('');
+  const [localRiderName, setLocalRiderName] = useState('');
+  const [localRiderPhone, setLocalRiderPhone] = useState('');
+  const [localDeliveryNotes, setLocalDeliveryNotes] = useState('');
+  const [localExpectedDate, setLocalExpectedDate] = useState('');
+  const [localStatusLoading, setLocalStatusLoading] = useState(false);
   const [paymentActionLoading, setPaymentActionLoading] = useState('');
   const [calcBreakdown, setCalcBreakdown] = useState<any[]>([]);
   const [paymentTxns, setPaymentTxns] = useState<PaymentTxnView[]>([]);
@@ -302,6 +315,17 @@ export const Orders: React.FC = () => {
       cell: (item: AdminOrderListRow) => <StatusBadge status={toTitle(item.status)} type="order" />,
     },
     {
+      header: 'Shipping',
+      accessorKey: 'shipping_approval_status',
+      align: 'right' as const,
+      cell: (item: AdminOrderListRow) => (
+        <div className="flex flex-col items-end">
+          <StatusBadge status={toTitle(String(item.shipping_approval_status || 'pending_shipping_approval'))} type="generic" />
+          <span className="mt-1 text-[11px] text-muted-foreground">{toTitle(String(item.fulfillment_method || 'unassigned'))}</span>
+        </div>
+      ),
+    },
+    {
       header: 'Invoice',
       accessorKey: 'invoice_url',
       align: 'right' as const,
@@ -366,6 +390,12 @@ export const Orders: React.FC = () => {
       setCustomerOptions([]);
       setShowCustomerDropdown(false);
       await loadPaymentTransactions(detail.id);
+      setFulfillmentMethod(normalizeFulfillmentMethod(String(detail.fulfillment_method || '')));
+      setApprovalNotes(detail.shipping_approval_notes || '');
+      setLocalRiderName(detail.shipment?.local_rider_name || '');
+      setLocalRiderPhone(detail.shipment?.local_rider_phone || '');
+      setLocalDeliveryNotes(detail.shipment?.local_notes || '');
+      setLocalExpectedDate(detail.shipment?.local_expected_delivery_date || '');
       setIsModalOpen(true);
     } catch (error: any) {
       alert(error?.response?.data?.message || 'Failed to load order details.');
@@ -390,6 +420,51 @@ export const Orders: React.FC = () => {
       alert(error?.response?.data?.message || 'Shipment action failed.');
     } finally {
       setShipmentActionLoading('');
+    }
+  };
+
+  const approveShipping = async () => {
+    if (!editingOrder) return;
+    if (!fulfillmentMethod) {
+      pushToast('error', 'Please choose Local Delivery, NimbusPost, or Shiprocket before approving shipping.');
+      return;
+    }
+    try {
+      setApprovalLoading(true);
+      await shippingService.approveOrderShipping(editingOrder.id, {
+        fulfillment_method: fulfillmentMethod,
+        notes: approvalNotes,
+        rider_name: localRiderName,
+        rider_phone: localRiderPhone,
+        local_notes: localDeliveryNotes,
+        local_expected_delivery_date: localExpectedDate || null,
+      });
+      await openEdit(editingOrder);
+      pushToast('success', 'Shipping approved successfully.');
+    } catch (error: any) {
+      pushToast('error', error?.response?.data?.message || 'Failed to approve shipping.');
+    } finally {
+      setApprovalLoading(false);
+    }
+  };
+
+  const updateLocalStatus = async (nextStatus: 'assigned' | 'out_for_delivery' | 'delivered' | 'cancelled') => {
+    if (!editingOrder?.shipment?.id) return;
+    try {
+      setLocalStatusLoading(true);
+      await shippingService.updateLocalDeliveryStatus(editingOrder.shipment.id, {
+        local_delivery_status: nextStatus,
+        rider_name: localRiderName,
+        rider_phone: localRiderPhone,
+        local_notes: localDeliveryNotes,
+        local_expected_delivery_date: localExpectedDate || null,
+      });
+      await openEdit(editingOrder);
+      pushToast('success', `Local delivery marked ${toTitle(nextStatus)}.`);
+    } catch (error: any) {
+      pushToast('error', error?.response?.data?.message || 'Failed to update local delivery status.');
+    } finally {
+      setLocalStatusLoading(false);
     }
   };
 
@@ -1066,6 +1141,63 @@ export const Orders: React.FC = () => {
 
             {editingOrder ? (
               <div className="md:col-span-2 rounded-xl border border-border bg-white p-3 space-y-3">
+                <div className="rounded-lg border border-border/70 bg-muted/20 p-3 space-y-3">
+                  <div className="flex flex-wrap items-center justify-between gap-2">
+                    <p className="text-xs font-bold uppercase text-muted-foreground">Shipping Approval</p>
+                    <StatusBadge
+                      status={toTitle(String(editingOrder.shipping_approval_status || 'pending_shipping_approval'))}
+                      type="order"
+                    />
+                  </div>
+                  <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                    <div className="grid gap-1">
+                      <label className="text-xs font-semibold text-muted-foreground">Fulfillment Method</label>
+                      <select
+                        className="h-10 rounded-md border border-border/70 bg-white px-3 text-sm"
+                        value={fulfillmentMethod}
+                        onChange={(e) => setFulfillmentMethod(normalizeFulfillmentMethod(e.target.value))}
+                      >
+                        <option value="">Select fulfillment method</option>
+                        <option value="local_delivery">Local Delivery</option>
+                        <option value="nimbuspost">NimbusPost</option>
+                        <option value="shiprocket">Shiprocket</option>
+                      </select>
+                      {!fulfillmentMethod ? (
+                        <p className="text-xs text-red-600">Select Local Delivery, NimbusPost, or Shiprocket to continue.</p>
+                      ) : null}
+                    </div>
+                    <div className="grid gap-1">
+                      <label className="text-xs font-semibold text-muted-foreground">Approval Notes</label>
+                      <Input value={approvalNotes} onChange={(e) => setApprovalNotes(e.target.value)} />
+                    </div>
+                    {fulfillmentMethod === 'local_delivery' ? (
+                      <>
+                        <div className="grid gap-1">
+                          <label className="text-xs font-semibold text-muted-foreground">Rider Name</label>
+                          <Input value={localRiderName} onChange={(e) => setLocalRiderName(e.target.value)} />
+                        </div>
+                        <div className="grid gap-1">
+                          <label className="text-xs font-semibold text-muted-foreground">Rider Phone</label>
+                          <Input value={localRiderPhone} onChange={(e) => setLocalRiderPhone(e.target.value)} />
+                        </div>
+                        <div className="grid gap-1 md:col-span-2">
+                          <label className="text-xs font-semibold text-muted-foreground">Local Notes</label>
+                          <Input value={localDeliveryNotes} onChange={(e) => setLocalDeliveryNotes(e.target.value)} />
+                        </div>
+                        <div className="grid gap-1">
+                          <label className="text-xs font-semibold text-muted-foreground">Expected Delivery Date</label>
+                          <Input type="date" value={localExpectedDate} onChange={(e) => setLocalExpectedDate(e.target.value)} />
+                        </div>
+                      </>
+                    ) : null}
+                  </div>
+                  <div className="flex justify-end">
+                    <Button type="button" size="sm" onClick={approveShipping} disabled={approvalLoading || !fulfillmentMethod}>
+                      {approvalLoading ? 'Approving...' : 'Approve Shipping'}
+                    </Button>
+                  </div>
+                </div>
+
                 <div className="flex flex-wrap items-center justify-between gap-2">
                   <p className="text-xs font-bold uppercase text-muted-foreground">Shipment</p>
                   <div className="flex flex-wrap gap-2">
@@ -1074,9 +1206,9 @@ export const Orders: React.FC = () => {
                       variant="outline"
                       size="sm"
                       onClick={() => runShipmentAction('create')}
-                      disabled={shipmentActionLoading === 'create'}
+                      disabled={shipmentActionLoading === 'create' || editingOrder.shipping_approval_status !== 'approved'}
                     >
-                      {shipmentActionLoading === 'create' ? 'Queuing...' : 'Retry Shipment Sync'}
+                      {shipmentActionLoading === 'create' ? 'Queuing...' : 'Create/Sync Shipment'}
                     </Button>
                     <Button
                       type="button"
@@ -1130,7 +1262,22 @@ export const Orders: React.FC = () => {
                         <div className="text-muted-foreground">Courier</div>
                         <div className="font-semibold">{editingOrder.shipment.courier_name || '-'}</div>
                       </div>
+                      <div className="rounded-lg border border-border/70 p-2">
+                        <div className="text-muted-foreground">Local Rider</div>
+                        <div className="font-semibold">{editingOrder.shipment.local_rider_name || '-'}</div>
+                      </div>
+                      <div className="rounded-lg border border-border/70 p-2">
+                        <div className="text-muted-foreground">Local Status</div>
+                        <div className="font-semibold">{toTitle(editingOrder.shipment.local_delivery_status || '-')}</div>
+                      </div>
                     </div>
+                    {editingOrder.shipment.provider === 'local_delivery' ? (
+                      <div className="flex flex-wrap gap-2">
+                        <Button type="button" size="sm" variant="outline" disabled={localStatusLoading} onClick={() => updateLocalStatus('assigned')}>Mark Assigned</Button>
+                        <Button type="button" size="sm" variant="outline" disabled={localStatusLoading} onClick={() => updateLocalStatus('out_for_delivery')}>Out for Delivery</Button>
+                        <Button type="button" size="sm" variant="outline" disabled={localStatusLoading} onClick={() => updateLocalStatus('delivered')}>Mark Delivered</Button>
+                      </div>
+                    ) : null}
                     <div className="flex flex-wrap gap-3">
                       {editingOrder.shipment.tracking_url ? (
                         <a href={editingOrder.shipment.tracking_url} target="_blank" rel="noreferrer" className="text-primary underline">

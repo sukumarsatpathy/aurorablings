@@ -10,6 +10,8 @@ export interface AdminOrderListRow {
   item_count: number;
   customer_name: string;
   customer_email: string;
+  shipping_approval_status?: string;
+  fulfillment_method?: string;
   placed_at?: string | null;
   created_at: string;
   invoice_url?: string;
@@ -42,6 +44,12 @@ export interface AdminOrderDetail extends AdminOrderListRow {
     pickup_requested?: boolean;
     error_code?: string;
     error_message?: string;
+    approved_at?: string | null;
+    local_rider_name?: string;
+    local_rider_phone?: string;
+    local_notes?: string;
+    local_expected_delivery_date?: string | null;
+    local_delivery_status?: string;
     events?: Array<{
       id: string;
       source: string;
@@ -51,6 +59,10 @@ export interface AdminOrderDetail extends AdminOrderListRow {
       created_at: string;
     }>;
   } | null;
+  shipping_approval_status?: string;
+  fulfillment_method?: string;
+  shipping_approved_at?: string | null;
+  shipping_approval_notes?: string;
   invoice_url?: string;
   items: Array<{
     id: string;
@@ -87,6 +99,8 @@ export interface CustomerOrderListRow {
   item_count: number;
   customer_name: string;
   customer_email: string;
+  shipping_approval_status?: string;
+  fulfillment_method?: string;
   placed_at?: string | null;
   created_at: string;
   invoice_url?: string;
@@ -118,6 +132,12 @@ export interface CustomerOrderDetail extends CustomerOrderListRow {
     pickup_requested?: boolean;
     error_code?: string;
     error_message?: string;
+    approved_at?: string | null;
+    local_rider_name?: string;
+    local_rider_phone?: string;
+    local_notes?: string;
+    local_expected_delivery_date?: string | null;
+    local_delivery_status?: string;
     events?: Array<{
       id: string;
       source: string;
@@ -127,6 +147,10 @@ export interface CustomerOrderDetail extends CustomerOrderListRow {
       created_at: string;
     }>;
   } | null;
+  shipping_approval_status?: string;
+  fulfillment_method?: string;
+  shipping_approved_at?: string | null;
+  shipping_approval_notes?: string;
   invoice_url?: string;
   notes?: string;
   updated_at: string;

@@ -84,6 +84,19 @@ class PaymentStatus(models.TextChoices):
     PARTIALLY_REFUNDED = "partially_refunded", _("Partially Refunded")
 
 
+class ShippingApprovalStatus(models.TextChoices):
+    PENDING_SHIPPING_APPROVAL = "pending_shipping_approval", _("Pending Shipping Approval")
+    APPROVED = "approved", _("Approved")
+    REJECTED = "rejected", _("Rejected")
+
+
+class FulfillmentMethod(models.TextChoices):
+    UNASSIGNED = "unassigned", _("Unassigned")
+    LOCAL_DELIVERY = "local_delivery", _("Local Delivery")
+    NIMBUSPOST = "nimbuspost", _("NimbusPost")
+    SHIPROCKET = "shiprocket", _("Shiprocket")
+
+
 # ─────────────────────────────────────────────────────────────
 #  Order
 # ─────────────────────────────────────────────────────────────
@@ -126,6 +139,27 @@ class Order(models.Model):
         max_length=200, blank=True,
         help_text="Gateway transaction ID / UPI ref.",
     )
+    shipping_approval_status = models.CharField(
+        max_length=40,
+        choices=ShippingApprovalStatus.choices,
+        default=ShippingApprovalStatus.PENDING_SHIPPING_APPROVAL,
+        db_index=True,
+    )
+    fulfillment_method = models.CharField(
+        max_length=30,
+        choices=FulfillmentMethod.choices,
+        default=FulfillmentMethod.UNASSIGNED,
+        db_index=True,
+    )
+    shipping_approved_by = models.ForeignKey(
+        "accounts.User",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="shipping_approved_orders",
+    )
+    shipping_approved_at = models.DateTimeField(null=True, blank=True)
+    shipping_approval_notes = models.TextField(blank=True)
 
     # ── Address snapshots (JSON — immutable after placement) ──
     shipping_address = models.JSONField(
@@ -182,6 +216,7 @@ class Order(models.Model):
         indexes             = [
             models.Index(fields=["user", "status"]),
             models.Index(fields=["status", "created_at"]),
+            models.Index(fields=["shipping_approval_status", "fulfillment_method"]),
         ]
 
     def save(self, *args, **kwargs):

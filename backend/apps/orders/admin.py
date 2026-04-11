@@ -1,6 +1,13 @@
 from django.contrib import admin
 from django.utils.html import format_html
-from .models import Order, OrderItem, OrderStatusHistory, OrderStatus
+from .models import (
+    Order,
+    OrderItem,
+    OrderStatusHistory,
+    OrderStatus,
+    ShippingApprovalStatus,
+    FulfillmentMethod,
+)
 
 
 # ─────────────────────────────────────────────────────────────
@@ -54,9 +61,17 @@ class OrderAdmin(admin.ModelAdmin):
     list_display   = [
         "order_number", "user_display", "status_badge",
         "payment_badge", "grand_total", "currency",
+        "shipping_approval_badge", "fulfillment_badge",
         "item_count_display", "invoice_links", "created_at",
     ]
-    list_filter    = ["status", "payment_status", "payment_method", "created_at"]
+    list_filter    = [
+        "status",
+        "payment_status",
+        "payment_method",
+        "shipping_approval_status",
+        "fulfillment_method",
+        "created_at",
+    ]
     search_fields  = ["order_number", "user__email", "guest_email", "items__sku"]
     readonly_fields = [
         "id", "order_number", "cart_id_snapshot",
@@ -73,6 +88,15 @@ class OrderAdmin(admin.ModelAdmin):
         }),
         ("Payment", {
             "fields": ("payment_status", "payment_method", "payment_reference"),
+        }),
+        ("Shipping Approval", {
+            "fields": (
+                "shipping_approval_status",
+                "fulfillment_method",
+                "shipping_approved_by",
+                "shipping_approved_at",
+                "shipping_approval_notes",
+            ),
         }),
         ("Addresses", {
             "fields": ("shipping_address", "billing_address"),
@@ -97,7 +121,16 @@ class OrderAdmin(admin.ModelAdmin):
         }),
     )
 
-    actions = ["action_mark_processing", "action_mark_cancelled", "action_generate_invoices"]
+    actions = [
+        "action_mark_processing",
+        "action_mark_cancelled",
+        "action_generate_invoices",
+        "action_approve_local_delivery",
+        "action_approve_nimbuspost",
+        "action_approve_shiprocket",
+        "action_create_shipment",
+        "action_refresh_tracking",
+    ]
 
     @admin.action(description="Mark selected orders as Processing")
     def action_mark_processing(self, request, queryset):
@@ -128,6 +161,80 @@ class OrderAdmin(admin.ModelAdmin):
             generated += 1
         self.message_user(request, f"{generated} invoice(s) generated.")
 
+    @admin.action(description="Approve shipping: Local Delivery")
+    def action_approve_local_delivery(self, request, queryset):
+        from apps.shipping import services as shipping_services
+
+        count = 0
+        for order in queryset:
+            shipping_services.approve_order_shipping(
+                order_id=str(order.id),
+                fulfillment_method=FulfillmentMethod.LOCAL_DELIVERY,
+                approved_by=request.user,
+                notes="Approved from Django admin action.",
+            )
+            count += 1
+        self.message_user(request, f"Approved {count} order(s) for Local Delivery.")
+
+    @admin.action(description="Approve shipping: NimbusPost")
+    def action_approve_nimbuspost(self, request, queryset):
+        from apps.shipping import services as shipping_services
+
+        count = 0
+        for order in queryset:
+            shipping_services.approve_order_shipping(
+                order_id=str(order.id),
+                fulfillment_method=FulfillmentMethod.NIMBUSPOST,
+                approved_by=request.user,
+                notes="Approved from Django admin action.",
+            )
+            count += 1
+        self.message_user(request, f"Approved {count} order(s) for NimbusPost.")
+
+    @admin.action(description="Approve shipping: Shiprocket")
+    def action_approve_shiprocket(self, request, queryset):
+        from apps.shipping import services as shipping_services
+
+        count = 0
+        for order in queryset:
+            shipping_services.approve_order_shipping(
+                order_id=str(order.id),
+                fulfillment_method=FulfillmentMethod.SHIPROCKET,
+                approved_by=request.user,
+                notes="Approved from Django admin action.",
+            )
+            count += 1
+        self.message_user(request, f"Approved {count} order(s) for Shiprocket.")
+
+    @admin.action(description="Create shipment now (for approved orders)")
+    def action_create_shipment(self, request, queryset):
+        from apps.shipping import services as shipping_services
+
+        created = 0
+        for order in queryset:
+            try:
+                shipping_services.create_or_update_shipment_for_order(order_id=str(order.id), source="manual", force=True)
+                created += 1
+            except Exception:
+                continue
+        self.message_user(request, f"Shipment create/sync triggered for {created} order(s).")
+
+    @admin.action(description="Refresh tracking for linked shipments")
+    def action_refresh_tracking(self, request, queryset):
+        from apps.shipping import services as shipping_services
+
+        refreshed = 0
+        for order in queryset:
+            shipment = getattr(order, "shipment", None)
+            if not shipment:
+                continue
+            try:
+                shipping_services.sync_tracking(shipment_id=str(shipment.id), source="manual")
+                refreshed += 1
+            except Exception:
+                continue
+        self.message_user(request, f"Tracking refreshed for {refreshed} shipment(s).")
+
     def user_display(self, obj):
         return obj.user.email if obj.user else f"guest: {obj.guest_email or '—'}"
     user_display.short_description = "Customer"
@@ -151,6 +258,37 @@ class OrderAdmin(admin.ModelAdmin):
     def item_count_display(self, obj):
         return obj.item_count
     item_count_display.short_description = "Items"
+
+    def shipping_approval_badge(self, obj):
+        colour = "#d97706"
+        if obj.shipping_approval_status == ShippingApprovalStatus.APPROVED:
+            colour = "#16a34a"
+        elif obj.shipping_approval_status == ShippingApprovalStatus.REJECTED:
+            colour = "#dc2626"
+        return format_html(
+            '<span style="background:{};color:#fff;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600">{}</span>',
+            colour,
+            obj.get_shipping_approval_status_display(),
+        )
+
+    shipping_approval_badge.short_description = "Shipping Approval"
+
+    def fulfillment_badge(self, obj):
+        label = obj.get_fulfillment_method_display()
+        colour = "#64748b"
+        if obj.fulfillment_method == FulfillmentMethod.LOCAL_DELIVERY:
+            colour = "#0f766e"
+        elif obj.fulfillment_method == FulfillmentMethod.NIMBUSPOST:
+            colour = "#2563eb"
+        elif obj.fulfillment_method == FulfillmentMethod.SHIPROCKET:
+            colour = "#7c3aed"
+        return format_html(
+            '<span style="color:{};font-weight:700">{}</span>',
+            colour,
+            label,
+        )
+
+    fulfillment_badge.short_description = "Fulfillment"
 
     def invoice_links(self, obj):
         from apps.invoices.services.invoice_service import InvoiceService

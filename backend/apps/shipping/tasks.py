@@ -83,6 +83,24 @@ def process_shiprocket_webhook_event(self, event_id: str):
 
 @shared_task(
     bind=True,
+    max_retries=5,
+    default_retry_delay=30,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=600,
+    retry_jitter=True,
+    name="shipping.process_webhook_event",
+)
+def process_webhook_event(self, event_id: str):
+    from . import services
+
+    event = services.process_webhook_event(event_id)
+    logger.info("process_webhook_event_ok", event_id=event_id, shipment_id=str(event.shipment_id or ""))
+    return str(event.shipment_id or "")
+
+
+@shared_task(
+    bind=True,
     max_retries=3,
     default_retry_delay=60,
     autoretry_for=(Exception,),

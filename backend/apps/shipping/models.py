@@ -6,10 +6,16 @@ from django.utils.translation import gettext_lazy as _
 
 class ShipmentProvider(models.TextChoices):
     SHIPROCKET = "shiprocket", _("Shiprocket")
+    NIMBUSPOST = "nimbuspost", _("NimbusPost")
+    LOCAL_DELIVERY = "local_delivery", _("Local Delivery")
 
 
 class ShipmentStatus(models.TextChoices):
+    PENDING_APPROVAL = "pending_approval", _("Pending Approval")
+    APPROVED = "approved", _("Approved")
     CREATED = "created", _("Created")
+    BOOKED = "booked", _("Booked")
+    ASSIGNED = "assigned", _("Assigned")
     AWB_ASSIGNED = "awb_assigned", _("AWB Assigned")
     PICKUP_REQUESTED = "pickup_requested", _("Pickup Requested")
     PICKED_UP = "picked_up", _("Picked Up")
@@ -17,6 +23,7 @@ class ShipmentStatus(models.TextChoices):
     OUT_FOR_DELIVERY = "out_for_delivery", _("Out for Delivery")
     DELIVERED = "delivered", _("Delivered")
     RTO = "rto", _("RTO")
+    RETURNED = "returned", _("Returned")
     CANCELLED = "cancelled", _("Cancelled")
     FAILED = "failed", _("Failed")
     EXCEPTION = "exception", _("Exception")
@@ -59,6 +66,13 @@ class Shipment(models.Model):
     pickup_scheduled_at = models.DateTimeField(null=True, blank=True)
     shipped_at = models.DateTimeField(null=True, blank=True)
     delivered_at = models.DateTimeField(null=True, blank=True)
+    approved_at = models.DateTimeField(null=True, blank=True)
+
+    local_rider_name = models.CharField(max_length=120, blank=True)
+    local_rider_phone = models.CharField(max_length=30, blank=True)
+    local_notes = models.TextField(blank=True)
+    local_expected_delivery_date = models.DateField(null=True, blank=True)
+    local_delivery_status = models.CharField(max_length=30, blank=True, db_index=True)
 
     raw_provider_response = models.JSONField(default=dict, blank=True)
     error_code = models.CharField(max_length=120, blank=True)

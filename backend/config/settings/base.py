@@ -28,6 +28,7 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'django.contrib.sitemaps',
     
     # Third-party apps
     'rest_framework',
@@ -212,6 +213,8 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+RAZORPAY_STALE_ORDER_TIMEOUT_MINUTES = env.int("RAZORPAY_STALE_ORDER_TIMEOUT_MINUTES", default=20)
+RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS = env.int("RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS", default=300)
 
 # Celery Beat — periodic tasks
 from celery.schedules import crontab
@@ -248,6 +251,10 @@ CELERY_BEAT_SCHEDULE = {
         "task": "shipping.reconcile_stuck_shipments",
         "schedule": 900,
     },
+    "payments-expire-stale-razorpay-orders": {
+        "task": "payments.expire_stale_razorpay_orders",
+        "schedule": RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS,
+    },
 }
 
 # ── Email ──────────────────────────────────────────────────────
@@ -277,6 +284,12 @@ CORS_ALLOW_CREDENTIALS = True
 # Backend base URL (used for media absolute URLs in API responses)
 BACKEND_URL = env("BACKEND_URL", default="http://localhost:8000")
 PRIVACY_STORE_IP_ADDRESS = env.bool("PRIVACY_STORE_IP_ADDRESS", default=False)
+
+# ── Shipping: NimbusPost ─────────────────────────────────────
+NIMBUSPOST_BASE_URL = env("NIMBUSPOST_BASE_URL", default="https://api.nimbuspost.com/v1")
+NIMBUSPOST_API_KEY = env("NIMBUSPOST_API_KEY", default="")
+NIMBUSPOST_WEBHOOK_SECRET = env("NIMBUSPOST_WEBHOOK_SECRET", default="")
+NIMBUSPOST_TIMEOUT_SECONDS = env.int("NIMBUSPOST_TIMEOUT_SECONDS", default=20)
 
 # Notification dashboard controls
 NOTIFICATION_MAX_RETRY = env.int("NOTIFICATION_MAX_RETRY", default=3)

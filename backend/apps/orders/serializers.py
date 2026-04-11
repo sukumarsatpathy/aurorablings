@@ -1,5 +1,5 @@
 from rest_framework import serializers
-from .models import Order, OrderItem, OrderStatusHistory, PaymentMethod, OrderStatus, PaymentStatus
+from .models import Order, OrderItem, OrderStatusHistory, OrderStatus, PaymentMethod, PaymentStatus
 from core.media import build_media_url
 
 
@@ -80,6 +80,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
             meta["review_eligibility_reason"] = "Login to review this product."
         else:
             from apps.reviews.models import ProductReview
+            from apps.reviews import services as review_services
 
             existing_review_id = (
                 ProductReview.objects
@@ -91,11 +92,10 @@ class OrderItemSerializer(serializers.ModelSerializer):
                 meta["has_reviewed"] = True
                 meta["my_review_id"] = str(existing_review_id)
                 meta["review_eligibility_reason"] = "You have already submitted a review for this product."
-            elif obj.order.status not in {OrderStatus.DELIVERED, OrderStatus.COMPLETED}:
-                meta["review_eligibility_reason"] = "Reviews are available after a delivered purchase."
             else:
-                meta["can_review"] = True
-                meta["review_eligibility_reason"] = ""
+                can_review, reason = review_services.get_review_eligibility(user=user, product_id=product_id)
+                meta["can_review"] = bool(can_review)
+                meta["review_eligibility_reason"] = str(reason or "")
 
         cache[item_key] = meta
         self._review_meta_cache = cache
@@ -130,6 +130,7 @@ class OrderListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "order_number", "status", "payment_status",
             "grand_total", "currency", "item_count", "customer_name", "customer_email",
+            "shipping_approval_status", "fulfillment_method",
             "placed_at", "created_at", "invoice_url",
         ]
         read_only_fields = fields
@@ -170,6 +171,8 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         fields = [
             "id", "order_number",
             "status", "payment_status", "payment_method", "payment_reference",
+            "shipping_approval_status", "fulfillment_method",
+            "shipping_approved_at", "shipping_approval_notes",
             "customer_name", "customer_email", "guest_email",
             "shipping_address", "billing_address",
             "subtotal", "coupon_code", "discount_amount", "shipping_cost", "tax_amount",
@@ -229,6 +232,12 @@ class OrderDetailSerializer(serializers.ModelSerializer):
                 }
                 for event in shipment.events.all().order_by("-created_at")
             ],
+            "local_rider_name": shipment.local_rider_name,
+            "local_rider_phone": shipment.local_rider_phone,
+            "local_notes": shipment.local_notes,
+            "local_expected_delivery_date": shipment.local_expected_delivery_date,
+            "local_delivery_status": shipment.local_delivery_status,
+            "approved_at": shipment.approved_at,
         }
 
     def get_invoice_url(self, obj) -> str:

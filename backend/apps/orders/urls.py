@@ -16,6 +16,7 @@ urlpatterns = [
     path("admin/calculate/",          views.AdminOrderCalculateView.as_view(), name="admin-calculate"),
     path("admin/<uuid:order_id>/",    views.AdminOrderDetailView.as_view(), name="admin-detail"),
     path("admin/<uuid:order_id>/send-confirmation-email/", views.AdminOrderSendConfirmationEmailView.as_view(), name="admin-send-confirmation-email"),
+    path("admin/<uuid:order_id>/shipping-label/", views.AdminOrderShippingLabelView.as_view(), name="admin-shipping-label"),
 
     # ── Admin: lifecycle actions ──────────────────────────────
     path("admin/<uuid:order_id>/pay/",        views.MarkPaidView.as_view(),      name="mark-paid"),

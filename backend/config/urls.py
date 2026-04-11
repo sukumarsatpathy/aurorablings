@@ -12,6 +12,7 @@ from drf_spectacular.views import (
 from pathlib import Path
 from apps.catalog import share_views as catalog_share_views
 from apps.features.views import PublicRuntimeSettingsView, PublicTrackingSettingsView
+from apps.shipping import views as shipping_views
 from core.sitemaps import ProductPagesSitemap, StaticPagesSitemap, robots_txt_view
 
 
@@ -52,6 +53,7 @@ urlpatterns = [
     path("api/privacy/", include(("apps.privacy.urls", "privacy"), namespace="privacy-public")),
     path("api/notify/", include("apps.notifications.notify_urls")),
     path("api/address/", include("apps.address.api.urls", namespace="address")),
+    path("api/webhooks/nimbuspost/", shipping_views.NimbusPostWebhookView.as_view(), name="nimbuspost-webhook-public"),
 
     # ── API v1 ──────────────────────────────────────────────
     path("api/v1/", include([

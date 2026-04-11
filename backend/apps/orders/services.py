@@ -784,15 +784,7 @@ def mark_paid(
         payment_reference=payment_reference,
     )
 
-    # Shipping sync is async and provider-driven; never block payment confirmation.
-    try:
-        from apps.shipping import services as shipping_services
-        if shipping_services.is_auto_create_enabled():
-            from apps.shipping.tasks import create_shipment_for_order
-
-            create_shipment_for_order.delay(str(order.id))
-    except Exception:
-        pass
+    # Shipping creation is explicitly admin-approved; never auto-send to courier.
 
     if not was_paid:
         try:

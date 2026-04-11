@@ -20,9 +20,12 @@ Endpoint map:
 """
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
+from django.http import HttpResponse
+from django.template.loader import render_to_string
 
 from apps.accounts.permissions import IsStaffOrAdmin
 from apps.cart.services import get_or_create_user_cart, get_or_create_guest_cart
+from apps.invoices.services.pdf_service import PDFService
 from core.response import success_response, error_response
 from core.exceptions import NotFoundError
 from core.viewsets import BaseViewSet
@@ -70,7 +73,7 @@ class MyOrderListView(APIView):
     def get(self, request):
         status_filter = request.query_params.get("status")
         qs = selectors.get_orders_for_user(request.user, status=status_filter)
-        serializer = OrderListSerializer(qs, many=True)
+        serializer = OrderListSerializer(qs, many=True, context={"request": request})
         return success_response(
             data=serializer.data,
             request_id=getattr(request, "request_id", None),
@@ -84,7 +87,7 @@ class MyOrderDetailView(APIView):
     def get(self, request, order_id):
         order = _get_order_or_404(order_id, request.user)
         return success_response(
-            data=OrderDetailSerializer(order).data,
+            data=OrderDetailSerializer(order, context={"request": request}).data,
             request_id=getattr(request, "request_id", None),
         )
 
@@ -130,7 +133,7 @@ class PlaceOrderView(APIView):
             account_data=data.get("account") or {},
             save_address=data.get("save_address", True),
         )
-        response_data = OrderDetailSerializer(order).data
+        response_data = OrderDetailSerializer(order, context={"request": request}).data
         if resolved_user and not request.user.is_authenticated and data.get("create_account", False):
             from apps.accounts.serializers import UserProfileSerializer
             from apps.accounts.services import _issue_tokens
@@ -169,7 +172,7 @@ class CancelOrderView(APIView):
             reason=s.validated_data["reason"],
         )
         return success_response(
-            data=OrderDetailSerializer(order).data,
+            data=OrderDetailSerializer(order, context={"request": request}).data,
             message="Order cancelled.",
             request_id=getattr(request, "request_id", None),
         )
@@ -189,7 +192,7 @@ class AdminOrderListView(APIView):
             user_id=request.query_params.get("user_id"),
             search=request.query_params.get("search"),
         )
-        serializer = OrderListSerializer(qs, many=True)
+        serializer = OrderListSerializer(qs, many=True, context={"request": request})
         return success_response(
             data=serializer.data,
             request_id=getattr(request, "request_id", None),
@@ -240,7 +243,7 @@ class AdminOrderListView(APIView):
                 changed_by=request.user,
             )
         return success_response(
-            data=OrderDetailSerializer(order).data,
+            data=OrderDetailSerializer(order, context={"request": request}).data,
             message="Order created.",
             request_id=getattr(request, "request_id", None),
             status_code=201,
@@ -255,7 +258,7 @@ class AdminOrderDetailView(APIView):
         if not order:
             raise NotFoundError("Order not found.")
         return success_response(
-            data=OrderDetailSerializer(order).data,
+            data=OrderDetailSerializer(order, context={"request": request}).data,
             request_id=getattr(request, "request_id", None),
         )
 
@@ -271,7 +274,7 @@ class AdminOrderDetailView(APIView):
             **s.validated_data,
         )
         return success_response(
-            data=OrderDetailSerializer(order).data,
+            data=OrderDetailSerializer(order, context={"request": request}).data,
             message="Order updated.",
             request_id=getattr(request, "request_id", None),
         )
@@ -345,6 +348,49 @@ class AdminOrderSendConfirmationEmailView(APIView):
         )
 
 
+class AdminOrderShippingLabelView(APIView):
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request, order_id):
+        order = selectors.get_order_by_id(order_id)
+        if not order:
+            raise NotFoundError("Order not found.")
+
+        shipping = order.shipping_address if isinstance(order.shipping_address, dict) else {}
+        recipient_name = str(shipping.get("full_name", "") or "").strip() or "Customer"
+        recipient_email = (order.user.email if order.user_id and order.user else (order.guest_email or "")).strip()
+        recipient_phone = str(shipping.get("phone", "") or "").strip()
+        full_address = ", ".join(
+            part for part in [
+                str(shipping.get("line1", "") or "").strip(),
+                str(shipping.get("line2", "") or "").strip(),
+                str(shipping.get("city", "") or "").strip(),
+                str(shipping.get("state", "") or "").strip(),
+                str(shipping.get("pincode", "") or "").strip(),
+                str(shipping.get("country", "") or "").strip(),
+            ] if part
+        )
+
+        context = {
+            "order_number": order.order_number,
+            "placed_at": order.placed_at or order.created_at,
+            "recipient_name": recipient_name,
+            "recipient_email": recipient_email,
+            "recipient_phone": recipient_phone,
+            "recipient_address": full_address,
+            "items": list(order.items.all()),
+        }
+        html = render_to_string("orders/shipping_label.html", context=context)
+        if str(request.query_params.get("format", "")).strip().lower() == "html":
+            return HttpResponse(html, content_type="text/html; charset=utf-8")
+
+        pdf_bytes = PDFService.render_pdf_from_html(html=html)
+
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'attachment; filename="shipping-label-{order.order_number}.pdf"'
+        return response
+
+
 # ─────────────────────────────────────────────────────────────
 #  Admin: lifecycle actions
 # ─────────────────────────────────────────────────────────────
@@ -359,7 +405,7 @@ class MarkPaidView(APIView):
         s = MarkPaidSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         order = services.mark_paid(order=order, changed_by=request.user, **s.validated_data)
-        return success_response(data=OrderDetailSerializer(order).data, message="Order marked as paid.")
+        return success_response(data=OrderDetailSerializer(order, context={"request": request}).data, message="Order marked as paid.")
 
 
 class MarkShippedView(APIView):
@@ -372,7 +418,7 @@ class MarkShippedView(APIView):
         s = MarkShippedSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         order = services.mark_shipped(order=order, changed_by=request.user, **s.validated_data)
-        return success_response(data=OrderDetailSerializer(order).data, message="Order marked as shipped.")
+        return success_response(data=OrderDetailSerializer(order, context={"request": request}).data, message="Order marked as shipped.")
 
 
 class MarkDeliveredView(APIView):
@@ -383,7 +429,7 @@ class MarkDeliveredView(APIView):
         if not order:
             raise NotFoundError("Order not found.")
         order = services.mark_delivered(order=order, changed_by=request.user)
-        return success_response(data=OrderDetailSerializer(order).data, message="Order marked as delivered.")
+        return success_response(data=OrderDetailSerializer(order, context={"request": request}).data, message="Order marked as delivered.")
 
 
 class MarkCompletedView(APIView):
@@ -394,7 +440,7 @@ class MarkCompletedView(APIView):
         if not order:
             raise NotFoundError("Order not found.")
         order = services.mark_completed(order=order, changed_by=request.user)
-        return success_response(data=OrderDetailSerializer(order).data, message="Order completed.")
+        return success_response(data=OrderDetailSerializer(order, context={"request": request}).data, message="Order completed.")
 
 
 class MarkRefundedView(APIView):
@@ -406,7 +452,7 @@ class MarkRefundedView(APIView):
             raise NotFoundError("Order not found.")
         reason = request.data.get("reason", "")
         order = services.mark_refunded(order=order, changed_by=request.user, reason=reason)
-        return success_response(data=OrderDetailSerializer(order).data, message="Order refunded.")
+        return success_response(data=OrderDetailSerializer(order, context={"request": request}).data, message="Order refunded.")
 
 
 class GenericTransitionView(APIView):
@@ -425,7 +471,7 @@ class GenericTransitionView(APIView):
             changed_by=request.user,
             notes=s.validated_data.get("notes", ""),
         )
-        return success_response(data=OrderDetailSerializer(order).data)
+        return success_response(data=OrderDetailSerializer(order, context={"request": request}).data)
 
 
 class AdminOrderCalculateView(APIView):
