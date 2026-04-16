@@ -14,6 +14,7 @@ import {
   Heart,
 } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { cn } from '@/lib/utils';
 import { DealProductCard } from '@/components/storefront/Deals/DealProductCard';
 import catalogService from '@/services/api/catalog';
@@ -33,7 +34,22 @@ interface ProductListItem {
   rating?: string | number;
   primary_image?: string | null;
   hover_image?: string | null;
-  default_variant?: { id?: string; sku?: string; price?: string | number | null; stock_quantity?: number } | null;
+  default_variant?: {
+    id?: string;
+    sku?: string;
+    price?: string | number | null;
+    compare_at_price?: string | number | null;
+    offer_price?: string | number | null;
+    offer_starts_at?: string | null;
+    offer_ends_at?: string | null;
+    offer_label?: string;
+    offer_is_active?: boolean;
+    has_active_offer?: boolean;
+    effective_price?: string | number | null;
+    display_compare_at_price?: string | number | null;
+    discount_percentage?: number | null;
+    stock_quantity?: number;
+  } | null;
   price_range?: { min?: string | number | null; max?: string | number | null } | null;
   variants?: DealProduct['variants'];
   total_stock?: number;
@@ -364,29 +380,32 @@ export const ProductListingPage: React.FC = () => {
 
   const mappedProducts = useMemo<StorefrontDealProduct[]>(() => {
     return products.map((item): StorefrontDealProduct => {
-      const minPrice = toNumber(item.default_variant?.price ?? item.price_range?.min).toFixed(2);
+      const minPrice = toNumber(item.default_variant?.effective_price ?? item.default_variant?.price ?? item.price_range?.min).toFixed(2);
       const maxPriceNum = toNumber(item.price_range?.max);
-      const compareAtPrice = maxPriceNum > Number(minPrice) ? maxPriceNum.toFixed(2) : null;
+      const defaultCompareAt = toNumber(item.default_variant?.display_compare_at_price ?? item.default_variant?.compare_at_price);
+      const compareAtPrice = defaultCompareAt > Number(minPrice)
+        ? defaultCompareAt.toFixed(2)
+        : (maxPriceNum > Number(minPrice) ? maxPriceNum.toFixed(2) : null);
       const variant =
         item.variants?.[0] ??
         {
           id: item.default_variant?.id || '',
           sku: item.default_variant?.sku || 'NA',
           name: item.name,
-          price: minPrice,
+          price: Number(item.default_variant?.price || minPrice).toFixed(2),
           compare_at_price: compareAtPrice,
-          offer_price: null,
-          offer_starts_at: null,
-          offer_ends_at: null,
-          offer_label: '',
-          offer_is_active: false,
-          has_active_offer: !!item.has_active_offer,
+          offer_price: item.default_variant?.offer_price != null ? Number(item.default_variant.offer_price).toFixed(2) : null,
+          offer_starts_at: item.default_variant?.offer_starts_at ?? null,
+          offer_ends_at: item.default_variant?.offer_ends_at ?? null,
+          offer_label: item.default_variant?.offer_label || '',
+          offer_is_active: Boolean(item.default_variant?.offer_is_active),
+          has_active_offer: Boolean(item.default_variant?.has_active_offer ?? item.has_active_offer),
           effective_price: minPrice,
           display_compare_at_price: compareAtPrice,
           stock_quantity: item.total_stock ?? item.default_variant?.stock_quantity ?? 0,
           is_active: true,
           is_default: true,
-          discount_percentage: null,
+          discount_percentage: item.default_variant?.discount_percentage ?? null,
           is_in_stock: (item.total_stock ?? item.default_variant?.stock_quantity ?? 0) > 0,
           is_low_stock: false,
         };
@@ -568,7 +587,15 @@ export const ProductListingPage: React.FC = () => {
                 >
                   <div className="mx-auto mb-3 inline-flex h-10 w-10 items-center justify-center rounded-full bg-white/80">
                     {category.image ? (
-                      <img src={category.image} alt={category.name} className="h-6 w-6 object-contain" />
+                            <OptimizedImage
+                              src={category.image}
+                              alt={category.name}
+                              className="h-6 w-6 object-contain"
+                              width={24}
+                              height={24}
+                              loading="lazy"
+                              decoding="async"
+                            />
                     ) : (
                       <ActiveIcon size={22} className="text-primary" />
                     )}

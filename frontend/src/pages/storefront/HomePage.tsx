@@ -1,12 +1,18 @@
-import React, { useRef } from 'react';
+import React, { Suspense, lazy, useRef } from 'react';
 import { Link } from 'react-router-dom';
 import { useScrollReveal } from '@/animations/useScrollReveal';
 import { usePromoBanners } from '@/hooks/usePromoBanners';
 import PromoBannerGrid from '@/components/promo/PromoBannerGrid/PromoBannerGrid';
-import DualPromoBanner from '@/components/promo/DualPromoBanner/DualPromoBanner';
 import CategoryShowcase from '@/components/storefront/CategoryShowcase/CategoryShowcase';
-import { DealSection } from '@/components/storefront/Deals/DealSection';
-import { NewArrivalsSection } from '@/components/storefront/NewArrivals/NewArrivalsSection';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
+
+const LazyDualPromoBanner = lazy(() => import('@/components/promo/DualPromoBanner/DualPromoBanner'));
+const LazyDealSection = lazy(() =>
+  import('@/components/storefront/Deals/DealSection').then((mod) => ({ default: mod.DealSection }))
+);
+const LazyNewArrivalsSection = lazy(() =>
+  import('@/components/storefront/NewArrivals/NewArrivalsSection').then((mod) => ({ default: mod.NewArrivalsSection }))
+);
 
 export const HomePage: React.FC = () => {
   const { banners, loading } = usePromoBanners();
@@ -45,17 +51,23 @@ export const HomePage: React.FC = () => {
 
       {/* Deal of the Day Section */}
       <section ref={dealRef}>
-        <DealSection />
+        <Suspense fallback={<div className="h-80 bg-muted/20 rounded-2xl animate-pulse" />}>
+          <LazyDealSection />
+        </Suspense>
       </section>
 
       {/* NEW: Blueberry Style Dual Banners */}
       <section ref={dualBannerRef}>
-        <DualPromoBanner />
+        <Suspense fallback={<div className="h-64 bg-muted/20 rounded-2xl animate-pulse" />}>
+          <LazyDualPromoBanner />
+        </Suspense>
       </section>
 
       {/* New Arrivals (Blueberry style) */}
       <section ref={newArrivalsRef}>
-        <NewArrivalsSection />
+        <Suspense fallback={<div className="h-96 bg-muted/20 rounded-2xl animate-pulse" />}>
+          <LazyNewArrivalsSection />
+        </Suspense>
       </section>
 
       {/* Feature Highlights (Template style, below New Arrivals) */}
@@ -63,7 +75,15 @@ export const HomePage: React.FC = () => {
         <div className="container mx-auto px-4 grid grid-cols-1 md:grid-cols-2 xl:grid-cols-4 gap-5">
           <div className="rounded-3xl border border-border bg-white/80 backdrop-blur-sm px-6 py-8 text-center">
             <div className="mx-auto mb-4 h-14 w-14 flex items-center justify-center">
-              <img src="/assets/img/services/1.png" alt="services-1" className="h-12 w-12 object-contain" />
+              <OptimizedImage
+                src="/assets/img/services/1.png"
+                alt="services-1"
+                className="h-12 w-12 object-contain"
+                width={48}
+                height={48}
+                loading="lazy"
+                decoding="async"
+              />
             </div>
             <h4 className="text-3xl font-semibold text-foreground">Free Shipping</h4>
             <p className="mt-2 text-base text-muted-foreground">
@@ -73,7 +93,15 @@ export const HomePage: React.FC = () => {
 
           <div className="rounded-3xl border border-border bg-white/80 backdrop-blur-sm px-6 py-8 text-center">
             <div className="mx-auto mb-4 h-14 w-14 flex items-center justify-center">
-              <img src="/assets/img/services/2.png" alt="services-2" className="h-12 w-12 object-contain" />
+              <OptimizedImage
+                src="/assets/img/services/2.png"
+                alt="services-2"
+                className="h-12 w-12 object-contain"
+                width={48}
+                height={48}
+                loading="lazy"
+                decoding="async"
+              />
             </div>
             <h4 className="text-3xl font-semibold text-foreground">24x7 Support</h4>
             <p className="mt-2 text-base text-muted-foreground">
@@ -83,7 +111,15 @@ export const HomePage: React.FC = () => {
 
           <div className="rounded-3xl border border-border bg-white/80 backdrop-blur-sm px-6 py-8 text-center">
             <div className="mx-auto mb-4 h-14 w-14 flex items-center justify-center">
-              <img src="/assets/img/services/3.png" alt="services-3" className="h-12 w-12 object-contain" />
+              <OptimizedImage
+                src="/assets/img/services/3.png"
+                alt="services-3"
+                className="h-12 w-12 object-contain"
+                width={48}
+                height={48}
+                loading="lazy"
+                decoding="async"
+              />
             </div>
             <h4 className="text-3xl font-semibold text-foreground">Simple Return</h4>
             <p className="mt-2 text-base text-muted-foreground">
@@ -97,7 +133,15 @@ export const HomePage: React.FC = () => {
 
           <div className="rounded-3xl border border-border bg-white/80 backdrop-blur-sm px-6 py-8 text-center">
             <div className="mx-auto mb-4 h-14 w-14 flex items-center justify-center">
-              <img src="/assets/img/services/4.png" alt="services-4" className="h-12 w-12 object-contain" />
+              <OptimizedImage
+                src="/assets/img/services/4.png"
+                alt="services-4"
+                className="h-12 w-12 object-contain"
+                width={48}
+                height={48}
+                loading="lazy"
+                decoding="async"
+              />
             </div>
             <h4 className="text-3xl font-semibold text-foreground">Payment Secure</h4>
             <p className="mt-2 text-base text-muted-foreground">

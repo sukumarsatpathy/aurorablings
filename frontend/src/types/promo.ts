@@ -16,6 +16,9 @@ export interface PromoBanner {
   cta_label?: string;
   cta_url?: string;
   image?: string | null;
+  image_small?: string | null;
+  image_medium?: string | null;
+  image_large?: string | null;
   bg_color?: string;
   shape_color?: string;
   title_color?: string;

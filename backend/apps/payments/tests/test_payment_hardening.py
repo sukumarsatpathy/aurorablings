@@ -19,10 +19,12 @@ Covers:
 import hashlib
 import hmac
 import json
+from datetime import timedelta
 from decimal import Decimal
 from unittest.mock import patch, MagicMock
 
 from django.test import RequestFactory, TestCase, override_settings
+from django.utils import timezone
 
 from apps.orders.models import Order, OrderStatus, PaymentMethod, PaymentStatus
 from apps.payments.models import (
@@ -705,3 +707,68 @@ class ReconcileAmountValidationTests(TestCase):
         reconcile_transaction_status(transaction=self.txn)
         self.txn.refresh_from_db()
         self.assertEqual(self.txn.status, TransactionStatus.REFUNDED)
+
+
+class RazorpayStaleCleanupTaskTests(TestCase):
+    def setUp(self):
+        self.order = _make_order(
+            payment_method=PaymentMethod.RAZORPAY,
+            payment_status=PaymentStatus.PENDING,
+        )
+        self.txn = _make_txn(
+            self.order,
+            provider="razorpay",
+            status=TransactionStatus.CREATED,
+            provider_ref="order_test_stale_1",
+            razorpay_order_id="order_test_stale_1",
+        )
+        PaymentTransaction.objects.filter(id=self.txn.id).update(
+            created_at=timezone.now() - timedelta(minutes=40)
+        )
+
+    @override_settings(RAZORPAY_STALE_ORDER_TIMEOUT_MINUTES=20)
+    @patch("apps.orders.services.cancel_order")
+    @patch("apps.payments.services.reconcile_transaction_status")
+    def test_stale_unpaid_razorpay_order_is_cancelled(
+        self,
+        mock_reconcile,
+        mock_cancel_order,
+    ):
+        from apps.payments.tasks import expire_stale_razorpay_orders_task
+
+        mock_reconcile.side_effect = lambda *, transaction: transaction
+
+        result = expire_stale_razorpay_orders_task()
+        self.txn.refresh_from_db()
+        self.order.refresh_from_db()
+
+        self.assertEqual(result["cancelled"], 1)
+        self.assertEqual(self.txn.status, TransactionStatus.FAILED)
+        self.assertEqual(self.order.payment_status, PaymentStatus.FAILED)
+        mock_cancel_order.assert_called_once()
+
+    @override_settings(RAZORPAY_STALE_ORDER_TIMEOUT_MINUTES=20)
+    @patch("apps.orders.services.cancel_order")
+    @patch("apps.payments.services.reconcile_transaction_status")
+    def test_stale_previous_attempt_is_skipped_if_newer_attempt_exists(
+        self,
+        mock_reconcile,
+        mock_cancel_order,
+    ):
+        from apps.payments.tasks import expire_stale_razorpay_orders_task
+
+        _make_txn(
+            self.order,
+            provider="razorpay",
+            status=TransactionStatus.CREATED,
+            provider_ref="order_test_newer_1",
+            razorpay_order_id="order_test_newer_1",
+        )
+
+        result = expire_stale_razorpay_orders_task()
+        self.txn.refresh_from_db()
+
+        self.assertEqual(result["cancelled"], 0)
+        self.assertEqual(self.txn.status, TransactionStatus.CREATED)
+        mock_reconcile.assert_not_called()
+        mock_cancel_order.assert_not_called()

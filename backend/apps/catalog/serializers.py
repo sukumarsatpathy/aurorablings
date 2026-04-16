@@ -156,10 +156,22 @@ class AttributeAdminWriteSerializer(serializers.Serializer):
 
 class ProductMediaSerializer(serializers.ModelSerializer):
     image = serializers.ImageField()
+    image_small = serializers.ImageField(required=False, allow_null=True)
+    image_medium = serializers.ImageField(required=False, allow_null=True)
+    image_large = serializers.ImageField(required=False, allow_null=True)
 
     class Meta:
         model  = ProductMedia
-        fields = ["id", "image", "alt_text", "is_primary", "sort_order"]
+        fields = [
+            "id",
+            "image",
+            "image_small",
+            "image_medium",
+            "image_large",
+            "alt_text",
+            "is_primary",
+            "sort_order",
+        ]
         read_only_fields = ["id"]
 
     def validate_image(self, value):
@@ -170,7 +182,11 @@ class ProductMediaSerializer(serializers.ModelSerializer):
 
     def to_representation(self, instance):
         data = super().to_representation(instance)
-        data["image"] = build_media_url(instance.image, request=self.context.get("request"))
+        request = self.context.get("request")
+        data["image"] = build_media_url(instance.image, request=request)
+        data["image_small"] = build_media_url(instance.image_small, request=request) if instance.image_small else None
+        data["image_medium"] = build_media_url(instance.image_medium, request=request) if instance.image_medium else None
+        data["image_large"] = build_media_url(instance.image_large, request=request) if instance.image_large else None
         return data
 
 
@@ -367,6 +383,18 @@ class ProductListSerializer(serializers.ModelSerializer):
             "id": str(variant.id),
             "sku": variant.sku,
             "price": str(variant.price),
+            "compare_at_price": str(variant.compare_at_price) if variant.compare_at_price is not None else None,
+            "offer_price": str(variant.offer_price) if variant.offer_price is not None else None,
+            "offer_starts_at": variant.offer_starts_at.isoformat() if variant.offer_starts_at else None,
+            "offer_ends_at": variant.offer_ends_at.isoformat() if variant.offer_ends_at else None,
+            "offer_label": variant.offer_label or "",
+            "offer_is_active": bool(variant.offer_is_active),
+            "has_active_offer": bool(variant.is_offer_live()),
+            "effective_price": str(variant.effective_price),
+            "display_compare_at_price": (
+                str(variant.display_compare_at_price) if variant.display_compare_at_price is not None else None
+            ),
+            "discount_percentage": variant.discount_percentage,
             "stock_quantity": int(variant.stock_quantity or 0),
         }
 

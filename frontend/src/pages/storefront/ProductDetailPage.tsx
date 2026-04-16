@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
 import { ChevronRight, Minus, Plus, ShoppingCart, Star } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
@@ -8,9 +8,15 @@ import catalogService, { type CatalogProductDetail } from '@/services/api/catalo
 import notifyService, { type NotifySubscriptionPayload } from '@/services/api/notify';
 import cartService from '@/services/api/cart';
 import { useCurrency } from '@/hooks/useCurrency';
-import { ProductReviewsSection } from '@/components/storefront/reviews/ProductReviewsSection';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { useStagger } from '@/animations/useStagger';
 import { applySeo, stripHtml, truncateText } from '@/lib/seo';
+
+const LazyProductReviewsSection = lazy(() =>
+  import('@/components/storefront/reviews/ProductReviewsSection').then((mod) => ({
+    default: mod.ProductReviewsSection,
+  }))
+);
 
 const getBackendOrigin = (): string => {
   const baseURL = import.meta.env.VITE_API_BASE_URL as string | undefined;
@@ -384,7 +390,16 @@ export const ProductDetailPage: React.FC = () => {
               onMouseEnter={() => setIsGalleryHovered(true)}
               onMouseLeave={() => setIsGalleryHovered(false)}
             >
-              <img src={images[displayedImageIndex]} alt={product.name} className="w-full h-full object-contain transition-opacity duration-300" />
+              <OptimizedImage
+                src={images[displayedImageIndex]}
+                alt={product.name}
+                className="w-full h-full object-contain transition-opacity duration-300"
+                width={1000}
+                height={1000}
+                priority
+                loading="eager"
+                decoding="sync"
+              />
             </div>
             <div className="flex md:flex-col gap-3">
               {images.map((img, idx) => (
@@ -394,7 +409,15 @@ export const ProductDetailPage: React.FC = () => {
                   onClick={() => setActiveImage(idx)}
                   className={`w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden border-2 ${displayedImageIndex === idx ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
                 >
-                  <img src={img} alt="" className="w-full h-full object-cover" />
+                  <OptimizedImage
+                    src={img}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    width={120}
+                    height={120}
+                    loading="lazy"
+                    decoding="async"
+                  />
                 </button>
               ))}
             </div>
@@ -450,7 +473,15 @@ export const ProductDetailPage: React.FC = () => {
               <ul className="space-y-2 text-sm text-black pt-2">
                 {featureRows.map((line, idx) => (
                   <li key={`${line}-${idx}`} className="flex items-start gap-2">
-                    <img src={bulletIconUrl} alt="" className="h-4 w-4 mt-0.5 shrink-0" />
+                    <OptimizedImage
+                      src={bulletIconUrl}
+                      alt=""
+                      className="h-4 w-4 mt-0.5 shrink-0"
+                      width={16}
+                      height={16}
+                      loading="lazy"
+                      decoding="async"
+                    />
                     <span>{line}</span>
                   </li>
                 ))}
@@ -571,11 +602,13 @@ export const ProductDetailPage: React.FC = () => {
           </div>
 
           <div data-stagger-item className="border border-border rounded-2xl bg-white/75 backdrop-blur-sm p-6 md:p-8">
-            <ProductReviewsSection
-              productId={product.id}
-              showWriteReviewAction={false}
-              autoOpenComposer={openReviewComposer}
-            />
+            <Suspense fallback={<div className="h-40 rounded-xl bg-muted/30 animate-pulse" />}>
+              <LazyProductReviewsSection
+                productId={product.id}
+                showWriteReviewAction={false}
+                autoOpenComposer={openReviewComposer}
+              />
+            </Suspense>
           </div>
         </section>
       </div>

@@ -4,6 +4,7 @@ import { ShoppingCart, Eye } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { useCurrency } from '@/hooks/useCurrency';
 import cartService from '@/services/api/cart';
 import catalogService from '@/services/api/catalog';
@@ -96,16 +97,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       onMouseLeave={() => setIsHovered(false)}
     >
       {/* Image Container */}
-      <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-muted/50">
+        <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-muted/50">
         {cardImages.map((image, index) => (
-          <img
+          <OptimizedImage
             key={`${product.id}-${image}-${index}`}
             src={image}
             alt={index === 0 ? product.name : `${product.name} view ${index + 1}`}
             className={`absolute inset-0 h-full w-full object-cover transition-all duration-700 will-change-transform ${
               activeImageIndex === index ? 'opacity-100 scale-[1.08]' : 'opacity-0 scale-100'
             }`}
+            width={800}
+            height={1000}
             loading="lazy"
+            decoding="async"
           />
         ))}
         

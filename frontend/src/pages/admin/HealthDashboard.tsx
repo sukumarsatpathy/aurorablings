@@ -136,6 +136,7 @@ export function HealthDashboard() {
       'Cashfree Connectivity': 'Checks live network communication with Cashfree.',
       'Webhook Health': 'Tracks webhook delivery success and signature validation.',
       'Payment Trend': 'Aggregated payment success/failure performance over time.',
+      'Razorpay Stale Auto-Cancels (24h)': 'Counts auto-cancelled stale Razorpay checkouts over the last 24 hours.',
     }),
     [],
   );
@@ -249,10 +250,10 @@ export function HealthDashboard() {
         </div>
       </HealthSection>
 
-      <HealthSection title="Payment Health" description="Cashfree configuration, connectivity, webhooks, and payment trend">
-        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
+      <HealthSection title="Payment Health" description="Gateway health, webhook flow, trend checks, and stale Razorpay auto-cancellations">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-5">
           {isLoading
-            ? Array.from({ length: 4 }).map((_, index) => (
+            ? Array.from({ length: 5 }).map((_, index) => (
                 <Card key={`payment-skeleton-${index}`}>
                   <CardContent className="space-y-3 p-4">
                     <Skeleton className="h-4 w-28" />

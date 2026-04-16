@@ -56,10 +56,18 @@ const BannerEditForm = ({ banner, onSave, onCancel, onChange }) => {
   const [formData, setFormData] = useState(withDefaults(banner));
   const [dragLayer, setDragLayer] = useState(null);
   const canvasRef = useRef(null);
+  const previewUrlRef = useRef(null);
 
   useEffect(() => {
     setFormData(withDefaults(banner));
   }, [banner]);
+
+  useEffect(() => () => {
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+      previewUrlRef.current = null;
+    }
+  }, []);
 
   useEffect(() => {
     if (!dragLayer) return undefined;
@@ -103,6 +111,25 @@ const BannerEditForm = ({ banner, onSave, onCancel, onChange }) => {
     handleChange(key, clampPercent(value));
   };
 
+  const handleImageChange = (event) => {
+    const file = event.target.files?.[0];
+    if (!file) return;
+
+    if (previewUrlRef.current) {
+      URL.revokeObjectURL(previewUrlRef.current);
+    }
+    const previewUrl = URL.createObjectURL(file);
+    previewUrlRef.current = previewUrl;
+
+    const updated = {
+      ...formData,
+      imageFile: file,
+      image: previewUrl,
+    };
+    setFormData(updated);
+    onChange(updated);
+  };
+
   const handleDragStart = (event, layer) => {
     event.preventDefault();
     setDragLayer({
@@ -139,6 +166,8 @@ const BannerEditForm = ({ banner, onSave, onCancel, onChange }) => {
     e.preventDefault();
     onSave(formData);
   };
+
+  const fileInputId = `banner-image-upload-${String(banner.id || 'new')}`;
 
   return (
     <form className={styles.form} onSubmit={handleSubmit}>
@@ -232,6 +261,37 @@ const BannerEditForm = ({ banner, onSave, onCancel, onChange }) => {
               onChange={(e) => handleChange('cta_url', e.target.value)}
               className={styles.input}
             />
+          </div>
+        </div>
+
+        <div className={styles.row}>
+          <div className={`${styles.section} ${styles.fullRow}`}>
+            <label className={styles.label}>Banner Image</label>
+            <input
+              id={fileInputId}
+              type="file"
+              accept="image/*"
+              onChange={handleImageChange}
+              className={styles.hiddenFileInput}
+            />
+            <div className={styles.uploadControl}>
+              <label htmlFor={fileInputId} className={styles.uploadButton}>
+                Choose Image
+              </label>
+              {formData.image ? (
+                <img
+                  src={formData.image}
+                  alt="Selected banner preview"
+                  className={styles.uploadThumb}
+                />
+              ) : null}
+              <span className={styles.uploadFilename}>
+                {formData.imageFile
+                  ? formData.imageFile.name
+                  : (formData.image ? 'Current image loaded' : 'No image selected')}
+              </span>
+            </div>
+            <p className={styles.uploadHint}>Recommended: WebP/JPG under 500KB.</p>
           </div>
         </div>
 

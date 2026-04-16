@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import shutil
+from datetime import timedelta
 from time import perf_counter
 from uuid import uuid4
 
@@ -10,7 +11,9 @@ import requests
 from django.conf import settings
 from django.core.cache import cache
 from django.db import connection
+from django.utils import timezone
 
+from apps.payments.models import PaymentTransaction, TransactionStatus
 from apps.payments.providers.registry import registry
 from core.services.api_health_service import APIHealthService
 
@@ -183,6 +186,7 @@ class PaymentHealthService:
 
         for provider in providers:
             checks.append(self._check_provider(provider))
+        checks.append(self._check_razorpay_stale_auto_cancellations())
         return checks
 
     def _check_provider(self, provider) -> dict:
@@ -235,3 +239,41 @@ class PaymentHealthService:
                 "message": f"Provider probe failed: {exc}",
                 "metadata": {"provider": provider_name, "probe_url": probe_url},
             }
+
+    def _check_razorpay_stale_auto_cancellations(self) -> dict:
+        stale_window_hours = max(
+            1,
+            int(getattr(settings, "RAZORPAY_STALE_HEALTH_WINDOW_HOURS", 24) or 24),
+        )
+        warning_threshold = max(
+            0,
+            int(getattr(settings, "RAZORPAY_STALE_HEALTH_WARNING_THRESHOLD", 5) or 5),
+        )
+        window_start = timezone.now() - timedelta(hours=stale_window_hours)
+
+        count = (
+            PaymentTransaction.objects
+            .filter(
+                provider="razorpay",
+                status=TransactionStatus.FAILED,
+                updated_at__gte=window_start,
+                last_error__icontains="Auto-cancelled: unpaid Razorpay checkout expired",
+            )
+            .count()
+        )
+        status = "warning" if count > warning_threshold else "healthy"
+        return {
+            "component": "payment:razorpay_stale_auto_cancellations",
+            "status": status,
+            "response_time_ms": 0,
+            "message": (
+                "Razorpay stale auto-cancellations are elevated"
+                if status == "warning"
+                else "Razorpay stale auto-cancellations are within normal limits"
+            ),
+            "metadata": {
+                "window_hours": stale_window_hours,
+                "auto_cancelled_orders": count,
+                "warning_threshold": warning_threshold,
+            },
+        }

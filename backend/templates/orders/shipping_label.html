@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Shipping Label</title>
+  <style>
+    body {
+      font-family: Arial, sans-serif;
+      color: #111827;
+      margin: 24px;
+      font-size: 12px;
+    }
+    .label {
+      border: 1px solid #d1d5db;
+      border-radius: 10px;
+      padding: 16px;
+    }
+    .header {
+      display: flex;
+      justify-content: space-between;
+      margin-bottom: 12px;
+      padding-bottom: 10px;
+      border-bottom: 1px solid #e5e7eb;
+    }
+    .title {
+      font-size: 16px;
+      font-weight: bold;
+    }
+    .subtle {
+      color: #6b7280;
+      font-size: 11px;
+    }
+    .block {
+      margin-bottom: 10px;
+    }
+    .label-key {
+      font-weight: bold;
+      margin-bottom: 2px;
+    }
+    .items {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 12px;
+    }
+    .items th, .items td {
+      border: 1px solid #e5e7eb;
+      padding: 6px;
+      text-align: left;
+      font-size: 11px;
+    }
+    .items th {
+      background: #f9fafb;
+    }
+  </style>
+</head>
+<body>
+  <div class="label">
+    <div class="header">
+      <div>
+        <div class="title">Aurora Blings Shipping Label</div>
+        <div class="subtle">Order: {{ order_number }}</div>
+      </div>
+      <div class="subtle">Placed: {{ placed_at|date:"d M Y, h:i A" }}</div>
+    </div>
+
+    <div class="block">
+      <div class="label-key">Recipient Name</div>
+      <div>{{ recipient_name }}</div>
+    </div>
+    <div class="block">
+      <div class="label-key">Delivery Address</div>
+      <div>{{ recipient_address }}</div>
+    </div>
+    <div class="block">
+      <div class="label-key">Email</div>
+      <div>{{ recipient_email|default:"-" }}</div>
+    </div>
+    <div class="block">
+      <div class="label-key">Contact Number</div>
+      <div>{{ recipient_phone|default:"-" }}</div>
+    </div>
+
+    <table class="items">
+      <thead>
+        <tr>
+          <th>SKU</th>
+          <th>Product</th>
+          <th>Variant</th>
+          <th>Qty</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for item in items %}
+          <tr>
+            <td>{{ item.sku }}</td>
+            <td>{{ item.product_name }}</td>
+            <td>{{ item.variant_name }}</td>
+            <td>{{ item.quantity }}</td>
+          </tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</body>
+</html>

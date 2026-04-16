@@ -65,6 +65,10 @@
   gap: 0.4rem;
 }
 
+.fullRow {
+  grid-column: 1 / -1;
+}
+
 .label {
   font-size: 0.84rem;
   font-weight: 700;
@@ -84,6 +88,71 @@
   outline: none;
   border-color: #0f172a;
   box-shadow: 0 0 0 2px rgba(15, 23, 42, 0.12);
+}
+
+.hiddenFileInput {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  border: 0;
+}
+
+.uploadControl {
+  min-height: 2.6rem;
+  border: 1px solid #cbd5e1;
+  border-radius: 0.6rem;
+  background: #f8fafc;
+  display: flex;
+  align-items: center;
+  gap: 0.65rem;
+  padding: 0.45rem 0.55rem;
+}
+
+.uploadButton {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  height: 1.8rem;
+  padding: 0 0.75rem;
+  border-radius: 0.45rem;
+  border: 1px solid #334155;
+  background: #ffffff;
+  color: #0f172a;
+  font-size: 0.8rem;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+.uploadButton:hover {
+  background: #eef2f7;
+}
+
+.uploadFilename {
+  font-size: 0.82rem;
+  color: #475569;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.uploadThumb {
+  width: 2rem;
+  height: 2rem;
+  border-radius: 0.4rem;
+  border: 1px solid #cbd5e1;
+  object-fit: cover;
+  background: #e2e8f0;
+  flex-shrink: 0;
+}
+
+.uploadHint {
+  margin: 0;
+  font-size: 0.75rem;
+  color: #64748b;
 }
 
 .editorHead {

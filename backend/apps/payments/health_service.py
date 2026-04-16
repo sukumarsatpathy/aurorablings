@@ -43,6 +43,8 @@ class PaymentHealthService:
     WEBHOOK_WARNING_AFTER_MINUTES = 30
     FAILED_TREND_WINDOW_MINUTES = 30
     FAILED_TREND_DEGRADED_THRESHOLD = 5
+    RAZORPAY_AUTO_CANCEL_WINDOW_HOURS = 24
+    RAZORPAY_AUTO_CANCEL_WARNING_THRESHOLD = 5
     CONNECTIVITY_TIMEOUT_SECONDS = 8
 
     def run_checks(self) -> list[dict[str, Any]]:
@@ -59,12 +61,14 @@ class PaymentHealthService:
         connectivity_result = self._check_cashfree_connectivity(config=config, checked_at=now)
         webhook_result = self._check_cashfree_webhook(checked_at=now)
         trend_result = self._check_cashfree_payment_trend(checked_at=now)
+        razorpay_stale_result = self._check_razorpay_stale_auto_cancellations(checked_at=now)
 
         return [
             config_result,
             connectivity_result,
             webhook_result,
             trend_result,
+            razorpay_stale_result,
         ]
 
     def _load_cashfree_config(self) -> tuple[CashfreeConfig | None, list[str], dict[str, Any]]:
@@ -340,6 +344,43 @@ class PaymentHealthService:
                 "window_minutes": self.FAILED_TREND_WINDOW_MINUTES,
                 "failed_payments": failed_count,
                 "degraded_threshold": self.FAILED_TREND_DEGRADED_THRESHOLD,
+            },
+        )
+
+    def _check_razorpay_stale_auto_cancellations(self, *, checked_at) -> dict[str, Any]:
+        window_start = checked_at - timedelta(hours=self.RAZORPAY_AUTO_CANCEL_WINDOW_HOURS)
+        marker = "Auto-cancelled: unpaid Razorpay checkout expired"
+        auto_cancel_count = (
+            PaymentTransaction.objects
+            .filter(
+                provider="razorpay",
+                status=TransactionStatus.FAILED,
+                updated_at__gte=window_start,
+                last_error__icontains=marker,
+            )
+            .count()
+        )
+
+        status = (
+            "warning"
+            if auto_cancel_count > self.RAZORPAY_AUTO_CANCEL_WARNING_THRESHOLD
+            else "healthy"
+        )
+        message = (
+            "Razorpay stale auto-cancellations are elevated"
+            if status == "warning"
+            else "Razorpay stale auto-cancellations are within normal limits"
+        )
+
+        return self._build_result(
+            check="razorpay_stale_auto_cancellations",
+            status=status,
+            message=message,
+            checked_at=checked_at,
+            details={
+                "window_hours": self.RAZORPAY_AUTO_CANCEL_WINDOW_HOURS,
+                "auto_cancelled_orders": auto_cancel_count,
+                "warning_threshold": self.RAZORPAY_AUTO_CANCEL_WARNING_THRESHOLD,
             },
         )
 

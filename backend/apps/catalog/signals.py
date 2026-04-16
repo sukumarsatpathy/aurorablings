@@ -47,8 +47,14 @@ def cleanup_deleted_brand_logo(sender, instance, **kwargs):
 @receiver(pre_save, sender=ProductMedia)
 def cleanup_replaced_product_media(sender, instance, **kwargs):
     _cleanup_replaced_file(sender, instance, "image")
+    _cleanup_replaced_file(sender, instance, "image_small")
+    _cleanup_replaced_file(sender, instance, "image_medium")
+    _cleanup_replaced_file(sender, instance, "image_large")
 
 
 @receiver(post_delete, sender=ProductMedia)
 def cleanup_deleted_product_media(sender, instance, **kwargs):
     delete_file_if_exists(getattr(instance, "image", None))
+    delete_file_if_exists(getattr(instance, "image_small", None))
+    delete_file_if_exists(getattr(instance, "image_medium", None))
+    delete_file_if_exists(getattr(instance, "image_large", None))

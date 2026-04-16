@@ -1,10 +1,11 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Eye, Star, Minus, Plus } from 'lucide-react';
+import { ShoppingCart, Eye, Star, Minus, Plus, BellRing } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal, ModalContent, ModalHeader, ModalTitle } from '@/components/ui/Modal';
 import { Input } from '@/components/ui/Input';
+import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { RatingStars } from './RatingStars';
 import type { DealProduct } from '@/types/product';
 import { useCurrency } from '@/hooks/useCurrency';
@@ -166,6 +167,7 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
   const quickInStock = Number(quickVariant?.stock_quantity || product.total_stock || 0) > 0;
   const quickRating = Number(quickViewProduct?.avg_rating || quickViewProduct?.rating || ratingValue || 0);
   const quickReviewCount = Number(quickViewProduct?.review_count || 0);
+  const notifyActionClass = 'bg-amber-500 text-white hover:bg-amber-600';
 
   const quickImages = useMemo(() => {
     const fromMedia = (quickViewProduct?.media || []).map((media) => normalizeAssetUrl(media.image)).filter(Boolean);
@@ -573,13 +575,17 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
         <div className="relative aspect-[1/1] mb-4 md:mb-6 rounded-[1.1rem] md:rounded-[1.5rem] overflow-hidden bg-[#eceff1] p-2.5 md:p-3">
           <Link to={`/product/${product.slug}`} className="block h-full w-full rounded-[1.2rem] overflow-hidden">
             {cardImages.map((image, index) => (
-              <img
+              <OptimizedImage
                 key={`${image}-${index}`}
                 src={image}
                 alt={index === 0 ? product.name : `${product.name} view ${index + 1}`}
                 className={`absolute inset-0 h-full w-full object-contain rounded-[1.2rem] transition-opacity duration-300 ${
                   activeCardImageIndex === index ? 'opacity-100' : 'opacity-0'
                 }`}
+                width={800}
+                height={800}
+                loading="lazy"
+                decoding="async"
                 onError={(event) => {
                   (event.target as HTMLImageElement).src = fallbackCardImage;
                 }}
@@ -591,14 +597,26 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
             <Button size="icon" variant="ghost" onClick={openQuickView} className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5">
               <Eye size={18} />
             </Button>
-            <Button
-              size="icon"
-              variant="ghost"
-              onClick={() => void handleCardAddToCart()}
-              className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5"
-            >
-              <ShoppingCart size={18} />
-            </Button>
+            {cardInStock ? (
+              <Button
+                size="icon"
+                variant="ghost"
+                onClick={() => void handleCardAddToCart()}
+                className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5"
+              >
+                <ShoppingCart size={18} />
+              </Button>
+            ) : (
+              <Button
+                size="icon"
+                asChild
+                className={`w-10 h-10 rounded-full shadow-sm transition-all ring-1 ring-black/5 ${notifyActionClass}`}
+              >
+                <Link to={`/product/${product.slug}`} aria-label={`Notify me for ${product.name}`}>
+                  <BellRing size={18} />
+                </Link>
+              </Button>
+            )}
           </div>
         </div>
 
@@ -632,7 +650,10 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
             </div>
             <div className="grid grid-cols-1 gap-2 md:hidden">
               {hasMultipleVariants || !cardInStock ? (
-                <Button asChild className="h-9 rounded-xl bg-[#517b4b] text-white hover:bg-[#42663e]">
+                <Button
+                  asChild
+                  className={`h-9 rounded-xl ${cardInStock ? 'bg-[#517b4b] text-white hover:bg-[#42663e]' : notifyActionClass}`}
+                >
                   <Link to={`/product/${product.slug}`}>{cardInStock ? 'View Product' : 'Notify Me'}</Link>
                 </Button>
               ) : cardCartState.quantity > 0 ? (
@@ -696,10 +717,14 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
             <div className="p-6 grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
                 <div className="h-80 rounded-2xl bg-[#f7f8f8] border border-border/50 overflow-hidden">
-                  <img
+                  <OptimizedImage
                     src={quickImages[0] || `https://placehold.co/900x900/f3f4f6/517b4b?text=${encodeURIComponent(product.name)}`}
                     alt={quickViewProduct?.name || product.name}
                     className="h-full w-full object-contain"
+                    width={900}
+                    height={900}
+                    loading="lazy"
+                    decoding="async"
                   />
                 </div>
               </div>

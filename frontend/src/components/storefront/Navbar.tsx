@@ -27,8 +27,15 @@ type MenuItem = {
   action?: () => void;
 };
 
+const normalizePath = (path: string): string => {
+  if (!path) return '/';
+  if (path === '/') return '/';
+  return path.endsWith('/') ? path.slice(0, -1) : path;
+};
+
 export const Navbar: React.FC = () => {
   const location = useLocation();
+  const currentPath = normalizePath(location.pathname);
   const [isScrolled, setIsScrolled] = useState(false);
   const [isMobileMenuOpen, setIsMobileMenuOpen] = useState(false);
   const [cartCount, setCartCount] = useState(0);
@@ -202,6 +209,12 @@ export const Navbar: React.FC = () => {
     gsap.to(hoverBgRef.current, { opacity: 0, duration: 0.3, ease: 'power2.inOut' });
   };
 
+  const isMenuItemActive = (path: string): boolean => {
+    const target = normalizePath(path);
+    if (target === '/') return currentPath === '/';
+    return currentPath === target || currentPath.startsWith(`${target}/`);
+  };
+
   return (
     <nav
       ref={navRef}
@@ -262,7 +275,12 @@ export const Navbar: React.FC = () => {
                 key={item.label}
                 to={item.path}
                 onMouseEnter={handleMouseEnter}
-                className="relative px-6 py-2 text-sm font-medium text-slate-600 hover:text-white transition-all duration-300 hover:-translate-y-0.5"
+                className={cn(
+                  'relative px-6 py-2 text-sm font-medium transition-all duration-300 hover:-translate-y-0.5 rounded-full',
+                  isMenuItemActive(item.path)
+                    ? 'bg-[#517b4b]/20 text-[#2f5f2a] hover:text-white'
+                    : 'text-slate-600 hover:text-white'
+                )}
               >
                 {item.label}
               </Link>
@@ -309,7 +327,12 @@ export const Navbar: React.FC = () => {
                   key={item.label}
                   to={item.path}
                   onClick={() => setIsMobileMenuOpen(false)}
-                  className="text-lg font-medium text-slate-700 hover:text-primary transition-colors"
+                  className={cn(
+                    'text-lg font-medium transition-colors rounded-lg px-3 py-2',
+                    isMenuItemActive(item.path)
+                      ? 'bg-[#517b4b]/20 text-[#2f5f2a] hover:text-white'
+                      : 'text-slate-700 hover:text-primary'
+                  )}
                 >
                   {item.label}
                 </Link>

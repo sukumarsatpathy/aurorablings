@@ -128,8 +128,11 @@ def build_media_url(file_or_url: Any, *, request=None) -> str | None:
         return None
 
     backend_url = str(getattr(settings, "BACKEND_URL", "") or "").rstrip("/")
+    media_cdn_url = str(getattr(settings, "MEDIA_CDN_URL", "") or "").rstrip("/")
 
     if url.startswith("/"):
+        if media_cdn_url and url.startswith(str(getattr(settings, "MEDIA_URL", "/media/") or "/media/")):
+            return f"{media_cdn_url}{url}"
         if backend_url:
             return f"{backend_url}{url}"
         if request:

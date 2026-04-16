@@ -8,6 +8,9 @@ export interface CatalogCategory {
 export interface CatalogMedia {
   id: string;
   image: string;
+  image_small?: string | null;
+  image_medium?: string | null;
+  image_large?: string | null;
   alt_text: string;
   is_primary: boolean;
   sort_order: number;

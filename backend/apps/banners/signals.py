@@ -26,12 +26,14 @@ def cleanup_replaced_banner_image(sender, instance, **kwargs):
     except sender.DoesNotExist:
         return
 
-    old_name = getattr(old.image, "name", "")
-    new_name = getattr(instance.image, "name", "")
-    if old_name and old_name != new_name:
-        delete_file_if_exists(old_name)
+    for field_name in ("image", "image_small", "image_medium", "image_large"):
+        old_name = getattr(getattr(old, field_name, None), "name", "")
+        new_name = getattr(getattr(instance, field_name, None), "name", "")
+        if old_name and old_name != new_name:
+            delete_file_if_exists(old_name)
 
 
 @receiver(post_delete, sender=PromoBanner)
 def cleanup_deleted_banner_image(sender, instance, **kwargs):
-    delete_file_if_exists(getattr(instance, "image", None))
+    for field_name in ("image", "image_small", "image_medium", "image_large"):
+        delete_file_if_exists(getattr(instance, field_name, None))

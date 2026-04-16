@@ -128,7 +128,7 @@ const normalizeDetailed = (raw: unknown): DetailedHealthData => {
   return {
     server: normalizeCards(source.server, ['CPU', 'Memory', 'Disk', 'Database', 'Redis']),
     api: normalizeCards(source.api, ['Product API', 'Cart API', 'Checkout API', 'Admin API']),
-    payment: normalizeCards(source.payment, ['Cashfree Config', 'Cashfree Connectivity', 'Webhook Health', 'Payment Trend']),
+    payment: normalizeCards(source.payment, ['Cashfree Config', 'Cashfree Connectivity', 'Webhook Health', 'Payment Trend', 'Razorpay Stale Auto-Cancels (24h)']),
     trends: normalizeTrends(source.trends),
   };
 };
@@ -149,6 +149,39 @@ const normalizeAlerts = (raw: unknown): HealthAlert[] => {
   const list = Array.isArray(raw) ? raw : [];
   if (!list.length) return [];
   return list.map(normalizeAlert);
+};
+
+const STATUS_PRIORITY: Record<HealthStatus, number> = {
+  healthy: 0,
+  warning: 1,
+  degraded: 2,
+  down: 3,
+};
+
+const worstStatus = (statuses: HealthStatus[]): HealthStatus => {
+  if (!statuses.length) return 'healthy';
+  return statuses.reduce((worst, current) =>
+    STATUS_PRIORITY[current] > STATUS_PRIORITY[worst] ? current : worst,
+  );
+};
+
+const descriptionByStatus: Record<HealthStatus, string> = {
+  healthy: 'All systems operational',
+  warning: 'Some checks are warning',
+  degraded: 'Degraded performance detected',
+  down: 'One or more checks are down',
+};
+
+const deriveSummaryMetric = (
+  existing: HealthSummaryMetric,
+  cards: HealthDetailCardData[],
+): HealthSummaryMetric => {
+  if (!cards.length) return existing;
+  const derivedStatus = worstStatus(cards.map((card) => card.status));
+  return {
+    status: derivedStatus,
+    description: descriptionByStatus[derivedStatus],
+  };
 };
 
 const healthService = {
@@ -173,7 +206,13 @@ const healthService = {
       healthService.getDetailed(),
       healthService.getAlerts(),
     ]);
-    return { summary, detailed, alerts };
+    const derivedSummary: HealthSummaryData = {
+      ...summary,
+      serverHealth: deriveSummaryMetric(summary.serverHealth, detailed.server),
+      apiHealth: deriveSummaryMetric(summary.apiHealth, detailed.api),
+      paymentHealth: deriveSummaryMetric(summary.paymentHealth, detailed.payment),
+    };
+    return { summary: derivedSummary, detailed, alerts };
   },
 };
 

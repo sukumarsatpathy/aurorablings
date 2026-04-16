@@ -1,6 +1,6 @@
 import React, { useRef } from 'react';
 import CtaButton from '../../ui/CtaButton/CtaButton';
-import ImageWithFallback from '../../ui/ImageWithFallback/ImageWithFallback';
+import OptimizedImage from '@/components/ui/OptimizedImage';
 import styles from './PromoBannerCard.module.css';
 
 const clamp = (value, fallback) => {
@@ -18,6 +18,12 @@ const PromoBannerCard = ({ banner, size = 'default', className = '' }) => {
   const badgeColor = banner.badge_color || titleColor;
   const ctaTextColor = banner.cta_text_color || titleColor;
   const ctaBorderColor = banner.cta_border_color || ctaTextColor;
+  const bannerSrc = banner.image_large || banner.image || '';
+  const bannerSrcSet = [
+    banner.image_small ? `${banner.image_small} 480w` : '',
+    banner.image_medium ? `${banner.image_medium} 768w` : '',
+    (banner.image_large || banner.image) ? `${banner.image_large || banner.image} 1200w` : '',
+  ].filter(Boolean).join(', ');
 
   return (
     <div
@@ -32,13 +38,30 @@ const PromoBannerCard = ({ banner, size = 'default', className = '' }) => {
       style={{ backgroundColor: bgColor }}
     >
       <div className={styles.imageWrapper}>
-        <ImageWithFallback
-          src={banner.image}
-          alt={banner.title || 'Promotional banner'}
-          bgColor={bgColor}
-          className={styles.image}
-        />
-        {banner.image && <div className={styles.overlay} />}
+        {bannerSrc ? (
+          <OptimizedImage
+            src={bannerSrc}
+            srcSet={bannerSrcSet || undefined}
+            sizes="(max-width: 768px) 100vw, 1200px"
+            alt={banner.title || 'Promotional banner'}
+            className={styles.image}
+            loading="lazy"
+            decoding="async"
+            width={1200}
+            height={700}
+            style={{ width: '100%', height: '100%', objectFit: 'cover' }}
+          />
+        ) : (
+          <div
+            className={styles.image}
+            style={{
+              backgroundColor: bgColor || '#f5f0eb',
+              width: '100%',
+              height: '100%',
+            }}
+          />
+        )}
+        {bannerSrc && <div className={styles.overlay} />}
       </div>
 
       <div className={styles.contentOverlay}>

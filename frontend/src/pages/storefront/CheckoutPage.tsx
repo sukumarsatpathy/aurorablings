@@ -920,6 +920,16 @@ export const CheckoutPage: React.FC = () => {
               }
 
               await new Promise<void>((resolve, reject) => {
+                let paymentCompleted = false;
+                let cancellationQueued = false;
+                const queueOrderCancellation = (reason: string) => {
+                  if (paymentCompleted || cancellationQueued) return;
+                  cancellationQueued = true;
+                  void ordersService.cancelMyOrder(String(placedOrder.id), reason).catch(() => {
+                    // Best-effort cleanup: order cancellation can fail if state already changed.
+                  });
+                };
+
                 const razorpay = new RazorpayCtor({
                   key: razorpayKeyId,
                   amount: Math.round(razorpayAmount * 100),
@@ -937,6 +947,7 @@ export const CheckoutPage: React.FC = () => {
                   },
                   handler: async (response: any) => {
                     try {
+                      paymentCompleted = true;
                       await paymentsService.verifyRazorpayPayment({
                         razorpay_order_id: String(response?.razorpay_order_id || '').trim(),
                         razorpay_payment_id: String(response?.razorpay_payment_id || '').trim(),
@@ -955,7 +966,8 @@ export const CheckoutPage: React.FC = () => {
                   },
                   modal: {
                     ondismiss: () => {
-                      const error = new Error('Payment cancelled before completion.');
+                      queueOrderCancellation('Razorpay checkout cancelled by customer.');
+                      const error = new Error('Payment cancelled. The order was cancelled and reserved stock has been released.');
                       error.name = 'RazorpayCheckoutCancelled';
                       reject(error);
                     },
@@ -963,9 +975,10 @@ export const CheckoutPage: React.FC = () => {
                 });
 
                 razorpay.on('payment.failed', (response: any) => {
+                  queueOrderCancellation('Razorpay payment failed during checkout.');
                   const message =
                     String(response?.error?.description || '').trim() ||
-                    'Payment failed. Please try again.';
+                    'Payment failed. The order was cancelled and reserved stock has been released.';
                   const error = new Error(message);
                   error.name = 'RazorpayPaymentFailed';
                   reject(error);

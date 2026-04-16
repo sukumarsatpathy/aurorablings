@@ -903,6 +903,8 @@ export const ProductManagement: React.FC = () => {
 
   const syncInfoItems = async (productId: string) => {
     const keptPersistedIds = new Set<string>();
+    const tempToPersistedId = new Map<string, string>();
+    const reorderItems: Array<{ id: string; sort_order: number }> = [];
 
     for (let i = 0; i < formData.infoItems.length; i += 1) {
       const row = formData.infoItems[i];
@@ -919,11 +921,16 @@ export const ProductManagement: React.FC = () => {
 
       if (row.persisted) {
         keptPersistedIds.add(row.id);
+        reorderItems.push({ id: row.id, sort_order: i });
         await catalogService.updateProductInfoItem(productId, row.id, payload);
       } else {
         const created = await catalogService.createProductInfoItem(productId, payload);
-        const createdId = created?.data?.id;
-        if (createdId) keptPersistedIds.add(String(createdId));
+        const createdId = String(created?.data?.id || created?.id || '');
+        if (createdId) {
+          keptPersistedIds.add(createdId);
+          reorderItems.push({ id: createdId, sort_order: i });
+          tempToPersistedId.set(row.id, createdId);
+        }
       }
     }
 
@@ -933,10 +940,18 @@ export const ProductManagement: React.FC = () => {
       }
     }
 
-    await catalogService.reorderProductInfoItems(
-      productId,
-      formData.infoItems.map((item, index) => ({ id: item.id, sort_order: index })).filter((item) => !item.id.startsWith('temp-info-'))
-    );
+    if (tempToPersistedId.size > 0) {
+      setFormData((prev) => ({
+        ...prev,
+        infoItems: prev.infoItems.map((item) => {
+          const persistedId = tempToPersistedId.get(item.id);
+          if (!persistedId) return item;
+          return { ...item, id: persistedId, persisted: true };
+        }),
+      }));
+    }
+
+    await catalogService.reorderProductInfoItems(productId, reorderItems);
   };
 
   const addInfoItem = () => {

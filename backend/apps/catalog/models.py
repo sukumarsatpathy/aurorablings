@@ -22,6 +22,7 @@ from django.utils import timezone
 from django.core.validators import MinValueValidator, MaxValueValidator
 
 from core.models import SoftDeleteModel, BaseModel
+from core.image_optimization import compress_image, generate_responsive_variants
 from .managers import PublishedManager, ActiveCategoryManager
 
 
@@ -282,6 +283,9 @@ class ProductMedia(BaseModel):
 
     product    = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="media")
     image      = models.ImageField(upload_to="products/%Y/%m/")
+    image_small = models.ImageField(upload_to="products/%Y/%m/", blank=True, null=True)
+    image_medium = models.ImageField(upload_to="products/%Y/%m/", blank=True, null=True)
+    image_large = models.ImageField(upload_to="products/%Y/%m/", blank=True, null=True)
     alt_text   = models.CharField(max_length=255, blank=True)
     is_primary = models.BooleanField(default=False, db_index=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
@@ -292,6 +296,42 @@ class ProductMedia(BaseModel):
         ordering            = ["sort_order", "-is_primary"]
 
     def save(self, *args, **kwargs):
+        update_fields = kwargs.get("update_fields")
+        should_generate = bool(self.image) and (
+            not self.pk
+            or not self.image_small
+            or not self.image_medium
+            or not self.image_large
+            or (update_fields is not None and "image" in update_fields)
+        )
+
+        if should_generate:
+            src_name = getattr(self.image, "name", "") or ""
+            parent_dir = "/".join(src_name.split("/")[:-1]) or "products"
+            stem = src_name.rsplit("/", 1)[-1].rsplit(".", 1)[0] if src_name else None
+            main_name, main_content = compress_image(
+                self.image,
+                output_dir=parent_dir,
+                max_width=1800,
+                quality=74,
+                file_stem=stem,
+            )
+            self.image.save(main_name, main_content, save=False)
+            base_stem = main_name.rsplit("/", 1)[-1].rsplit(".", 1)[0]
+            variants = generate_responsive_variants(
+                self.image,
+                output_dir=parent_dir,
+                base_stem=base_stem,
+                widths=(480, 768, 1200),
+                quality=72,
+            )
+            small_name, small_content = variants["small"]
+            medium_name, medium_content = variants["medium"]
+            large_name, large_content = variants["large"]
+            self.image_small.save(small_name, small_content, save=False)
+            self.image_medium.save(medium_name, medium_content, save=False)
+            self.image_large.save(large_name, large_content, save=False)
+
         # Enforce only one primary per product
         if self.is_primary:
             ProductMedia.objects.filter(

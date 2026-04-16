@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from django.core.cache import cache
 from django.db import transaction
-from django.db.models import Avg, Count
+from django.db.models import Avg, Count, Q
 from django.utils import timezone
 
 from audit.models import ActorType, AuditAction
@@ -13,7 +13,7 @@ from core.media import validate_image_file
 
 from apps.catalog.models import Product
 from apps.orders.models import OrderStatus
-from apps.orders.models import OrderItem
+from apps.orders.models import OrderItem, PaymentStatus
 
 from .cache import public_review_summary_key
 from .models import ProductReview, ReviewMedia, ReviewStatus, ReviewVote, ReviewVoteType
@@ -35,8 +35,23 @@ def _invalidate_review_cache(*, product_id) -> None:
 def _is_verified_purchase(*, user_id, product_id) -> bool:
     return OrderItem.objects.filter(
         order__user_id=user_id,
-        order__status__in=[OrderStatus.DELIVERED, OrderStatus.COMPLETED],
         variant__product_id=product_id,
+    ).exclude(
+        order__status__in=[OrderStatus.DRAFT, OrderStatus.CANCELLED],
+    ).filter(
+        Q(order__status__in=[
+            OrderStatus.PAID,
+            OrderStatus.PROCESSING,
+            OrderStatus.SHIPPED,
+            OrderStatus.DELIVERED,
+            OrderStatus.COMPLETED,
+            OrderStatus.PARTIALLY_REFUNDED,
+            OrderStatus.REFUNDED,
+        ]) | Q(order__payment_status__in=[
+            PaymentStatus.PAID,
+            PaymentStatus.PARTIALLY_REFUNDED,
+            PaymentStatus.REFUNDED,
+        ])
     ).exists()
 
 
@@ -51,7 +66,7 @@ def get_review_eligibility(*, user, product_id) -> tuple[bool, str]:
 
     has_purchase = _is_verified_purchase(user_id=user.id, product_id=product_id)
     if not has_purchase:
-        return False, "Reviews are available after a delivered purchase."
+        return False, "Reviews are available after a confirmed purchase."
     return True, ""
 
 

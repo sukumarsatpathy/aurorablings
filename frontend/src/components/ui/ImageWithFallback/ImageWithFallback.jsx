@@ -1,4 +1,5 @@
 import React from 'react';
+import OptimizedImage from '@/components/ui/OptimizedImage';
 
 /**
  * Props: src (string|null), alt (string), bgColor (string), className (optional)
@@ -19,10 +20,14 @@ const ImageWithFallback = ({ src, alt, bgColor, className = '' }) => {
   }
 
   return (
-    <img 
+    <OptimizedImage
       src={src} 
       alt={alt} 
       className={className} 
+      loading="lazy"
+      decoding="async"
+      width={1200}
+      height={700}
       style={{ 
         width: '100%',
         height: '100%',
