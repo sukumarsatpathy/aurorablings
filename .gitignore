@@ -1,0 +1,92 @@
+# ---------------------------------------------------------------
+# Python / Django
+# ---------------------------------------------------------------
+*.pyc
+__pycache__/
+*.py[cod]
+db.sqlite3
+db.sqlite3-journal
+backend/staticfiles/
+backend/media/
+venv/
+env/
+.venv/
+auth_token.txt
+.pytest_cache/
+.coverage
+htmlcov/
+
+# ---------------------------------------------------------------
+# Secrets
+#
+# Bare `.env` only matches a file named exactly `.env`, so variants
+# like `.env.production.bak` slipped through and were published.
+# `.env*` catches every variant; the negation keeps the committed
+# template.
+# ---------------------------------------------------------------
+.env*
+!.env.example
+
+# ---------------------------------------------------------------
+# Node / frontend
+# ---------------------------------------------------------------
+node_modules/
+frontend/node_modules/
+frontend/dist/
+frontend/build.log
+dist/
+*.tsbuildinfo
+.eslintcache
+
+# ---------------------------------------------------------------
+# Logs
+#
+# `*.log` does not untrack the logs/app.log.* files already in
+# history — those need `git rm --cached`. It only stops new ones.
+# ---------------------------------------------------------------
+*.log
+logs/
+!logs/.gitkeep
+
+# ---------------------------------------------------------------
+# Docker
+# ---------------------------------------------------------------
+.docker/
+docker-compose.override.yml
+*.tar
+*.tgz
+
+# ---------------------------------------------------------------
+# Deploy artifacts
+#
+# deploy/ itself is version-controlled: systemd units, nginx
+# templates and the release scripts all belong in the repo and
+# contain no secrets. What must never be committed is the runtime
+# state the deploy produces on the server.
+# ---------------------------------------------------------------
+release.tgz
+deploy/**/*.local.conf
+deploy/nginx/aurorablings.conf
+shared/
+releases/
+current
+
+# SSH keys and certificates, in case one is ever generated in-tree
+*.pem
+*.key
+!frontend/**/*.key.ts
+id_rsa
+id_ed25519
+*.crt
+
+# ---------------------------------------------------------------
+# IDEs and OS cruft
+# ---------------------------------------------------------------
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+*.swp
+*.swo
