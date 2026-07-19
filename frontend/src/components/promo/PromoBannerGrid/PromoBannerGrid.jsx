@@ -13,7 +13,10 @@ const PromoBannerGrid = ({ banners = [], previewMode = false }) => {
     if (previewMode) return;
 
     const ctx = gsap.context(() => {
-      gsap.fromTo('.promo-card', 
+      // Deliberately excludes the LCP card. Animating it from opacity:0 means
+      // the browser does not count it as painted until the tween starts, which
+      // shows up directly as LCP "element render delay".
+      gsap.fromTo('.promo-card:not(.promo-card--lcp)',
         { opacity: 0, y: 30 }, 
         { 
           opacity: 1, 
@@ -45,7 +48,9 @@ const PromoBannerGrid = ({ banners = [], previewMode = false }) => {
   return (
     <div ref={gridRef} className={`${styles.grid} ${previewMode ? styles.preview : ''}`}>
       <div className={`${styles.cell} ${styles.topLeft}`}>
-        {topLeft && <PromoBannerCard banner={topLeft} />}
+        {/* topLeft is first in the grid on desktop and first in the stack at
+            <=1024px, so it is the LCP candidate on every breakpoint. */}
+        {topLeft && <PromoBannerCard banner={topLeft} priority />}
       </div>
       <div className={`${styles.cell} ${styles.topRight}`}>
         {topRight && <PromoBannerCard banner={topRight} size="tall" />}

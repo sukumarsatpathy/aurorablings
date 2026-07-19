@@ -4,12 +4,18 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- Preload the hero image first: it is the LCP element on the landing
-         page. This previously sat below a ~130-line parser-blocking inline
-         script, so the browser could not start fetching it until that
-         script had been downloaded, parsed and executed. -->
-    <link rel="preload" as="image" href="/media/banner-1200.webp" fetchpriority="high" />
-
+    <!-- NO hero preload here, deliberately. Do not add one back without reading this.
+         There used to be:
+           <link rel="preload" as="image" href="/media/banner-1200.webp" fetchpriority="high" />
+         That was wrong on two counts. banner-1200.webp is only the *fallback*
+         image inside DualPromoBanner, which is lazy-imported and sits below the
+         deals section on the homepage — it is not the LCP element. And this tag
+         is in the shared shell, so every route paid for a high-priority download
+         of an off-screen image that competed with the real LCP request.
+         The actual LCP element is the first PromoBannerCard, whose URL comes
+         from the banners API and is therefore not knowable at build time. It is
+         prioritised at the element instead, via priority on OptimizedImage
+         (loading=eager + fetchpriority=high). See PromoBannerGrid.jsx. -->
     <!-- The GTM bootstrap that used to live here has been removed. It ran a
          duplicate fetch of /api/v1/features/public-settings/ (main.tsx makes
          the same call) and blocked the parser on the critical path.

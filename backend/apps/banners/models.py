@@ -1,6 +1,11 @@
 from django.db import models
 from core.models import BaseModel
-from core.image_optimization import compress_image, generate_responsive_variants
+from core.image_optimization import (
+    avif_encoder_available,
+    compress_image,
+    generate_avif_variants,
+    generate_responsive_variants,
+)
 
 class PromoBanner(BaseModel):
     POSITION_CHOICES = [
@@ -22,6 +27,12 @@ class PromoBanner(BaseModel):
     image_small   = models.ImageField(upload_to='promo_banners/', blank=True, null=True)
     image_medium  = models.ImageField(upload_to='promo_banners/', blank=True, null=True)
     image_large   = models.ImageField(upload_to='promo_banners/', blank=True, null=True)
+    # AVIF siblings of the three WebP derivatives above. Optional by design:
+    # when the Pillow build cannot encode AVIF these stay empty and the
+    # storefront's <picture> simply omits the AVIF <source>.
+    image_avif_small  = models.ImageField(upload_to='promo_banners/', blank=True, null=True)
+    image_avif_medium = models.ImageField(upload_to='promo_banners/', blank=True, null=True)
+    image_avif_large  = models.ImageField(upload_to='promo_banners/', blank=True, null=True)
     bg_color      = models.CharField(max_length=20, default='#f5f0eb')  # fallback bg
     shape_color   = models.CharField(max_length=20, default='#f4dab4')
     title_color   = models.CharField(max_length=20, default='#1a1a1a')
@@ -53,11 +64,22 @@ class PromoBanner(BaseModel):
 
     def save(self, *args, **kwargs):
         update_fields = kwargs.get("update_fields")
+
+        # Only treat missing AVIF as a reason to regenerate when this Pillow
+        # build can actually produce it. Without that guard, an environment
+        # without the AVIF encoder would find the fields permanently empty and
+        # re-run the whole pipeline on *every* save — re-encoding the master and
+        # churning files through the pre_save cleanup signal each time.
+        avif_missing = avif_encoder_available() and not (
+            self.image_avif_small and self.image_avif_medium and self.image_avif_large
+        )
+
         should_generate = bool(self.image) and (
             not self.pk
             or not self.image_small
             or not self.image_medium
             or not self.image_large
+            or avif_missing
             or (update_fields is not None and "image" in update_fields)
         )
 
@@ -86,5 +108,22 @@ class PromoBanner(BaseModel):
             self.image_small.save(small_name, small_content, save=False)
             self.image_medium.save(medium_name, medium_content, save=False)
             self.image_large.save(large_name, large_content, save=False)
+
+            # Additive. Empty dict when the encoder is unavailable, in which
+            # case these fields stay blank and the storefront serves WebP only.
+            avif = generate_avif_variants(
+                self.image,
+                output_dir="promo_banners",
+                base_stem=base_stem,
+                widths=(480, 768, 1200),
+            )
+            if avif:
+                for label, field in (
+                    ("small", self.image_avif_small),
+                    ("medium", self.image_avif_medium),
+                    ("large", self.image_avif_large),
+                ):
+                    name, content = avif[label]
+                    field.save(name, content, save=False)
 
         super().save(*args, **kwargs)

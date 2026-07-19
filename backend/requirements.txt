@@ -7,7 +7,9 @@ psycopg2-binary>=2.9.0
 djangorestframework>=3.14.0
 django-cors-headers>=4.3.0
 django-filter>=23.5
-Pillow>=10.2.0
+# 11.3 is the floor for native AVIF encoding. Below it, promo banner AVIF
+# derivatives are silently skipped and the storefront serves WebP only.
+Pillow>=11.3.0
 
 # Authentication
 djangorestframework-simplejwt>=5.3.0

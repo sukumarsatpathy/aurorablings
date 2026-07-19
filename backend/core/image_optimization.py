@@ -46,6 +46,48 @@ def _save_webp_content(image: "Image.Image", *, quality: int = 74) -> ContentFil
     return ContentFile(buffer.getvalue())
 
 
+# AVIF quality is NOT on the same scale as WebP quality. Passing the WebP
+# number (74) through to AVIF produces files that are LARGER than the WebP
+# equivalent, which defeats the entire point. Roughly, AVIF q50 lands near
+# WebP q75 in perceived quality. Tune against real banner images, not
+# synthetic ones — the correct value is content-dependent.
+AVIF_QUALITY_DEFAULT = 50
+
+# 0 = slowest/smallest, 10 = fastest/largest. Generation runs synchronously
+# inside PromoBanner.save(), so this trades a little file size for not making
+# an admin upload hang. Measured ~8x faster than speed=0 for negligible size.
+AVIF_SPEED_DEFAULT = 6
+
+
+def avif_encoder_available() -> bool:
+    """True if this Pillow build can actually encode AVIF.
+
+    Native AVIF support landed in Pillow 11.3. requirements.txt previously
+    allowed >=10.2, so this cannot be assumed from the import succeeding.
+    """
+    if Image is None:
+        return False
+    try:
+        from PIL import features
+
+        if features.check("avif"):
+            return True
+    except Exception:
+        pass
+    return "AVIF" in getattr(Image, "SAVE", {})
+
+
+def _save_avif_content(
+    image: "Image.Image",
+    *,
+    quality: int = AVIF_QUALITY_DEFAULT,
+    speed: int = AVIF_SPEED_DEFAULT,
+) -> ContentFile:
+    buffer = BytesIO()
+    image.save(buffer, format="AVIF", quality=quality, speed=speed)
+    return ContentFile(buffer.getvalue())
+
+
 def compress_image(
     source_file,
     *,
@@ -105,6 +147,45 @@ def generate_responsive_variants(
             resized = base_image.copy()
         filename = os.path.join(output_dir, f"{stem}-{target_width}.webp").replace("\\", "/")
         variants[label] = (filename, _save_webp_content(resized, quality=quality))
+
+    return variants
+
+
+def generate_avif_variants(
+    source_file,
+    *,
+    output_dir: str,
+    base_stem: str | None = None,
+    widths: tuple[int, int, int] = (480, 768, 1200),
+    quality: int = AVIF_QUALITY_DEFAULT,
+    speed: int = AVIF_SPEED_DEFAULT,
+) -> dict[str, tuple[str, ContentFile]]:
+    """AVIF siblings of generate_responsive_variants().
+
+    Deliberately returns {} rather than raising or writing .bin files when the
+    encoder is missing. AVIF is purely additive here: the <picture> element in
+    PromoBannerCard drops the AVIF <source> when these are absent and every
+    visitor falls through to the WebP srcSet. That is a safe degradation, unlike
+    the .bin fallback in the functions above, which produces unservable files.
+    """
+    if Image is None or not avif_encoder_available():
+        return {}
+
+    raw = _read_file_bytes(source_file)
+    base_image = _to_rgb(Image.open(BytesIO(raw)))
+    stem = base_stem or f"{uuid.uuid4().hex}"
+    labels = ("small", "medium", "large")
+    variants: dict[str, tuple[str, ContentFile]] = {}
+
+    for label, target_width in zip(labels, widths):
+        if base_image.width > target_width:
+            ratio = target_width / float(base_image.width)
+            target_height = max(1, int(base_image.height * ratio))
+            resized = base_image.resize((target_width, target_height), Image.Resampling.LANCZOS)
+        else:
+            resized = base_image.copy()
+        filename = os.path.join(output_dir, f"{stem}-{target_width}.avif").replace("\\", "/")
+        variants[label] = (filename, _save_avif_content(resized, quality=quality, speed=speed))
 
     return variants
 
