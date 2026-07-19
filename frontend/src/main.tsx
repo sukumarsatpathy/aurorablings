@@ -68,10 +68,33 @@ const bootstrapGTM = async () => {
   }
 }
 
-void bootstrapGTM()
+/**
+ * Defer analytics until the browser is idle.
+ *
+ * This is the only GTM bootstrap now — index.html used to run a duplicate copy
+ * inline in <head>, which fired the same public-settings request a second time
+ * and blocked the parser before the hero image preload.
+ *
+ * Trade-off: GTM initialises up to ~1s later than before, so a small number of
+ * very-fast-bounce sessions will go unrecorded. That is the right call for a
+ * tag manager (it must never sit on the critical rendering path), but it can
+ * look like a metrics regression if you are not expecting it.
+ */
+const whenIdle = (fn: () => void) => {
+  if (typeof window === 'undefined') return
+  if ('requestIdleCallback' in window) {
+    window.requestIdleCallback(fn, { timeout: 3000 })
+  } else {
+    window.setTimeout(fn, 1000)
+  }
+}
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <App />
   </StrictMode>,
 )
+
+whenIdle(() => {
+  void bootstrapGTM()
+})

@@ -1,6 +1,10 @@
 import React, { useRef, useEffect, useState, useCallback } from 'react';
 import { Link } from 'react-router-dom';
-import heroImg from '@/assets/bg-img.png';
+// WebP renditions of the old bg-img.png (1.7 MB) — 115 KB at 1024px,
+// 63 KB at 640px. The PNG is kept in the repo only as the editable master;
+// nothing imports it.
+import heroImg from '@/assets/bg-img.webp';
+import heroImgSmall from '@/assets/bg-img-640.webp';
 import { Circle } from 'lucide-react';
 import { gsap } from '@/animations/gsapConfig';
 import catalogService from '@/services/api/catalog';
@@ -188,10 +192,14 @@ const CategoryShowcase: React.FC = () => {
                         <div className="relative w-full lg:w-[536px] lg:h-[526px] rounded-[30px] overflow-hidden min-h-[340px]">
                             <img
                                 src={heroImg}
+                                srcSet={`${heroImgSmall} 640w, ${heroImg} 1024w`}
+                                sizes="(max-width: 1024px) 100vw, 536px"
                                 alt="Category"
                                 className="w-full h-full object-cover block rounded-[30px]"
                                 width={536}
                                 height={526}
+                                loading="lazy"
+                                decoding="async"
                             />
                         </div>
                     </div>

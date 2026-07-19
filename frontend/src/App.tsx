@@ -1,54 +1,83 @@
-import { useEffect, useState } from 'react';
+import { useEffect, useState, lazy, Suspense } from 'react';
 import type { ReactNode } from 'react';
-import { useLenis } from './hooks/useLenis';
 import { Routes, Route, Navigate, useLocation } from 'react-router-dom';
 import { AppProviders } from './app/providers';
 import { MainLayout } from './components/layouts/MainLayout';
-import { DashboardLayout } from './components/layouts/DashboardLayout';
+
+/**
+ * Route-level code splitting.
+ *
+ * Everything below that is `lazy()` used to be a static import, which meant
+ * Rollup put all of it -- ~10k lines of admin pages plus recharts, lexical,
+ * @dnd-kit and the full @radix-ui set -- in the entry chunk that every
+ * anonymous shopper downloads before the homepage can render.
+ *
+ * Kept eager (critical path for a first visit):
+ *   MainLayout, HomePage, and the small static content pages.
+ *
+ * Note on the `.then()` wrapper: React.lazy requires a module whose `default`
+ * is the component. Pages using named exports need the wrapper; pages that
+ * already `export default` must NOT have it, or the route renders as
+ * `undefined` and React throws "Element type is invalid" at runtime --
+ * which TypeScript does not catch. Verified per-file:
+ *   default exports -> TrackingSettings, GTMSettings, AdminBannersPage
+ *   named exports   -> everything else
+ *   (Settings.tsx is a barrel: `export { SettingsPage as Settings }`)
+ */
+
+// ── Storefront (eager: cheap, and on the first-paint path) ───────────────────
 import { HomePage } from './pages/storefront/HomePage';
-import { ProductListingPage } from './pages/storefront/ProductListingPage';
-import { ProductDetailPage } from './pages/storefront/ProductDetailPage';
 import { AboutUsPage } from './pages/storefront/AboutUsPage';
 import { ContactUsPage } from './pages/storefront/ContactUsPage';
 import { TermsAndConditionsPage } from './pages/storefront/TermsAndConditionsPage';
 import { ReturnRefundPolicyPage } from './pages/storefront/ReturnRefundPolicyPage';
 import { ShippingPolicyPage } from './pages/storefront/ShippingPolicyPage';
 import { PrivacyPolicyPage } from './pages/storefront/PrivacyPolicyPage';
-import { CartPage } from './pages/storefront/CartPage';
-import { CheckoutPage } from './pages/storefront/CheckoutPage';
 import { OrderThankYouPage } from './pages/storefront/OrderThankYouPage';
 import { ResetPasswordPage } from './pages/storefront/ResetPasswordPage';
-import { AccountLayout } from './components/account/AccountLayout';
-import { AccountDashboardPage } from './pages/account/AccountDashboardPage';
-import { AccountOrdersPage } from './pages/account/AccountOrdersPage';
-import { AccountAddressPage } from './pages/account/AccountAddressPage';
-import { AccountProfilePage } from './pages/account/AccountProfilePage';
-import { AccountLogoutPage } from './pages/account/AccountLogoutPage';
 
-// Admin Imports
-import { Dashboard } from './pages/admin/Dashboard';
-import { ProductManagement } from './pages/admin/ProductManagement';
-import { Orders } from './pages/admin/Orders';
-import { Shipments } from './pages/admin/Shipments';
-import { Attributes } from './pages/admin/Attributes';
-import { Inventory } from './pages/admin/Inventory';
-import { Returns } from './pages/admin/Returns';
-import { Customers } from './pages/admin/Customers';
-import { Features } from './pages/admin/Features';
-import { Reviews } from './pages/admin/Reviews';
-import { Settings } from './pages/admin/Settings';
-import { Coupons } from './pages/admin/Coupons';
-import { AuditLogs } from './pages/admin/AuditLogs';
-import { HealthDashboard } from './pages/admin/HealthDashboard';
-import { CategoryManagement } from './pages/admin/CategoryManagement';
-import { NotifyRequests } from './pages/admin/NotifyRequests';
-import { Enquiries } from './pages/admin/Enquiries';
-import { NotificationDashboard } from './pages/admin/NotificationDashboard';
-import { NotificationLogs } from './pages/admin/NotificationLogs';
-import { NewsletterSubscribers } from './pages/admin/NewsletterSubscribers';
-import TrackingSettings from './pages/admin/TrackingSettings';
-import GTMSettings from './pages/admin/GTMSettings';
-import AdminBannersPage from './pages/admin/AdminBannersPage/AdminBannersPage';
+// ── Storefront (lazy: large, and not needed to render the landing page) ──────
+const ProductListingPage = lazy(() => import('./pages/storefront/ProductListingPage').then(m => ({ default: m.ProductListingPage })));
+const ProductDetailPage = lazy(() => import('./pages/storefront/ProductDetailPage').then(m => ({ default: m.ProductDetailPage })));
+const CartPage = lazy(() => import('./pages/storefront/CartPage').then(m => ({ default: m.CartPage })));
+const CheckoutPage = lazy(() => import('./pages/storefront/CheckoutPage').then(m => ({ default: m.CheckoutPage })));
+
+// ── Account area (lazy: behind auth) ────────────────────────────────────────
+const AccountLayout = lazy(() => import('./components/account/AccountLayout').then(m => ({ default: m.AccountLayout })));
+const AccountDashboardPage = lazy(() => import('./pages/account/AccountDashboardPage').then(m => ({ default: m.AccountDashboardPage })));
+const AccountOrdersPage = lazy(() => import('./pages/account/AccountOrdersPage').then(m => ({ default: m.AccountOrdersPage })));
+const AccountAddressPage = lazy(() => import('./pages/account/AccountAddressPage').then(m => ({ default: m.AccountAddressPage })));
+const AccountProfilePage = lazy(() => import('./pages/account/AccountProfilePage').then(m => ({ default: m.AccountProfilePage })));
+const AccountLogoutPage = lazy(() => import('./pages/account/AccountLogoutPage').then(m => ({ default: m.AccountLogoutPage })));
+
+// ── Admin (all lazy: ~10k lines, unreachable without a staff token) ─────────
+const DashboardLayout = lazy(() => import('./components/layouts/DashboardLayout').then(m => ({ default: m.DashboardLayout })));
+const Dashboard = lazy(() => import('./pages/admin/Dashboard').then(m => ({ default: m.Dashboard })));
+const ProductManagement = lazy(() => import('./pages/admin/ProductManagement').then(m => ({ default: m.ProductManagement })));
+const Orders = lazy(() => import('./pages/admin/Orders').then(m => ({ default: m.Orders })));
+const Shipments = lazy(() => import('./pages/admin/Shipments').then(m => ({ default: m.Shipments })));
+const Attributes = lazy(() => import('./pages/admin/Attributes').then(m => ({ default: m.Attributes })));
+const Inventory = lazy(() => import('./pages/admin/Inventory').then(m => ({ default: m.Inventory })));
+const Returns = lazy(() => import('./pages/admin/Returns').then(m => ({ default: m.Returns })));
+const Customers = lazy(() => import('./pages/admin/Customers').then(m => ({ default: m.Customers })));
+const Features = lazy(() => import('./pages/admin/Features').then(m => ({ default: m.Features })));
+const Reviews = lazy(() => import('./pages/admin/Reviews').then(m => ({ default: m.Reviews })));
+const Settings = lazy(() => import('./pages/admin/Settings').then(m => ({ default: m.Settings })));
+const Coupons = lazy(() => import('./pages/admin/Coupons').then(m => ({ default: m.Coupons })));
+const AuditLogs = lazy(() => import('./pages/admin/AuditLogs').then(m => ({ default: m.AuditLogs })));
+const HealthDashboard = lazy(() => import('./pages/admin/HealthDashboard').then(m => ({ default: m.HealthDashboard })));
+const CategoryManagement = lazy(() => import('./pages/admin/CategoryManagement').then(m => ({ default: m.CategoryManagement })));
+const NotifyRequests = lazy(() => import('./pages/admin/NotifyRequests').then(m => ({ default: m.NotifyRequests })));
+const Enquiries = lazy(() => import('./pages/admin/Enquiries').then(m => ({ default: m.Enquiries })));
+const NotificationDashboard = lazy(() => import('./pages/admin/NotificationDashboard').then(m => ({ default: m.NotificationDashboard })));
+const NotificationLogs = lazy(() => import('./pages/admin/NotificationLogs').then(m => ({ default: m.NotificationLogs })));
+const NewsletterSubscribers = lazy(() => import('./pages/admin/NewsletterSubscribers').then(m => ({ default: m.NewsletterSubscribers })));
+
+// Default exports — no `.then()` wrapper. See the note at the top of the file.
+const TrackingSettings = lazy(() => import('./pages/admin/TrackingSettings'));
+const GTMSettings = lazy(() => import('./pages/admin/GTMSettings'));
+const AdminBannersPage = lazy(() => import('./pages/admin/AdminBannersPage/AdminBannersPage'));
+
 import apiClient from './services/api/client';
 import { SessionTimeoutManager } from './components/auth/SessionTimeoutManager';
 import { useBranding } from './hooks/useBranding';
@@ -56,6 +85,26 @@ import { CookieConsentRoot } from './privacy/CookieConsentRoot';
 import { applySeo } from './lib/seo';
 import ClarityTracker from './components/tracking/ClarityTracker';
 import { useTrackingSettings } from './hooks/useTrackingSettings';
+
+/**
+ * Shared Suspense fallback for lazily-loaded routes.
+ *
+ * Deliberately a neutral skeleton rather than a spinner: on a fast connection
+ * the chunk resolves in a few frames, and a spinner that flashes for 80ms
+ * reads as jank. `min-h-[60vh]` keeps the footer from jumping up and back
+ * down while the chunk loads, which would otherwise show up as layout shift.
+ */
+function RouteFallback() {
+  return (
+    <div className="min-h-[60vh] w-full px-4 py-16" role="status" aria-busy="true">
+      <span className="sr-only">Loading…</span>
+      <div className="mx-auto max-w-5xl space-y-4">
+        <div className="h-8 w-1/3 animate-pulse rounded-lg bg-muted/40" />
+        <div className="h-64 w-full animate-pulse rounded-2xl bg-muted/30" />
+      </div>
+    </div>
+  );
+}
 
 const normalizeRole = (role?: string) => String(role || '').trim().toLowerCase();
 const isPrivilegedRole = (role?: string) => {
@@ -291,7 +340,8 @@ function DashboardHomeRedirect() {
 }
 
 function AppContent() {
-  useLenis(); // Smooth scroll initialization
+  // useLenis() moved to MainLayout — smooth scroll is storefront-only and was
+  // previously running its rAF loop on admin routes too.
   const branding = useBranding();
   const location = useLocation();
   const trackingSettings = useTrackingSettings();
@@ -358,6 +408,7 @@ function AppContent() {
       />
       <SessionTimeoutManager preferredTitle={branding.tabTitle} />
       <CookieConsentRoot />
+      <Suspense fallback={<RouteFallback />}>
       <Routes>
         {/* Storefront Routes */}
         <Route path="/" element={<MainLayout><HomePage /></MainLayout>} />
@@ -414,6 +465,10 @@ function AppContent() {
         <Route path="/admin/*" element={
           <RequireAdminOrStaff>
             <DashboardLayout>
+              {/* Inner boundary so the dashboard chrome (sidebar, header) stays
+                  on screen while an individual admin page chunk loads, instead
+                  of the whole shell being replaced by the outer fallback. */}
+              <Suspense fallback={<RouteFallback />}>
               <Routes>
                 <Route path="dashboard" element={<Dashboard />} />
                 <Route path="products" element={<ProductManagement />} />
@@ -446,10 +501,12 @@ function AppContent() {
                 <Route path="banners" element={<AdminBannersPage />} />
                 <Route path="health" element={<HealthDashboard />} />
               </Routes>
+              </Suspense>
             </DashboardLayout>
           </RequireAdminOrStaff>
         } />
       </Routes>
+      </Suspense>
     </>
   );
 }

@@ -1,6 +1,11 @@
 from django.db.models import Sum
 from rest_framework import serializers
 from core.media import build_media_url, validate_image_file
+from core.image_optimization import build_srcset
+
+# Distinguishes "queryset did not annotate this" from "annotated as None",
+# which for warehouse_stock_total means "product has no warehouse rows".
+_UNANNOTATED = object()
 from .models import (
     Category, Brand, Product, ProductMedia,
     Attribute, AttributeValue, ProductVariant,
@@ -335,9 +340,10 @@ class ProductListSerializer(serializers.ModelSerializer):
     default_variant = serializers.SerializerMethodField()
     total_stock = serializers.SerializerMethodField()
     variant_count = serializers.SerializerMethodField()
-    stock_summary = serializers.SerializerMethodField()
     image_count = serializers.IntegerField(read_only=True)
     hover_image = serializers.SerializerMethodField()
+    primary_image_srcset = serializers.SerializerMethodField()
+    hover_image_srcset = serializers.SerializerMethodField()
 
     has_active_offer = serializers.SerializerMethodField()
 
@@ -346,8 +352,10 @@ class ProductListSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "slug", "short_description",
             "category_name", "brand_name", "is_featured", "rating", "avg_rating", "review_count",
-            "primary_image", "hover_image", "image_count", "price_range", "default_variant",
-            "total_stock", "variant_count", "stock_summary",
+            "primary_image", "primary_image_srcset",
+            "hover_image", "hover_image_srcset",
+            "image_count", "price_range", "default_variant",
+            "total_stock", "variant_count",
             "has_active_offer", "is_active", "created_at",
         ]
 
@@ -355,16 +363,62 @@ class ProductListSerializer(serializers.ModelSerializer):
         # Assumes obj.variants has been prefetched
         return any(v.is_offer_live() for v in obj.variants.all())
 
+    # ── Image helpers ─────────────────────────────────────────
+    #
+    # ProductMedia.save() already generates image_small / image_medium /
+    # image_large derivatives on upload, but this serializer used to return
+    # the full-size `image` (the 1800px master) for product grids that render
+    # at ~300-400 CSS px. The derivatives existed and were never served.
+    #
+    # `*_image` now points at the medium rendition so existing frontend code
+    # gets the win with no change; `*_image_srcset` is additive for callers
+    # that opt in. `or media.image` guards rows created before migration
+    # 0010_productmedia_image_variants, which have null derivatives.
+
+    def _media_src(self, media) -> str | None:
+        if not media:
+            return None
+        request = self.context.get("request")
+        return build_media_url(media.image_medium or media.image, request=request)
+
+    def _media_srcset(self, media) -> str | None:
+        if not media:
+            return None
+        request = self.context.get("request")
+        # Use core.image_optimization.build_srcset rather than hand-rolling the
+        # descriptors: the widths there (480/768/1200) are the same constants
+        # generate_responsive_variants() actually renders at, so the two cannot
+        # drift apart. Browsers trust the `w` descriptor when picking a
+        # candidate, so a wrong number silently selects the wrong file.
+        return build_srcset(
+            small_url=build_media_url(media.image_small, request=request) if media.image_small else None,
+            medium_url=build_media_url(media.image_medium, request=request) if media.image_medium else None,
+            large_url=build_media_url(media.image_large, request=request) if media.image_large else None,
+        ) or None
+
+    def _primary_media(self, obj):
+        return next((m for m in obj.media.all() if m.is_primary), None)
+
+    def _hover_media(self, obj):
+        """Second image in sort order, used for the card hover swap.
+
+        Requires the queryset to prefetch media ordered by
+        ("-is_primary", "sort_order") — see selectors.get_product_list.
+        """
+        media = list(obj.media.all())
+        return media[1] if len(media) > 1 else None
+
     def get_primary_image(self, obj) -> str | None:
-        primary = next((m for m in obj.media.all() if m.is_primary), None)
-        return build_media_url(primary.image, request=self.context.get("request")) if primary else None
+        return self._media_src(self._primary_media(obj))
+
+    def get_primary_image_srcset(self, obj) -> str | None:
+        return self._media_srcset(self._primary_media(obj))
 
     def get_hover_image(self, obj) -> str | None:
-        """Returns the second image in the media list as the hover image."""
-        media = list(obj.media.all())
-        if len(media) > 1:
-            return build_media_url(media[1].image, request=self.context.get("request"))
-        return None
+        return self._media_src(self._hover_media(obj))
+
+    def get_hover_image_srcset(self, obj) -> str | None:
+        return self._media_srcset(self._hover_media(obj))
 
     def get_price_range(self, obj) -> dict:
         return obj.price_range
@@ -402,18 +456,53 @@ class ProductListSerializer(serializers.ModelSerializer):
         return [v for v in obj.variants.all() if v.is_active]
 
     def get_total_stock(self, obj) -> int:
-        from django.db.models import Sum
-        try:
-            from apps.inventory.models import WarehouseStock
-            stock_qs = WarehouseStock.objects.filter(variant__product=obj, variant__is_active=True)
-            if stock_qs.exists():
-                return int(stock_qs.aggregate(total=Sum("available"))["total"] or 0)
-            raise Exception("No warehouse records")
-        except Exception:
-            return sum(int(v.stock_quantity or 0) for v in self._active_variants(obj))
+        """Total sellable units.
+
+        Previously ran two WarehouseStock queries per product (an .exists()
+        then an .aggregate()), i.e. 40 queries for a page of 20.
+
+        selectors.get_product_list / get_deal_products now annotate
+        `warehouse_stock_total` with the same Sum via a Subquery, so the common
+        path is free. Semantics are preserved exactly:
+          - warehouse rows exist  -> use their summed `available`
+          - no warehouse rows     -> fall back to the variants' stock_quantity
+
+        The annotation is None when the product has no warehouse rows, which is
+        the same signal the old `.exists()` check produced. If a caller passes a
+        queryset without the annotation we still avoid a per-row query and read
+        the prefetched variants instead.
+        """
+        annotated = getattr(obj, "warehouse_stock_total", _UNANNOTATED)
+        if annotated is not _UNANNOTATED and annotated is not None:
+            return int(annotated)
+        return sum(int(v.stock_quantity or 0) for v in self._active_variants(obj))
 
     def get_variant_count(self, obj) -> int:
         return len(self._active_variants(obj))
+
+
+# ─────────────────────────────────────────────────────────────
+#  Product — Admin list (adds per-warehouse stock detail)
+# ─────────────────────────────────────────────────────────────
+
+class AdminProductListSerializer(ProductListSerializer):
+    """Staff-facing product list.
+
+    `stock_summary` renders strings like "SKU-A: 12 | SKU-B: 3 | +4 more".
+    It used to sit on the public serializer, where it cost one WarehouseStock
+    query per product on every storefront listing, and leaked per-SKU inventory
+    levels to anonymous visitors. No frontend code outside the admin reads it.
+
+    It is still computed per-row here. That is acceptable because the admin
+    product list is low-traffic and paginated, whereas the storefront listing
+    is the hot path. If the admin list ever feels slow, annotate it the same
+    way `warehouse_stock_total` is annotated.
+    """
+
+    stock_summary = serializers.SerializerMethodField()
+
+    class Meta(ProductListSerializer.Meta):
+        fields = ProductListSerializer.Meta.fields + ["stock_summary"]
 
     def get_stock_summary(self, obj) -> str:
         try:

@@ -187,6 +187,13 @@ interface ListCardImageProps {
   hoverImage?: string | null;
 }
 
+// NOTE: `images` below is a deduped string[] that the hover carousel cycles
+// through by index. To use the API's new `primary_image_srcset` /
+// `hover_image_srcset` fields this needs to become {src, srcset}[], which also
+// touches the dedupe and the hover-media fetch on line ~217 (that path reads
+// `item.image`, the full-size master, and should read `item.image_medium`).
+// Deferred deliberately — `primary_image` already resolves to the medium
+// rendition server-side, so the bulk of the byte saving is live without it.
 const ListCardImage: React.FC<ListCardImageProps> = ({ productId, slug, name, primaryImage, hoverImage }) => {
   const [isHovered, setIsHovered] = useState(false);
   const [hoverMediaLoaded, setHoverMediaLoaded] = useState(false);

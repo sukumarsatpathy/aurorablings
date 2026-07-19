@@ -22,12 +22,55 @@ Pattern:
 
 from __future__ import annotations
 
-from django.db.models import QuerySet, Prefetch, Q, Min, Max, Count
+from django.db.models import (
+    QuerySet, Prefetch, Q, Min, Max, Count, Sum, Subquery, OuterRef, IntegerField,
+)
 from .models import (
     Category, Brand, Product, ProductMedia,
     Attribute, AttributeValue, ProductVariant,
     GlobalAttribute, GlobalAttributeOption, ProductAttributeConfig, ProductInfoItem,
 )
+
+
+# ─────────────────────────────────────────────────────────────
+#  Shared annotation subqueries
+# ─────────────────────────────────────────────────────────────
+#
+# These replace per-row queries that ProductListSerializer used to run. Both
+# are correlated subqueries rather than JOIN + GROUP BY: a Count/Sum annotation
+# over a reverse FK multiplies rows when combined with the media/variants
+# prefetches and any variant-based filter, which made the planner's job much
+# harder as soon as a price or attribute filter was applied.
+
+def _image_count_subquery():
+    return Subquery(
+        ProductMedia.objects
+        .filter(product_id=OuterRef("pk"))
+        .values("product_id")
+        .annotate(c=Count("id"))
+        .values("c")[:1],
+        output_field=IntegerField(),
+    )
+
+
+def _warehouse_stock_subquery():
+    """Summed `available` across active variants of the product.
+
+    Deliberately returns NULL (not 0) when the product has no warehouse rows.
+    ProductListSerializer.get_total_stock treats NULL as "no warehouse data"
+    and falls back to the variants' own stock_quantity, matching the behaviour
+    of the .exists() check this replaced.
+    """
+    from apps.inventory.models import WarehouseStock
+
+    return Subquery(
+        WarehouseStock.objects
+        .filter(variant__product_id=OuterRef("pk"), variant__is_active=True)
+        .values("variant__product_id")
+        .annotate(total=Sum("available"))
+        .values("total")[:1],
+        output_field=IntegerField(),
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -135,9 +178,18 @@ def get_product_list(
     """
     manager = Product.published if published_only else Product.all_objects
     qs = manager.select_related("category", "brand").annotate(
-        image_count=Count("media", distinct=True),
+        image_count=_image_count_subquery(),
+        warehouse_stock_total=_warehouse_stock_subquery(),
     ).prefetch_related(
-        Prefetch("media", queryset=ProductMedia.objects.filter(is_primary=True)),
+        # Ordered so index 0 is the primary and index 1 is the hover image.
+        # This previously filtered to is_primary=True, which meant the
+        # prefetched list never held more than one row and
+        # ProductListSerializer.get_hover_image always returned None —
+        # the hover swap has never worked in production.
+        Prefetch(
+            "media",
+            queryset=ProductMedia.objects.order_by("-is_primary", "sort_order"),
+        ),
         "variants",
     )
 
@@ -214,6 +266,12 @@ def get_deal_products(*, limit: int = 10) -> QuerySet:
             ),
             filter=Q(variants__id__in=active_variants)
         )
+    ).annotate(
+        # DealProductSerializer extends ProductListSerializer, so it reads the
+        # same annotations. Without these the deals carousel would fall back to
+        # the per-row path for total_stock and report no image_count.
+        image_count=_image_count_subquery(),
+        warehouse_stock_total=_warehouse_stock_subquery(),
     ).select_related("category", "brand").prefetch_related(
         Prefetch("media", queryset=ProductMedia.objects.all().order_by("sort_order")),
         Prefetch("variants", queryset=active_variants)

@@ -181,7 +181,15 @@ class Product(SoftDeleteModel):
 
     @property
     def price_range(self) -> dict:
-        prices = [v.effective_price for v in self.variants.filter(is_active=True)]
+        # Iterate the prefetch cache and filter in Python. Calling .filter() on
+        # a prefetched relation discards the cache and issues a fresh query, so
+        # the previous `self.variants.filter(is_active=True)` cost one query per
+        # product on every listing page -- the classic Django N+1.
+        #
+        # `.all()` reads the cache when the caller prefetched "variants", and
+        # falls back to a single query when it did not (e.g. the admin detail
+        # view), so behaviour is identical either way.
+        prices = [v.effective_price for v in self.variants.all() if v.is_active]
         if not prices:
             return {"min": None, "max": None}
         return {"min": min(prices), "max": max(prices)}

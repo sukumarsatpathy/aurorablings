@@ -24,11 +24,20 @@ export function useLenis() {
 
     let rafId = 0;
 
+    // Writing a custom property on <html> invalidates style for every element
+    // that inherits it — i.e. the whole document — so doing it on every scroll
+    // frame was measurable. --scroll-velocity only drives subtle effects, so a
+    // small dead zone is imperceptible and skips the majority of writes.
+    let lastVelocity = 0;
+
     lenis.on('scroll', ({ velocity }) => {
       ScrollTrigger.update();
       // Small, clamped value for subtle velocity-reactive UI details.
       const clamped = Math.max(-3, Math.min(3, velocity));
-      document.documentElement.style.setProperty('--scroll-velocity', clamped.toFixed(3));
+      if (Math.abs(clamped - lastVelocity) > 0.05) {
+        lastVelocity = clamped;
+        document.documentElement.style.setProperty('--scroll-velocity', clamped.toFixed(2));
+      }
     });
 
     function raf(time: number) {

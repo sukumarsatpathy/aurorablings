@@ -29,7 +29,8 @@ from .models import (
 from .serializers import (
     CategorySerializer, CategoryTreeSerializer,
     BrandSerializer,
-    ProductListSerializer, ProductDetailSerializer, ProductWriteSerializer,
+    ProductListSerializer, AdminProductListSerializer,
+    ProductDetailSerializer, ProductWriteSerializer,
     ProductVariantSerializer, ProductVariantWriteSerializer,
     AttributeSerializer, AttributeValueSerializer,
     ProductAttributeWriteSerializer,
@@ -173,9 +174,15 @@ class ProductViewSet(BaseViewSet):
 
     # ── List ──────────────────────────────────────────────────
     def list(self, request):
-        qs = selectors.get_product_list(published_only=not _is_catalog_staff(request.user))
+        is_staff = _is_catalog_staff(request.user)
+        qs = selectors.get_product_list(published_only=not is_staff)
         qs = self.filter_queryset(qs)
-        return self.paginate(qs, ProductListSerializer)
+        # Staff get the extra stock_summary column; anonymous shoppers do not.
+        # Besides saving a WarehouseStock query per row on the storefront's
+        # hottest endpoint, this stops per-SKU inventory levels being served
+        # to unauthenticated visitors.
+        serializer_class = AdminProductListSerializer if is_staff else ProductListSerializer
+        return self.paginate(qs, serializer_class)
 
     @action(detail=False, methods=["get"])
     def deals(self, request):

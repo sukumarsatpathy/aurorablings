@@ -7,12 +7,20 @@ import { PremiumCursor } from '@/components/storefront/PremiumCursor';
 import { BackgroundDecoration } from '@/components/storefront/BackgroundDecoration';
 import { SignInModal } from '@/components/storefront/SignInModal';
 import { gsap, shouldAnimate } from '@/animations/gsapConfig';
+import { useLenis } from '@/hooks/useLenis';
 
 interface LayoutProps {
   children: React.ReactNode;
 }
 
 export const MainLayout: React.FC<LayoutProps> = ({ children }) => {
+  // Smooth scroll belongs to the storefront only. This used to be called in
+  // AppContent at the app root, so its requestAnimationFrame loop — which calls
+  // ScrollTrigger.update() and writes a CSS variable on <html> every frame —
+  // also ran for the whole time an admin was using the dashboard, where smooth
+  // scrolling is neither wanted nor used.
+  useLenis();
+
   const mainRef = useRef<HTMLElement>(null);
   const location = useLocation();
   const navigate = useNavigate();

@@ -22,7 +22,15 @@ export const HomePage: React.FC = () => {
   const dealRef = useRef<HTMLElement>(null);
   const newArrivalsRef = useRef<HTMLElement>(null);
 
-  useScrollReveal(heroRef, { type: 'blur', duration: 1, threshold: 0.01 });
+  // The hero is deliberately NOT scroll-revealed.
+  //
+  // useScrollReveal sets autoAlpha: 0 as its initial state inside a
+  // useLayoutEffect, so the element it is applied to is invisible until GSAP
+  // has loaded, initialised and run its tween. For an above-the-fold hero that
+  // means the LCP element does not paint for ~1s longer than it needs to —
+  // LCP is measured on actual paint, so this was directly inflating it.
+  //
+  // Below-the-fold sections keep their reveals: they cost nothing there.
   useScrollReveal(categoryRef, {
     type: 'fade-up',
     threshold: 0.01,

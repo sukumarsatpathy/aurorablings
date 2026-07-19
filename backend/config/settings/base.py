@@ -109,6 +109,16 @@ DATABASES = {
     'default': env.db('DATABASE_URL', default='sqlite:///db.sqlite3')
 }
 
+# Persistent database connections.
+# Django defaults CONN_MAX_AGE to 0, which opens and tears down a new
+# connection on every single request (5-30ms of TCP+TLS overhead each time).
+# Each gunicorn worker holds one connection open, so keep
+# (workers * threads) comfortably below the server's max_connections.
+# CONN_HEALTH_CHECKS pings a pooled connection before reuse so a connection
+# dropped server-side surfaces as a retry rather than a 500.
+DATABASES['default']['CONN_MAX_AGE'] = env.int('DB_CONN_MAX_AGE', default=60)
+DATABASES['default']['CONN_HEALTH_CHECKS'] = True
+
 # Password validation
 AUTH_PASSWORD_VALIDATORS = [
     {'NAME': 'django.contrib.auth.password_validation.UserAttributeSimilarityValidator'},

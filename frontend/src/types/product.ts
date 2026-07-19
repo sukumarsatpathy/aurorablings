@@ -31,6 +31,18 @@ export interface DealProduct {
   rating: string;
   primary_image: string | null;
   hover_image: string | null;
+  /**
+   * Responsive `srcset` strings for the two card images, e.g.
+   * "https://.../a_small.webp 400w, https://.../a_medium.webp 800w".
+   * Optional: null on media rows predating the derivative migration.
+   *
+   * Not yet consumed by the card components — see note in
+   * ProductListingPage's ListCardImage. `primary_image` / `hover_image`
+   * already point at the medium rendition, so the size win lands
+   * without these.
+   */
+  primary_image_srcset?: string | null;
+  hover_image_srcset?: string | null;
   price_range: {
     min: string | null;
     max: string | null;
