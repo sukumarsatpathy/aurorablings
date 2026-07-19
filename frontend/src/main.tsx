@@ -82,7 +82,7 @@ const bootstrapGTM = async () => {
  */
 const whenIdle = (fn: () => void) => {
   if (typeof window === 'undefined') return
-  if ('requestIdleCallback' in window) {
+  if (typeof window.requestIdleCallback === 'function') {
     window.requestIdleCallback(fn, { timeout: 3000 })
   } else {
     window.setTimeout(fn, 1000)
