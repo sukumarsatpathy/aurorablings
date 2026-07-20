@@ -1,4 +1,5 @@
 import apiClient from '../services/api/client';
+import { toUploadProgress } from '../services/api/uploadProgress';
 
 export const bannersApi = {
   /**
@@ -23,9 +24,10 @@ export const bannersApi = {
    * Creates a new banner.
    * POST /api/v1/banners/
    */
-  create: async (formData) => {
+  create: async (formData, onProgress) => {
     const response = await apiClient.post('/v1/banners/', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data;
   },
@@ -34,9 +36,10 @@ export const bannersApi = {
    * Updates an existing banner.
    * PATCH /api/v1/banners/{id}/
    */
-  update: async (id, formData) => {
+  update: async (id, formData, onProgress) => {
     const response = await apiClient.patch(`/v1/banners/${id}/`, formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data;
   },

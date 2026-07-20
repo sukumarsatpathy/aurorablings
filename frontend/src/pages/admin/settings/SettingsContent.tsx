@@ -189,6 +189,7 @@ export const SettingsContent: React.FC<Props> = ({
   const [quickValues, setQuickValues] = useState<Record<string, string>>({});
   const [savingKey, setSavingKey] = useState('');
   const [uploadingKey, setUploadingKey] = useState('');
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const fileInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const isBrandingAssetSetting = (settingKey: string) =>
@@ -258,7 +259,8 @@ export const SettingsContent: React.FC<Props> = ({
   const uploadBrandingAsset = async (setting: AppSetting, file: File) => {
     try {
       setUploadingKey(setting.key);
-      const response = await settingsService.uploadAsset(file, setting.key);
+      setUploadPercent(0);
+      const response = await settingsService.uploadAsset(file, setting.key, (percent) => setUploadPercent(percent));
       const payload = response?.data || response || {};
       const uploadedUrl = String(payload.url || payload.absolute_url || '').trim();
       if (!uploadedUrl) {
@@ -282,6 +284,7 @@ export const SettingsContent: React.FC<Props> = ({
       onToast('error', error?.response?.data?.message || 'Failed to upload branding asset.');
     } finally {
       setUploadingKey('');
+      setUploadPercent(null);
     }
   };
 
@@ -380,7 +383,9 @@ export const SettingsContent: React.FC<Props> = ({
                           onClick={() => fileInputRefs.current[setting.key]?.click()}
                         >
                           {uploadingKey === setting.key
-                            ? 'Uploading...'
+                            ? (uploadPercent !== null && uploadPercent < 100
+                                ? `Uploading ${uploadPercent}%...`
+                                : 'Processing...')
                             : setting.key === 'branding_favicon_url'
                               ? 'Upload Favicon'
                               : 'Upload Logo'}

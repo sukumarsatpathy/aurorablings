@@ -18,6 +18,7 @@ import {
   ModalFooter,
 } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import UploadOverlay from '@/components/ui/UploadOverlay';
 import catalogService from '@/services/api/catalog';
 
 interface Category {
@@ -71,6 +72,7 @@ export const CategoryManagement: React.FC = () => {
   const [editingCategory, setEditingCategory] = useState<Category | null>(null);
   const [formData, setFormData] = useState<CategoryFormState>(DEFAULT_FORM);
   const [isSaving, setIsSaving] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
 
   const [categoryToDelete, setCategoryToDelete] = useState<Category | null>(null);
 
@@ -176,10 +178,12 @@ export const CategoryManagement: React.FC = () => {
 
     try {
       setIsSaving(true);
+      const onProgress = formData.image ? (percent: number) => setUploadPercent(percent) : undefined;
+      if (formData.image) setUploadPercent(0);
       if (editingCategory) {
-        await catalogService.updateCategory(editingCategory.id, data);
+        await catalogService.updateCategory(editingCategory.id, data, onProgress);
       } else {
-        await catalogService.createCategory(data);
+        await catalogService.createCategory(data, onProgress);
       }
       setIsModalOpen(false);
       await loadData();
@@ -188,6 +192,7 @@ export const CategoryManagement: React.FC = () => {
       alert(message);
     } finally {
       setIsSaving(false);
+      setUploadPercent(null);
     }
   };
 
@@ -377,6 +382,16 @@ export const CategoryManagement: React.FC = () => {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      <UploadOverlay
+        visible={isSaving}
+        message={
+          uploadPercent !== null
+            ? (uploadPercent >= 100 ? 'Compressing image...' : 'Uploading category image...')
+            : 'Saving category...'
+        }
+        percent={uploadPercent}
+      />
 
       <ConfirmDialog
         open={Boolean(categoryToDelete)}

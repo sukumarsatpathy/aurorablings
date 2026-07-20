@@ -1,5 +1,6 @@
 import apiClient from './client';
 import type { AppSettingWriteData } from '@/types/setting';
+import { toUploadProgress, type UploadProgressHandler } from './uploadProgress';
 
 const settingsService = {
   getPublic: async () => {
@@ -27,13 +28,14 @@ const settingsService = {
     return response.data;
   },
 
-  uploadAsset: async (file: File, key?: string) => {
+  uploadAsset: async (file: File, key?: string, onProgress?: UploadProgressHandler) => {
     const formData = new FormData();
     formData.append('file', file);
     if (key) formData.append('key', key);
 
     const response = await apiClient.post('/v1/features/settings/upload/', formData, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data;
   },

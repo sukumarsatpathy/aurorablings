@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { toUploadProgress, type UploadProgressHandler } from './uploadProgress';
 
 export interface CatalogCategory {
   id: string;
@@ -213,16 +214,18 @@ const catalogService = {
     return allRows;
   },
 
-  createCategory: async (payload: FormData | { name: string; is_active?: boolean }) => {
+  createCategory: async (payload: FormData | { name: string; is_active?: boolean }, onProgress?: UploadProgressHandler) => {
     const response = await apiClient.post('/v1/catalog/categories/', payload, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data;
   },
 
-  updateCategory: async (id: string, payload: FormData | { name?: string; is_active?: boolean; description?: string }) => {
+  updateCategory: async (id: string, payload: FormData | { name?: string; is_active?: boolean; description?: string }, onProgress?: UploadProgressHandler) => {
     const response = await apiClient.patch(`/v1/catalog/categories/${id}/`, payload, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data;
   },
@@ -376,7 +379,8 @@ const catalogService = {
   uploadProductMedia: async (
     productId: string,
     file: File,
-    data?: { alt_text?: string; is_primary?: boolean; sort_order?: number }
+    data?: { alt_text?: string; is_primary?: boolean; sort_order?: number },
+    onProgress?: UploadProgressHandler
   ) => {
     const form = new FormData();
     form.append('image', file);
@@ -386,6 +390,7 @@ const catalogService = {
 
     const response = await apiClient.post(`/v1/catalog/products/${productId}/media/`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data;
   },

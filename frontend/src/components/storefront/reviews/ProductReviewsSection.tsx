@@ -66,14 +66,20 @@ function ReviewFormModal({
   const [error, setError] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const [uploadPercent, setUploadPercent] = useState<number | null>(null);
   const { turnstileEnabled, turnstileSiteKey } = useTurnstileConfig();
 
   const mutation = useMutation({
     mutationFn: async () => {
+      const onProgress = images.length > 0 ? (percent: number) => setUploadPercent(percent) : undefined;
+      if (images.length > 0) setUploadPercent(0);
       if (reviewId) {
-        return reviewsService.updateReview(reviewId, { rating, title, comment, images });
+        return reviewsService.updateReview(reviewId, { rating, title, comment, images }, onProgress);
       }
-      return reviewsService.createReview(productId, { rating, title, comment, images, turnstile_token: turnstileToken });
+      return reviewsService.createReview(productId, { rating, title, comment, images, turnstile_token: turnstileToken }, onProgress);
+    },
+    onSettled: () => {
+      setUploadPercent(null);
     },
     onSuccess: () => {
       setMessage('Thanks. Your review has been submitted for approval.');
@@ -188,7 +194,11 @@ function ReviewFormModal({
               Close
             </Button>
             <Button type="submit" disabled={mutation.isPending || comment.trim().length === 0}>
-              {mutation.isPending ? 'Submitting...' : reviewId ? 'Update Review' : 'Submit Review'}
+              {mutation.isPending
+                ? (uploadPercent !== null && uploadPercent < 100
+                    ? `Uploading ${uploadPercent}%...`
+                    : 'Submitting...')
+                : reviewId ? 'Update Review' : 'Submit Review'}
             </Button>
           </ModalFooter>
         </form>

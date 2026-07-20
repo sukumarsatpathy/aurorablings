@@ -19,6 +19,7 @@ import {
   ModalFooter,
 } from '@/components/ui/Modal';
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
+import UploadOverlay from '@/components/ui/UploadOverlay';
 import catalogService, { type CatalogProductDetail } from '@/services/api/catalog';
 import { useCurrency } from '@/hooks/useCurrency';
 import { LexicalHtmlEditor } from '@/components/admin/LexicalHtmlEditor';
@@ -332,6 +333,7 @@ export const ProductManagement: React.FC = () => {
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [loading, setLoading] = useState(true);
   const [isSaving, setIsSaving] = useState(false);
+  const [uploadStatus, setUploadStatus] = useState<{ message: string; percent: number | null } | null>(null);
 
   const [isModalOpen, setIsModalOpen] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
@@ -873,6 +875,8 @@ export const ProductManagement: React.FC = () => {
 
   const syncMedia = async (productId: string) => {
     const keptPersistedIds = new Set<string>();
+    const totalNewUploads = formData.media.filter((m) => !m.persisted && m.file).length;
+    let uploadIndex = 0;
 
     for (let i = 0; i < formData.media.length; i += 1) {
       const m = formData.media[i];
@@ -884,15 +888,31 @@ export const ProductManagement: React.FC = () => {
           sort_order: i,
         });
       } else if (m.file) {
-        const uploaded = await catalogService.uploadProductMedia(productId, m.file, {
-          alt_text: m.altText,
-          is_primary: m.isPrimary,
-          sort_order: i,
-        });
+        uploadIndex += 1;
+        const label = `Uploading image ${uploadIndex} of ${totalNewUploads}...`;
+        setUploadStatus({ message: label, percent: 0 });
+        const uploaded = await catalogService.uploadProductMedia(
+          productId,
+          m.file,
+          {
+            alt_text: m.altText,
+            is_primary: m.isPrimary,
+            sort_order: i,
+          },
+          (percent) => {
+            setUploadStatus({
+              message: percent >= 100
+                ? `Compressing image ${uploadIndex} of ${totalNewUploads}...`
+                : label,
+              percent,
+            });
+          }
+        );
         const uploadedId = uploaded?.data?.id;
         if (uploadedId) keptPersistedIds.add(String(uploadedId));
       }
     }
+    setUploadStatus(null);
 
     for (const oldId of originalMediaIds) {
       if (!keptPersistedIds.has(oldId)) {
@@ -1041,6 +1061,7 @@ export const ProductManagement: React.FC = () => {
       alert(message);
     } finally {
       setIsSaving(false);
+      setUploadStatus(null);
     }
   };
 
@@ -1909,6 +1930,12 @@ export const ProductManagement: React.FC = () => {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      <UploadOverlay
+        visible={isSaving}
+        message={uploadStatus?.message || 'Saving product...'}
+        percent={uploadStatus?.percent ?? null}
+      />
 
       <ConfirmDialog
         open={Boolean(productToDelete)}

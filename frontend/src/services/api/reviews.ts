@@ -1,4 +1,5 @@
 import apiClient from './client';
+import { toUploadProgress, type UploadProgressHandler } from './uploadProgress';
 
 export type ReviewSort = 'newest' | 'highest_rating' | 'lowest_rating' | 'most_helpful' | 'featured_first';
 export type ReviewVoteType = 'helpful' | 'unhelpful';
@@ -104,7 +105,7 @@ const reviewsService = {
     return response.data?.data;
   },
 
-  async createReview(productId: string, payload: { rating: number; title?: string; comment: string; images?: File[]; turnstile_token?: string }): Promise<MyReview> {
+  async createReview(productId: string, payload: { rating: number; title?: string; comment: string; images?: File[]; turnstile_token?: string }, onProgress?: UploadProgressHandler): Promise<MyReview> {
     const form = new FormData();
     form.append('rating', String(payload.rating));
     if (payload.title) form.append('title', payload.title);
@@ -114,11 +115,12 @@ const reviewsService = {
 
     const response = await apiClient.post(`/v1/reviews/products/${productId}/reviews/`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data?.data;
   },
 
-  async updateReview(reviewId: string, payload: { rating: number; title?: string; comment: string; images?: File[]; turnstile_token?: string }): Promise<MyReview> {
+  async updateReview(reviewId: string, payload: { rating: number; title?: string; comment: string; images?: File[]; turnstile_token?: string }, onProgress?: UploadProgressHandler): Promise<MyReview> {
     const form = new FormData();
     form.append('rating', String(payload.rating));
     if (payload.title) form.append('title', payload.title);
@@ -128,6 +130,7 @@ const reviewsService = {
 
     const response = await apiClient.patch(`/v1/reviews/reviews/${reviewId}/`, form, {
       headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
     });
     return response.data?.data;
   },

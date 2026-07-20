@@ -3,6 +3,7 @@ import BannerList from '../../../components/admin/BannerList/BannerList';
 import BannerEditForm from '../../../components/admin/BannerEditForm/BannerEditForm';
 import BannerPreview from '../../../components/admin/BannerPreview/BannerPreview';
 import { bannersApi } from '../../../api/bannersApi';
+import UploadOverlay from '../../../components/ui/UploadOverlay';
 import styles from './AdminBannersPage.module.css';
 
 const AdminBannersPage = () => {
@@ -12,6 +13,7 @@ const AdminBannersPage = () => {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState('');
   const [saving, setSaving] = useState(false);
+  const [uploadPercent, setUploadPercent] = useState(null);
 
   useEffect(() => {
     fetchBanners();
@@ -142,10 +144,14 @@ const AdminBannersPage = () => {
         }
       });
 
+      const hasImage = Boolean(formData.imageFile);
+      const onProgress = hasImage ? (percent) => setUploadPercent(percent) : undefined;
+      if (hasImage) setUploadPercent(0);
+
       if (!isNew) {
-        await bannersApi.update(formData.id, data);
+        await bannersApi.update(formData.id, data, onProgress);
       } else {
-        await bannersApi.create(data);
+        await bannersApi.create(data, onProgress);
       }
       fetchBanners();
       setSelectedBanner(null);
@@ -156,6 +162,7 @@ const AdminBannersPage = () => {
       setError(apiMessage || 'Failed to save banner. Please check the inputs.');
     } finally {
       setSaving(false);
+      setUploadPercent(null);
     }
   };
 
@@ -198,9 +205,15 @@ const AdminBannersPage = () => {
               }}
               onChange={handleFormChange}
             />
-            {saving ? (
-              <div className="mt-3 text-xs text-muted-foreground">Saving banner...</div>
-            ) : null}
+            <UploadOverlay
+              visible={saving}
+              message={
+                uploadPercent !== null
+                  ? (uploadPercent >= 100 ? 'Compressing image...' : 'Uploading banner image...')
+                  : 'Saving banner...'
+              }
+              percent={uploadPercent}
+            />
             <div className="mt-8">
               <BannerPreview banners={previewBanners} />
             </div>
