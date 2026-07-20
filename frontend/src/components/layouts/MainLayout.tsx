@@ -33,6 +33,16 @@ export const MainLayout: React.FC<LayoutProps> = ({ children }) => {
       return;
     }
 
+    // The pre-hydration shell (see index.html) already painted the homepage
+    // hero before React loaded. Fading <main> in from autoAlpha:0 here would
+    // hide content the visitor is ALREADY looking at and replay it — a
+    // visible flash that also delays the "settled" paint. Skip the entrance
+    // tween once, for that first hydration; route changes animate as before.
+    if ((window as unknown as { __SHELL_PAINTED__?: boolean }).__SHELL_PAINTED__) {
+      delete (window as unknown as { __SHELL_PAINTED__?: boolean }).__SHELL_PAINTED__;
+      return;
+    }
+
     gsap.fromTo(
       mainRef.current,
       { autoAlpha: 0, y: 10 },

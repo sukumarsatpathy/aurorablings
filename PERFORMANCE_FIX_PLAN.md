@@ -347,3 +347,86 @@ since it was never compiled.
 **Scripts**
 
 - `scripts/restore_local.sh` — chown after `docker cp`
+
+---
+
+# Lighthouse 73 → 100 push: Phases 1–3 (as-built, 2026-07-21)
+
+Baseline after the original 14 changes: mobile 73 (FCP 3.4s, LCP 4.3s, SI 6.4s,
+TBT 70ms, CLS 0). Everything below attacks the remaining problem: a CSR SPA
+paints nothing until HTML → CSS → JS → API → image completes.
+
+## Phase 1 — critical path trims
+
+- **Critical CSS inlined at build** — `frontend/scripts/inline-critical.mjs`
+  (Beasties, new devDependency) runs as part of `npm run build`. Inlines
+  above-the-fold rules into `dist/index.html`; full stylesheets demoted to
+  `media="print"` swap + `<noscript>` fallback. Hashed CSS files unchanged, so
+  immutable caching still holds.
+- **Cache lifetimes** — `aurorablings.conf.template`: `/assets/` now 1y
+  immutable with hard 404 (no SPA fallback), `index.html` `no-cache`.
+  `frontend.conf`: `no-cache` on the SPA fallback. `nginx.prod.conf` already
+  had `/assets/` right.
+- **Forced reflow** — `useLenis` defers Lenis + ScrollTrigger init past first
+  paint (double rAF → `requestIdleCallback`, 1.5s cap). Native scroll in the
+  gap; only `MainLayout` consumes the hook.
+- **Image delivery** — no code change; pipeline already emits AVIF/WebP
+  derivatives. Operational: run `backfill_banner_variants` and
+  `backfill_media_variants` after deploy.
+
+## Phase 2 — break the LCP request chain (SSI bootstrap)
+
+`index.html` now carries
+`<!--#include virtual="/api/v1/banners/bootstrap-fragment/?uri=$request_uri" -->`.
+nginx (`ssi on; ssi_silent_errors on;` in both configs; docker proxy also
+forces `Accept-Encoding ""` so SSI can parse upstream HTML) resolves it as a
+subrequest to the new `backend/apps/banners/bootstrap.py` view, which returns
+(Redis-cached 5 min, two variants, invalidated with the banner cache in
+`tasks.py`):
+
+- a `<link rel="preload" as="image">` for the **top-left** banner — the LCP
+  card on every breakpoint; selection is by `position`, NOT `order` — AVIF
+  srcset when all three derivatives exist, WebP otherwise, homepage only
+  (`?uri=` guard);
+- `window.__BOOT__` with the active banners + public settings, consumed by
+  `usePromoBanners`, `settingsService.getPublic` (feeds useBranding /
+  useCurrency), and the GTM bootstrap in `main.tsx` via `src/services/boot.ts`.
+
+Failure mode: backend down → include silently vanishes → SPA fetches the APIs
+exactly as before. Deploy order between backend/frontend/nginx is irrelevant.
+
+## Phase 3 — pre-hydration hero shell
+
+A plain inline script inside `#root` (index.html) renders the top-left banner
+card from `window.__BOOT__` synchronously during HTML parse — before the
+module bundle is even requested. FCP/LCP now happen at HTML+image speed.
+Geometry mirrors the module CSS (220px rows ≤1024px; 1.3fr column / 456px on
+desktop) via hand-written `ab-shell-*` classes that Beasties and CSS modules
+can't touch. React's first commit replaces the subtree; same image URL, so the
+swap repaints from cache. `MainLayout` skips its entrance fade exactly once
+when `__SHELL_PAINTED__` is set, so hydration doesn't hide content the visitor
+is already reading. Non-home routes and dev mode: script no-ops.
+
+## Verified
+
+- Frontend: clean Linux install + `tsc -b` + `vite build` + Beasties step all
+  pass; SSI directive and shell survive the build.
+- jsdom end-to-end: fragment spliced where nginx would put it → `__BOOT__`
+  parsed, AVIF preload targets top-left, shell renders inside `#root` with
+  correct bg/priority, no shell on `/product/x`.
+- Backend: `py_compile` + logic simulation of `_preload_tag` /
+  `_script_safe_json` (escaping verified against `</script>` injection).
+- NOT verified: a running Django (env can't boot it) or a real Lighthouse run.
+
+## Before you ship
+
+1. `npm install` (new devDependency: beasties), then `npm run build` — expect
+   "inline-critical: critical CSS inlined into dist/index.html".
+2. Deploy backend (no migrations) + frontend; copy nginx config; reload nginx.
+3. Run both backfill commands if any banner/product predates the AVIF fields.
+4. Smoke: `curl -s https://aurorablings.com/ | grep -c __BOOT__` → 1; preload
+   tag present on `/`, absent on a product URL; hero visible with JS disabled
+   modulo fonts.
+5. Re-run Lighthouse mobile + desktop; expected mobile high-80s→95+,
+   desktop ~100. Residual gap, if any, will be font loading or third-party
+   tags — measure before touching anything else.

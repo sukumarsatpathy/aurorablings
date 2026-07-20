@@ -3,6 +3,7 @@ import { createRoot } from 'react-dom/client'
 import './index.css'
 import App from './App.tsx'
 import trackingLoader from './services/trackingLoader'
+import { getBootSettings } from './services/boot'
 
 declare global {
   interface Window {
@@ -50,6 +51,17 @@ const parsePublicGtmPayload = (raw: any) => {
 const bootstrapGTM = async () => {
   ensureBootstrapDataLayer()
   try {
+    // Fast path: public settings were server-injected via window.__BOOT__
+    // (nginx SSI, see backend/apps/banners/bootstrap.py) — no fetch needed.
+    const bootSettings = getBootSettings()
+    if (bootSettings) {
+      const { gtmId, isEnabled } = parsePublicGtmPayload(bootSettings)
+      if (isEnabled && gtmId) {
+        trackingLoader.loadGTM(gtmId)
+      }
+      return
+    }
+
     const apiBase = String(import.meta.env.VITE_API_BASE_URL || '/api').replace(/\/$/, '')
     const response = await fetch(`${apiBase}/v1/features/public-settings/`, {
       method: 'GET',

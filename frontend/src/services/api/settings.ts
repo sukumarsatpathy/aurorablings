@@ -1,9 +1,17 @@
 import apiClient from './client';
 import type { AppSettingWriteData } from '@/types/setting';
 import { toUploadProgress, type UploadProgressHandler } from './uploadProgress';
+import { getBootSettings } from '../boot';
 
 const settingsService = {
   getPublic: async () => {
+    // Fast path: settings were server-injected into index.html (window.__BOOT__)
+    // so storefront boot (useBranding/useCurrency) needs no API round trip.
+    // Same envelope shape as the API: callers read `response.data`.
+    const bootSettings = getBootSettings();
+    if (bootSettings) {
+      return { data: bootSettings };
+    }
     const response = await apiClient.get('/v1/features/public-settings/');
     return response.data;
   },

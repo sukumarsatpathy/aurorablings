@@ -4,22 +4,50 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
 
-    <!-- NO hero preload here, deliberately. Do not add one back without reading this.
+    <!-- NO static hero preload here, deliberately. Do not add one without reading this.
          There used to be:
            <link rel="preload" as="image" href="/media/banner-1200.webp" fetchpriority="high" />
          That was wrong on two counts. banner-1200.webp is only the *fallback*
          image inside DualPromoBanner, which is lazy-imported and sits below the
-         deals section on the homepage — it is not the LCP element. And this tag
-         is in the shared shell, so every route paid for a high-priority download
-         of an off-screen image that competed with the real LCP request.
+         deals section on the homepage — it is not the LCP element. And a static
+         tag in this shared shell makes every route pay for a high-priority
+         download of an off-screen image competing with the real LCP request.
          The actual LCP element is the first PromoBannerCard, whose URL comes
-         from the banners API and is therefore not knowable at build time. It is
-         prioritised at the element instead, via priority on OptimizedImage
-         (loading=eager + fetchpriority=high). See PromoBannerGrid.jsx. -->
+         from the banners API and is therefore not knowable at build time.
+
+         Both problems are solved by the SSI include below: nginx asks the
+         backend (per request, Redis-cached) for a fragment containing the
+         current first banner's preload — emitted only when the requested page
+         is the homepage — plus window.__BOOT__ with the banners and public
+         settings, so React boots without waiting on those two API calls.
+         See backend/apps/banners/bootstrap.py and deploy/nginx/*.
+         In dev (vite serve) the include is inert HTML comment; the app then
+         falls back to fetching the APIs as before. -->
+    <!--#include virtual="/api/v1/banners/bootstrap-fragment/?uri=$request_uri" -->
     <!-- The GTM bootstrap that used to live here has been removed. It ran a
          duplicate fetch of /api/v1/features/public-settings/ (main.tsx makes
          the same call) and blocked the parser on the critical path.
-         GTM is now loaded from src/main.tsx during browser idle time. -->
+         GTM is now loaded from src/main.tsx during browser idle time, fed by
+         window.__BOOT__.settings when the SSI fragment supplied it. -->
+    <style>
+      /* Styles for the pre-hydration hero shell in <body>. Hand-written plain
+         classes (ab-shell-*) so Beasties never touches them and they cannot
+         collide with hashed CSS-module names. Geometry must track
+         PromoBannerGrid.module.css / PromoBannerCard.module.css and the
+         section wrapper in HomePage.tsx (pt-24 pb-12, container mx-auto). */
+      .ab-shell { padding: 6rem 0 3rem; }
+      .ab-shell-container { width: 100%; max-width: 1536px; margin: 0 auto; }
+      .ab-shell-grid { padding: 1rem; }
+      .ab-shell-card {
+        position: relative; overflow: hidden; border-radius: 18px;
+        height: 220px; background-color: #f5f0eb;
+      }
+      @media (min-width: 1025px) {
+        /* top-left card spans two desktop grid rows: 224 + 216 + 1rem gap */
+        .ab-shell-grid { display: grid; grid-template-columns: minmax(0, 1.3fr) minmax(0, 1fr); gap: 1rem; }
+        .ab-shell-card { height: 456px; }
+      }
+    </style>
     <link rel="icon" href="data:," />
     <meta
       name="description"
@@ -42,7 +70,57 @@
     <title>Aurora Blings</title>
   </head>
   <body>
-    <div id="root"></div>
+    <div id="root"><script>
+      /* Pre-hydration hero shell (homepage only).
+         Renders the LCP banner card from window.__BOOT__ (injected by nginx
+         SSI, see backend/apps/banners/bootstrap.py) DURING HTML PARSE — before
+         the module bundle is even fetched. FCP/LCP therefore happen at
+         HTML+image speed instead of HTML+JS+render speed. React later replaces
+         this subtree wholesale on its first commit; the real card reuses the
+         exact same image URL, so the swap repaints from cache without a fetch.
+         Geometry mirrors PromoBannerGrid/PromoBannerCard module CSS (220px
+         rows ≤1024px; 1.3fr column, 456px span on desktop) closely enough
+         that the replacement causes no layout shift. Must stay a plain inline
+         script (not type=module) so it executes synchronously in the parser.
+         If __BOOT__ is absent (dev, SSI failure) it does nothing and the app
+         renders exactly as before. */
+      (function () {
+        try {
+          if (location.pathname !== '/') return;
+          var banners = (window.__BOOT__ || {}).banners;
+          if (!banners || !banners.length) return;
+          var b = null;
+          for (var i = 0; i < banners.length; i++) {
+            if (banners[i] && banners[i].position === 'top-left') { b = banners[i]; break; }
+          }
+          b = b || banners[0];
+          var large = b.image_large || b.image;
+          if (!large) return;
+          var sizes = '(max-width: 1024px) 100vw, (max-width: 1536px) 60vw, 900px';
+          var srcset = [];
+          if (b.image_small) srcset.push(b.image_small + ' 480w');
+          if (b.image_medium) srcset.push(b.image_medium + ' 768w');
+          srcset.push(large + ' 1200w');
+          var esc = function (s) { return String(s).replace(/&/g, '&amp;').replace(/"/g, '&quot;').replace(/</g, '&lt;'); };
+          var img = '<img src="' + esc(large) + '" srcset="' + esc(srcset.join(', ')) +
+            '" sizes="' + esc(sizes) + '" alt="' + esc(b.title || 'Promotional banner') +
+            '" width="1200" height="700" fetchpriority="high" decoding="sync"' +
+            ' style="width:100%;height:100%;object-fit:cover">';
+          var pic = img;
+          if (b.image_avif_small && b.image_avif_medium && b.image_avif_large) {
+            pic = '<picture><source type="image/avif" srcset="' +
+              esc(b.image_avif_small + ' 480w, ' + b.image_avif_medium + ' 768w, ' + b.image_avif_large + ' 1200w') +
+              '" sizes="' + esc(sizes) + '">' + img + '</picture>';
+          }
+          var bg = /^#[0-9a-fA-F]{3,8}$/.test(b.bg_color || '') ? b.bg_color : '#f5f0eb';
+          document.currentScript.parentNode.insertAdjacentHTML('afterbegin',
+            '<section class="ab-shell"><div class="ab-shell-container"><div class="ab-shell-grid">' +
+            '<div class="ab-shell-card" style="background-color:' + bg + '">' + pic +
+            '</div></div></div></section>');
+          window.__SHELL_PAINTED__ = true;
+        } catch (e) { /* shell is best-effort; React renders regardless */ }
+      })();
+    </script></div>
     <script type="module" src="/src/main.tsx"></script>
   </body>
 </html>

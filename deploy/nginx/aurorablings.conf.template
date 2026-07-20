@@ -76,9 +76,38 @@ server {
         proxy_read_timeout 60;
     }
 
+    # Vite emits content-hashed files into /assets/ — safe to cache forever.
+    # No SPA fallback here: a missing asset must 404, never return index.html
+    # as application/javascript.
+    location ^~ /assets/ {
+        root /srv/aurorablings/current/frontend/dist;
+        try_files $uri =404;
+        access_log off;
+        expires 365d;
+        add_header Cache-Control "public, max-age=31536000, immutable";
+    }
+
+    # index.html is the un-hashed entry point — it must revalidate on every
+    # load or deploys don't propagate until the old TTL expires.
+    #
+    # SSI: index.html contains <!--#include virtual="/api/v1/banners/bootstrap-fragment/" -->
+    # which nginx resolves as a subrequest through the /api/ location above.
+    # It injects the LCP image preload and window.__BOOT__ so the browser
+    # doesn't wait for JS + API round trips to discover the hero image.
+    # ssi_silent_errors: if the backend is down the include vanishes and the
+    # SPA falls back to fetching the APIs itself.
+    location = /index.html {
+        root /srv/aurorablings/current/frontend/dist;
+        ssi on;
+        ssi_silent_errors on;
+        add_header Cache-Control "no-cache";
+    }
+
     location / {
         root /srv/aurorablings/current/frontend/dist;
         try_files $uri $uri/ /index.html;
+        ssi on;
+        ssi_silent_errors on;
         expires 1h;
     }
 }
