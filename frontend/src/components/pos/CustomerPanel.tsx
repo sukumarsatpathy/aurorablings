@@ -124,6 +124,20 @@ export function CustomerPanel({ value, onChange }: Props) {
         >
           Edit
         </button>
+        {/* Detaching has to be reachable from here. Staff attach the wrong
+            customer at a busy counter, and making them open the editor to find
+            "Skip" is the kind of friction that ends with the wrong person's
+            details on a sale. */}
+        <button
+          type="button"
+          className="rounded-md border border-dashed border-border px-2.5 py-1.5 text-xs font-semibold text-muted-foreground"
+          onClick={() => {
+            onChange(null);
+            setLookup(null);
+          }}
+        >
+          Remove
+        </button>
       </div>
     );
   }
@@ -212,10 +226,11 @@ export function CustomerPanel({ value, onChange }: Props) {
           className="rounded-lg border border-border px-3 py-2 text-xs font-semibold"
           onClick={() => {
             onChange(null);
+            setLookup(null);
             setOpen(false);
           }}
         >
-          Skip
+          {value ? 'Remove customer' : 'Skip'}
         </button>
         <button
           type="button"
