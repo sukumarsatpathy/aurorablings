@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react';
 import { CartPanel } from '@/components/pos/CartPanel';
 import { PaymentStage } from '@/components/pos/PaymentStage';
 import { CatalogueGrid } from '@/components/pos/CatalogueGrid';
+import { CustomerPanel, type CounterCustomer } from '@/components/pos/CustomerPanel';
 import { ShiftGate } from '@/components/pos/ShiftGate';
 import { usePosCart } from '@/hooks/usePosCart';
 import { usePosShift } from '@/hooks/usePosShift';
@@ -27,6 +28,7 @@ export function PosPage() {
   const [creating, setCreating] = useState(false);
   const [orderError, setOrderError] = useState('');
   const [order, setOrder] = useState<PosOrder | null>(null);
+  const [customer, setCustomer] = useState<CounterCustomer | null>(null);
 
   const inCart = useMemo(
     () =>
@@ -46,6 +48,11 @@ export function PosPage() {
         items: cart.lines,
         shift: shift.id,
         fulfilment_type: 'carry_away',
+        contact_name: customer?.name || '',
+        contact_phone: customer?.phone || '',
+        // Only send the address if an account is wanted. No email means the
+        // order keeps the name and number and no account is ever created.
+        contact_email: customer?.createAccount ? customer?.email || '' : '',
       });
       setOrder(created);
       cart.clear();
@@ -106,8 +113,10 @@ export function PosPage() {
           <PaymentStage
             order={order}
             shiftId={shift.id}
+            customerPhone={customer?.phone}
             onFinished={() => {
               setOrder(null);
+              setCustomer(null);
               void refresh();
             }}
             onVoided={() => {
@@ -117,6 +126,8 @@ export function PosPage() {
           />
         </div>
       ) : (
+      <div className="flex flex-1 flex-col overflow-hidden">
+      <CustomerPanel value={customer} onChange={setCustomer} />
       <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[1.35fr_1fr]">
         <div className="overflow-hidden border-r border-border">
           <CatalogueGrid onAdd={cart.add} inCart={inCart} />
@@ -131,6 +142,7 @@ export function PosPage() {
           onCreateOrder={() => void createSale()}
           error={orderError}
         />
+      </div>
       </div>
       )}
     </div>

@@ -5,12 +5,14 @@ import posService, { type PosOrder } from '@/services/api/pos';
 
 import { CashTenderDialog } from './CashTenderDialog';
 import { DiscountDialog } from './DiscountDialog';
+import { ReceiptPanel } from './ReceiptPanel';
 import { UpiQrScreen } from './UpiQrScreen';
 import { money } from './money';
 
 interface Props {
   order: PosOrder;
   shiftId: string;
+  customerPhone?: string;
   onFinished: () => void;
   onVoided: () => void;
 }
@@ -24,7 +26,7 @@ type Collection = Parameters<typeof UpiQrScreen>[0]['collection'];
  * dead battery survivable: the webhook still lands, the order is still paid, and
  * it is on the part-paid list when staff come back to it.
  */
-export function PaymentStage({ order, shiftId, onFinished, onVoided }: Props) {
+export function PaymentStage({ order, shiftId, customerPhone, onFinished, onVoided }: Props) {
   const { state, refresh } = usePaymentPolling(order.order_id, true);
   const [dialog, setDialog] = useState<'none' | 'cash' | 'split' | 'discount'>('none');
   const [collection, setCollection] = useState<Collection | null>(null);
@@ -100,15 +102,7 @@ export function PaymentStage({ order, shiftId, onFinished, onVoided }: Props) {
           </p>
         )}
 
-        {settled ? (
-          <button
-            type="button"
-            className="mt-5 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground"
-            onClick={onFinished}
-          >
-            Next sale
-          </button>
-        ) : (
+        {settled ? null : (
           <>
             <div className="mt-5 grid grid-cols-3 gap-2">
               <button
@@ -163,6 +157,16 @@ export function PaymentStage({ order, shiftId, onFinished, onVoided }: Props) {
           </>
         )}
       </div>
+
+      {settled && (
+        <ReceiptPanel
+          orderId={order.order_id}
+          orderNumber={order.order_number}
+          state={state}
+          customerPhone={customerPhone}
+          onDone={onFinished}
+        />
+      )}
 
       {dialog === 'discount' && (
         <DiscountDialog
