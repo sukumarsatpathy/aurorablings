@@ -184,3 +184,72 @@ class TenderLedgerTests(TestCase):
         order.save(update_fields=["payment_status"])
 
         self.assertEqual(ledger.derive_payment_status(order), PaymentStatus.REFUNDED)
+
+
+class GatewaySettlementTests(TestCase):
+    """
+    The three routes by which a gateway payment can be confirmed — webhook,
+    checkout signature verification, and the reconciler — all race each other in
+    production. They must converge on one tender.
+    """
+
+    def _txn(self, order, amount="2500.00", ref="pay_TESTGATEWAY01"):
+        from apps.payments.models import PaymentTransaction, TransactionStatus
+        return PaymentTransaction.objects.create(
+            order=order,
+            provider="razorpay",
+            provider_ref=ref,
+            razorpay_payment_id=ref,
+            status=TransactionStatus.SUCCESS,
+            amount=Decimal(amount),
+            total_amount=Decimal(amount),
+            currency="INR",
+        )
+
+    def test_gateway_settlement_creates_one_tender_and_pays_the_order(self):
+        order = make_order("2500.00")
+        txn = self._txn(order)
+
+        tender = ledger.settle_gateway_payment(payment_transaction=txn)
+        order.refresh_from_db()
+
+        self.assertIsNotNone(tender)
+        self.assertEqual(order.tenders.count(), 1)
+        self.assertEqual(order.payment_status, PaymentStatus.PAID)
+        self.assertEqual(order.status, OrderStatus.PAID)
+        self.assertEqual(order.payment_method, "razorpay")
+
+    def test_webhook_redelivery_and_reconciler_do_not_double_settle(self):
+        """The exact production race: webhook lands, is retried, and the hourly
+        reconciler also polls the same payment."""
+        order = make_order("2500.00")
+        txn = self._txn(order)
+
+        first = ledger.settle_gateway_payment(payment_transaction=txn)
+        second = ledger.settle_gateway_payment(payment_transaction=txn)   # retry
+        third = ledger.settle_gateway_payment(payment_transaction=txn)    # reconciler
+        order.refresh_from_db()
+
+        self.assertIsNotNone(first)
+        self.assertIsNone(second, "an already-settled order must be a no-op, not a second tender")
+        self.assertIsNone(third)
+        self.assertEqual(order.tenders.count(), 1)
+        self.assertEqual(ledger.amount_paid(order), Decimal("2500.00"))
+
+    def test_gateway_leg_never_overshoots_a_part_paid_counter_sale(self):
+        """A split sale where the QR was raised for the remainder, but the
+        transaction row still carries the full order amount."""
+        order = make_order("4798.00")
+        ledger.record_tender(
+            order=order, method=TenderMethod.CASH, amount_applied=Decimal("2000.00"),
+        )
+        order.refresh_from_db()
+
+        txn = self._txn(order, amount="4798.00", ref="pay_TESTOVERSHOOT")
+        ledger.settle_gateway_payment(payment_transaction=txn)
+        order.refresh_from_db()
+
+        self.assertEqual(ledger.amount_paid(order), Decimal("4798.00"))
+        self.assertEqual(order.tenders.filter(method=TenderMethod.ONLINE).first().amount_applied,
+                         Decimal("2798.00"))
+        self.assertEqual(order.payment_status, PaymentStatus.PAID)

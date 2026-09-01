@@ -98,6 +98,7 @@ def record_tender(
     provider_ref: str = "",
     payment_transaction=None,
     collected_by=None,
+    payment_method: str | None = None,
     notes: str = "",
     raw: dict | None = None,
 ) -> OrderTender:
@@ -189,7 +190,12 @@ def record_tender(
         collected_by=getattr(collected_by, "id", None),
     )
 
-    sync_payment_status(order=locked, changed_by=collected_by, payment_reference=provider_ref)
+    sync_payment_status(
+        order=locked,
+        changed_by=collected_by,
+        payment_reference=provider_ref,
+        payment_method=payment_method,
+    )
     order.refresh_from_db()
     return tender
 
@@ -211,22 +217,39 @@ def void_tender(*, tender: OrderTender, reason: str = "", changed_by=None) -> Or
     return tender
 
 
-def sync_payment_status(*, order: Order, changed_by=None, payment_reference: str = "") -> Order:
+def sync_payment_status(
+    *,
+    order: Order,
+    changed_by=None,
+    payment_reference: str = "",
+    payment_method: str | None = None,
+) -> Order:
     """
     Re-derive ``payment_status`` from the ledger and, on full settlement, run the
     existing ``orders.services.mark_paid`` side effects exactly once.
+
+    The order *status* is only advanced from DRAFT/PLACED, matching the guard the
+    gateway handlers already used. An order that is somehow further along its
+    lifecycle gets its payment_status corrected without an illegal state
+    transition being forced on it.
 
     Imported lazily: ``orders.services`` imports from payments, so a module-level
     import here would be circular.
     """
     from apps.orders import services as order_services
+    from apps.orders.models import OrderStatus
 
     new_status = derive_payment_status(order)
 
-    if new_status == PaymentStatus.PAID and order.payment_status != PaymentStatus.PAID:
+    if (
+        new_status == PaymentStatus.PAID
+        and order.payment_status != PaymentStatus.PAID
+        and order.status in (OrderStatus.DRAFT, OrderStatus.PLACED)
+    ):
         order_services.mark_paid(
             order=order,
             payment_reference=payment_reference or order.payment_reference or "",
+            payment_method=payment_method,
             changed_by=changed_by,
         )
         return order
@@ -236,3 +259,49 @@ def sync_payment_status(*, order: Order, changed_by=None, payment_reference: str
         order.save(update_fields=["payment_status"])
 
     return order
+
+
+@transaction.atomic
+def settle_gateway_payment(
+    *,
+    payment_transaction,
+    provider_ref: str = "",
+    amount: Decimal | None = None,
+    method: str = TenderMethod.ONLINE,
+    changed_by=None,
+) -> OrderTender | None:
+    """
+    Record a successful gateway payment as a tender.
+
+    This is the single entry point the webhook, the checkout-signature verifier
+    and the reconciler all use, so a payment confirmed by any of those three
+    routes lands in the ledger exactly once — they race each other routinely.
+
+    Returns ``None`` when the order is already fully settled, which is the normal
+    outcome of a redelivered webhook and not an error.
+    """
+    order = payment_transaction.order
+    ref = provider_ref or payment_transaction.provider_ref or ""
+
+    outstanding = balance_due(order)
+    if outstanding <= ZERO:
+        logger.info(
+            "gateway_payment_already_settled",
+            order_id=str(order.id),
+            provider_ref=ref,
+        )
+        return None
+
+    requested = Decimal(amount if amount is not None else (payment_transaction.amount or ZERO))
+    applied = min(requested, outstanding) if requested > ZERO else outstanding
+
+    return record_tender(
+        order=order,
+        method=method,
+        amount_applied=applied,
+        provider=payment_transaction.provider or "",
+        provider_ref=ref,
+        payment_transaction=payment_transaction,
+        payment_method=payment_transaction.provider or None,
+        collected_by=changed_by,
+    )
