@@ -284,8 +284,14 @@ class UpiCollectionView(APIView):
         if previous:
             collection_service.cancel_collection(transaction_id=previous)
 
+        shift = None
+        if request.data.get("shift"):
+            shift = POSShift.objects.filter(pk=request.data["shift"], status=ShiftStatus.OPEN).first()
+
         try:
-            payload = collection_service.create_upi_collection(order=order, staff=request.user)
+            payload = collection_service.create_upi_collection(
+                order=order, staff=request.user, shift=shift,
+            )
         except collection_service.CollectionError as exc:
             return _bad(exc, status.HTTP_409_CONFLICT)
 
@@ -310,3 +316,34 @@ class PaymentStateView(APIView):
             return _bad("Order not found.", status.HTTP_404_NOT_FOUND)
 
         return Response(collection_service.payment_state(order=order))
+
+
+class ShiftSummaryView(APIView):
+    """The close-out figures: what was traded, by tender, and what the drawer owes."""
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request, shift_id):
+        try:
+            shift = POSShift.objects.select_related("terminal").get(pk=shift_id)
+        except POSShift.DoesNotExist:
+            return _bad("Shift not found.", status.HTTP_404_NOT_FOUND)
+        return Response(services.shift_summary(shift))
+
+
+class ShiftHistoryView(APIView):
+    """Recent shifts, newest first. Filterable by terminal."""
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        shifts = POSShift.objects.select_related("terminal").order_by("-opened_at")
+        if request.query_params.get("terminal"):
+            shifts = shifts.filter(terminal_id=request.query_params["terminal"])
+        if request.query_params.get("status"):
+            shifts = shifts.filter(status=request.query_params["status"])
+
+        try:
+            limit = min(int(request.query_params.get("limit", 30)), 100)
+        except (TypeError, ValueError):
+            limit = 30
+
+        return Response(POSShiftSerializer(shifts[:limit], many=True).data)

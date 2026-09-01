@@ -17,7 +17,7 @@ from decimal import Decimal
 
 import structlog
 from django.db import transaction
-from django.db.models import Q, Sum
+from django.db.models import Count, Q, Sum
 from django.utils import timezone
 
 from apps.orders.models import Order, PaymentStatus, SalesChannel
@@ -189,6 +189,42 @@ def record_cash_movement(
 #  Cash tender
 # ─────────────────────────────────────────────────────────────
 
+def attach_to_counter(*, order: Order, shift: POSShift, staff=None) -> Order:
+    """
+    Stamp an order as a counter sale.
+
+    Everything that reports on POS activity — the part-paid list, the shift close
+    guard, the online/POS split in reporting — reads ``channel``, ``pos_shift``
+    and ``pos_terminal``. Nothing was writing them, which meant a counter sale was
+    invisible to all of it. Any order taking money at a till gets stamped here, on
+    the first tender, before it can go missing.
+
+    Never re-stamps an order onto a different shift: if a sale was started
+    yesterday and finished today, the cash it already holds belongs to yesterday's
+    drawer and moving it would unbalance both.
+    """
+    fields = []
+
+    if order.channel != SalesChannel.POS:
+        order.channel = SalesChannel.POS
+        fields.append("channel")
+    if order.pos_shift_id is None:
+        order.pos_shift = shift
+        fields.append("pos_shift")
+    if order.pos_terminal_id is None:
+        order.pos_terminal = shift.terminal
+        fields.append("pos_terminal")
+    if staff is not None and order.created_by_staff_id is None:
+        order.created_by_staff = staff
+        fields.append("created_by_staff")
+
+    if fields:
+        order.save(update_fields=fields)
+        logger.info("pos_order_attached", order_id=str(order.id), shift_id=str(shift.id),
+                    fields=fields)
+    return order
+
+
 @transaction.atomic
 def take_cash_tender(
     *,
@@ -208,6 +244,8 @@ def take_cash_tender(
     """
     if not shift.is_open:
         raise ShiftError("Cannot take cash against a closed shift.")
+
+    attach_to_counter(order=order, shift=shift, staff=staff)
 
     tender = tender_service.record_tender(
         order=order,
@@ -312,3 +350,53 @@ def part_paid_orders(*, terminal=None, shift=None):
     elif terminal is not None:
         qs = qs.filter(pos_terminal=terminal)
     return qs
+
+
+
+def shift_summary(shift: POSShift) -> dict:
+    """
+    What was traded on this shift, by tender.
+
+    The number staff care about at close is not the order count — it is how much
+    of the day was cash, because that is the only part they have to physically
+    hand over and be right about. Gateway takings reconcile against Razorpay on
+    their own schedule and are shown here only so the total makes sense.
+    """
+    from apps.payments.models import OrderTender
+
+    tenders = OrderTender.objects.filter(shift=shift, status=TenderStatus.CAPTURED)
+
+    def money(value) -> str:
+        """Always two places. An aggregate can come back as 2000, and a receipt
+        that reads Rs 2000 next to Rs 2798.00 looks like a bug to the person
+        holding it."""
+        return str((value or ZERO).quantize(Decimal("0.01")))
+
+    by_method: dict[str, dict] = {}
+    for row in tenders.values("method").annotate(total=Sum("amount_applied")):
+        by_method[row["method"]] = {"total": money(row["total"])}
+    for row in tenders.values("method").annotate(count=Count("id")):
+        by_method.setdefault(row["method"], {"total": "0.00"})["count"] = row["count"]
+
+    orders = Order.objects.filter(pos_shift=shift)
+    discounts = orders.aggregate(
+        manual=Sum("manual_discount_amount"), coupon=Sum("discount_amount"),
+    )
+
+    return {
+        "shift_id": str(shift.id),
+        "terminal": shift.terminal.code,
+        "opened_at": shift.opened_at,
+        "closed_at": shift.closed_at,
+        "orders": orders.count(),
+        "by_tender": by_method,
+        "cash_taken": str(cash_taken(shift)),
+        "cash_movements_net": str(cash_movements_net(shift)),
+        "opening_float": str(shift.opening_float),
+        "expected_cash": str(expected_cash(shift) if shift.is_open else (shift.expected_cash or ZERO)),
+        "counted_cash": str(shift.counted_cash) if shift.counted_cash is not None else None,
+        "variance": str(shift.variance) if shift.variance is not None else None,
+        "manual_discounts": money(discounts["manual"]),
+        "coupon_discounts": money(discounts["coupon"]),
+        "part_paid_open": open_part_paid_orders(shift).count(),
+    }

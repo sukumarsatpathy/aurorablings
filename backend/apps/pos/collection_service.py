@@ -46,6 +46,7 @@ def create_upi_collection(
     *,
     order: Order,
     staff=None,
+    shift=None,
     close_by_minutes: int = 15,
 ) -> dict:
     """
@@ -59,6 +60,13 @@ def create_upi_collection(
     outstanding = tender_service.balance_due(order)
     if outstanding <= ZERO:
         raise CollectionError("This order is already fully paid.")
+
+    # A UPI-only counter sale never touches take_cash_tender, so this is where it
+    # gets stamped as POS. Without it the sale is invisible to the part-paid list
+    # and to every POS report.
+    if shift is not None:
+        from apps.pos.services import attach_to_counter
+        attach_to_counter(order=order, shift=shift, staff=staff)
 
     try:
         provider = registry.get(PROVIDER)
