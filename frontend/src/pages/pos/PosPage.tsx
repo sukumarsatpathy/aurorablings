@@ -1,4 +1,5 @@
 import { useMemo, useState } from 'react';
+import { Link } from 'react-router-dom';
 
 import { CartPanel } from '@/components/pos/CartPanel';
 import { PaymentStage } from '@/components/pos/PaymentStage';
@@ -95,6 +96,12 @@ export function PosPage() {
         <span className="border-l border-border pl-4 font-mono text-[11px] text-muted-foreground">
           {shift.terminal_code} · shift open
         </span>
+        <Link
+          to="/admin/dashboard"
+          className="rounded-md border border-border px-2 py-1 text-[11px] font-semibold text-muted-foreground"
+        >
+          ← Admin
+        </Link>
         <span className="ml-auto flex items-center gap-4 text-xs text-muted-foreground tabular-nums">
           <span>Drawer: ₹{Number(shift.expected_cash_now).toLocaleString('en-IN')}</span>
           {shift.part_paid_orders.length > 0 && (

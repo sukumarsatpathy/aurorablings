@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users, Mail } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users, Mail, Store } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -18,6 +18,10 @@ import { useAddressAutoFill } from '@/hooks/useAddressAutoFill';
 
 const NAV_ITEMS = [
   { path: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  // Lives outside /admin: the counter is a full-screen till, not a page inside
+  // the dashboard chrome. It is second in the rail because on an exhibition day
+  // it is the only thing staff open the app for.
+  { path: '/pos', icon: Store, label: 'Point of Sale' },
   { path: '/admin/categories', icon: FolderTree, label: 'Categories' },
   { path: '/admin/attributes', icon: Tags, label: 'Attributes' },
   { path: '/admin/products', icon: Box, label: 'Products' },
@@ -63,6 +67,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Nav Items */}
       {NAV_ITEMS.map((item) => {
+        // Exact match: /pos is a sibling of /admin, not a child of it.
         const isActive = location.pathname === item.path;
         return (
           <Link
