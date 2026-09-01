@@ -21,6 +21,7 @@ from apps.pos import services
 from apps.pos.models import POSShift, POSTerminal, ShiftStatus
 from apps.pos.serializers import (
     CashMovementCreateSerializer,
+    VoidSaleSerializer,
     CashTenderSerializer,
     CloseShiftSerializer,
     OpenShiftSerializer,
@@ -196,3 +197,116 @@ class CashTenderView(APIView):
             },
             status=status.HTTP_201_CREATED,
         )
+
+
+class PartPaidOrderListView(APIView):
+    """
+    Sales holding cash that were never completed.
+
+    Belongs on the counter screen permanently, not behind a menu — this is the
+    list that stops a shift closing on money nobody can account for.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        from apps.payments import tender_service
+
+        orders = services.part_paid_orders(
+            terminal=request.query_params.get("terminal") or None,
+            shift=request.query_params.get("shift") or None,
+        )
+        return Response([
+            {
+                "id": str(o.id),
+                "order_number": o.order_number,
+                "grand_total": str(o.grand_total),
+                "amount_paid": str(tender_service.amount_paid(o)),
+                "balance_due": str(tender_service.balance_due(o)),
+                "terminal": o.pos_terminal.code if o.pos_terminal else None,
+                "contact_name": o.contact_name,
+                "contact_phone": o.contact_phone,
+                "created_at": o.created_at,
+            }
+            for o in orders
+        ])
+
+
+class VoidSaleView(APIView):
+    """Abandon a part-paid sale and take the cash back out of the drawer."""
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request, order_id):
+        payload = VoidSaleSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            order = Order.objects.get(pk=order_id)
+        except Order.DoesNotExist:
+            return _bad("Order not found.", status.HTTP_404_NOT_FOUND)
+
+        try:
+            order = services.void_sale(
+                order=order, staff=request.user, reason=payload.validated_data["reason"],
+            )
+        except services.ShiftError as exc:
+            return _bad(exc, status.HTTP_409_CONFLICT)
+        except Exception as exc:  # ConflictError from the order state machine
+            return _bad(exc, status.HTTP_409_CONFLICT)
+
+        return Response({
+            "order_number": order.order_number,
+            "status": order.status,
+            "payment_status": order.payment_status,
+        })
+
+
+class UpiCollectionView(APIView):
+    """
+    Raise a dynamic QR for the outstanding balance on a sale.
+
+    The request body carries no amount. On a split sale the customer has already
+    paid part in cash, and a QR for the total would charge them twice — so the
+    amount comes from the ledger, here, on the server.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request, order_id):
+        from apps.pos import collection_service
+
+        try:
+            order = Order.objects.get(pk=order_id)
+        except Order.DoesNotExist:
+            return _bad("Order not found.", status.HTTP_404_NOT_FOUND)
+
+        # Regenerating: close the old QR first, so an expired code and its
+        # replacement can never both be paid.
+        previous = request.data.get("replaces")
+        if previous:
+            collection_service.cancel_collection(transaction_id=previous)
+
+        try:
+            payload = collection_service.create_upi_collection(order=order, staff=request.user)
+        except collection_service.CollectionError as exc:
+            return _bad(exc, status.HTTP_409_CONFLICT)
+
+        return Response(payload, status=status.HTTP_201_CREATED)
+
+
+class PaymentStateView(APIView):
+    """
+    What the counter polls while the customer is scanning.
+
+    Reads the tender ledger. It deliberately does not ask Razorpay whether the
+    customer paid — only a signature-verified webhook may turn this till green.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request, order_id):
+        from apps.pos import collection_service
+
+        try:
+            order = Order.objects.get(pk=order_id)
+        except Order.DoesNotExist:
+            return _bad("Order not found.", status.HTTP_404_NOT_FOUND)
+
+        return Response(collection_service.payment_state(order=order))

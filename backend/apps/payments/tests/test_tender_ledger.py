@@ -253,3 +253,51 @@ class GatewaySettlementTests(TestCase):
         self.assertEqual(order.tenders.filter(method=TenderMethod.ONLINE).first().amount_applied,
                          Decimal("2798.00"))
         self.assertEqual(order.payment_status, PaymentStatus.PAID)
+
+
+class RazorpayQrWebhookTests(TestCase):
+    """
+    A counter QR fires `qr_code.credited`, not `payment.captured`, and puts the
+    notes we set at creation on the QR entity rather than the payment. Parse it
+    wrong and the customer is paid while the till waits forever.
+    """
+
+    def _signed(self, body: dict, secret="whsec_test"):
+        import hashlib, hmac, json
+        from unittest.mock import patch
+        raw = json.dumps(body).encode()
+        sig = hmac.new(secret.encode(), raw, hashlib.sha256).hexdigest()
+        return raw, {"x-razorpay-signature": sig}
+
+    def _provider(self, secret="whsec_test"):
+        from apps.payments.providers.razorpay import RazorpayProvider
+        provider = RazorpayProvider()
+        provider._load_runtime_config = lambda: None
+        provider.webhook_secret = secret
+        provider.key_id, provider.key_secret = "rzp_test", "secret"
+        return provider
+
+    def test_qr_credited_is_a_success_and_finds_the_order(self):
+        order_id = "11111111-2222-3333-4444-555555555555"
+        body = {
+            "event": "qr_code.credited",
+            "payload": {
+                "qr_code": {"entity": {"id": "qr_ABC", "notes": {"order_id": order_id}}},
+                "payment": {"entity": {"id": "pay_XYZ", "amount": 279800, "currency": "INR", "notes": {}}},
+            },
+        }
+        raw, headers = self._signed(body)
+        result = self._provider().verify_webhook(payload=raw, headers=headers)
+
+        self.assertTrue(result.verified)
+        self.assertEqual(result.status, "success")
+        self.assertEqual(result.provider_ref, "pay_XYZ")
+        self.assertEqual(result.order_ref, order_id)
+        self.assertEqual(result.amount, Decimal("2798.00"))
+
+    def test_a_forged_signature_is_refused(self):
+        raw, _ = self._signed({"event": "qr_code.credited", "payload": {}})
+        result = self._provider().verify_webhook(
+            payload=raw, headers={"x-razorpay-signature": "deadbeef"},
+        )
+        self.assertFalse(result.verified)

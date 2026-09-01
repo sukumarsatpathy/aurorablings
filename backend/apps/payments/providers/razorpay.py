@@ -3,6 +3,7 @@ from __future__ import annotations
 import base64
 import hashlib
 import hmac
+import time
 import json
 from decimal import Decimal
 from typing import Any
@@ -17,6 +18,7 @@ from .base import (
     StatusResult,
     VerificationResult,
     WebhookResult,
+    QRCodeResult,
 )
 
 
@@ -302,8 +304,15 @@ class RazorpayProvider(BasePaymentProvider):
                 .get("entity", {})
             )
             notes = entity.get("notes", {}) if isinstance(entity, dict) else {}
+            # On qr_code.credited the notes we set at creation live on the QR
+            # entity, not on the payment, so fall back to it before giving up.
+            qr_entity = (
+                data.get("payload", {}).get("qr_code", {}).get("entity", {})
+            )
+            qr_notes = qr_entity.get("notes", {}) if isinstance(qr_entity, dict) else {}
             order_ref = str(
                 (notes or {}).get("order_id")
+                or (qr_notes or {}).get("order_id")
                 or entity.get("order_id")
                 or ""
             ).strip()
@@ -312,7 +321,10 @@ class RazorpayProvider(BasePaymentProvider):
             amount = Decimal(str((entity.get("amount") or 0))) / Decimal("100")
             currency = str(entity.get("currency") or "INR").upper()
 
-            if event == "payment.captured":
+            # qr_code.credited carries the same payment entity as payment.captured
+            # and is what a counter QR actually fires. Treating it as pending here
+            # would leave the customer paid and the counter waiting forever.
+            if event in {"payment.captured", "qr_code.credited"}:
                 status = "success"
             elif event in {"payment.failed"}:
                 status = "failed"
@@ -336,6 +348,91 @@ class RazorpayProvider(BasePaymentProvider):
                 verified=False, provider_ref="", order_ref="", status="failed",
                 amount=Decimal("0"), currency="INR", error=str(exc),
             )
+
+    def create_qr_code(
+        self,
+        *,
+        order_id: str,
+        amount: Decimal,
+        currency: str = "INR",
+        close_by_minutes: int = 15,
+        metadata: dict | None = None,
+    ) -> QRCodeResult:
+        """
+        A single-use, fixed-amount UPI QR for exactly one order.
+
+        Every parameter here is load-bearing at a counter:
+          usage=single_use   one QR, one collection — it cannot be paid twice
+                             or rescued off a stall table tomorrow.
+          fixed_amount       the customer cannot underpay or mistype, which is
+                             the largest source of disputes with a static QR.
+          close_by           the QR dies with the transaction.
+          notes.order_id     what the webhook matches back to the order.
+        """
+        import requests
+
+        self._load_runtime_config()
+        if not self.key_id or not self.key_secret:
+            return QRCodeResult(success=False, error="Razorpay credentials missing.")
+
+        amount_paise = int(Decimal(str(amount or 0)) * 100)
+        if amount_paise <= 0:
+            return QRCodeResult(success=False, error="QR amount must be positive.")
+
+        close_by = int(time.time()) + max(60, int(close_by_minutes) * 60)
+        payload = {
+            "type": "upi_qr",
+            "name": "Aurora Blings",
+            "usage": "single_use",
+            "fixed_amount": True,
+            "payment_amount": amount_paise,
+            "description": f"Order {order_id}",
+            "close_by": close_by,
+            "notes": {"order_id": order_id, **(metadata or {})},
+        }
+
+        try:
+            resp = requests.post(
+                "https://api.razorpay.com/v1/payment/qr_codes",
+                json=payload,
+                auth=(self.key_id, self.key_secret),
+                timeout=20,
+            )
+            body = resp.json() if resp.content else {}
+        except Exception as exc:  # noqa: BLE001
+            return QRCodeResult(success=False, error=f"Razorpay QR request failed: {exc}")
+
+        if resp.status_code not in (200, 201):
+            # A 400 here is usually "QR codes not enabled on this account" rather
+            # than a bad request. The caller falls back to a payment link.
+            message = (body.get("error", {}) or {}).get("description") or resp.text[:200]
+            return QRCodeResult(success=False, error=f"Razorpay QR rejected ({resp.status_code}): {message}", raw=body)
+
+        return QRCodeResult(
+            success=True,
+            provider_ref=str(body.get("id") or ""),
+            image_url=str(body.get("image_url") or ""),
+            amount=Decimal(str(body.get("payment_amount") or amount_paise)) / Decimal("100"),
+            close_by=body.get("close_by"),
+            raw=body,
+        )
+
+    def close_qr_code(self, *, provider_ref: str) -> bool:
+        """Close a QR so a regenerated one cannot be paid alongside it."""
+        import requests
+
+        self._load_runtime_config()
+        if not provider_ref:
+            return False
+        try:
+            resp = requests.post(
+                f"https://api.razorpay.com/v1/payment/qr_codes/{provider_ref}/close",
+                auth=(self.key_id, self.key_secret),
+                timeout=15,
+            )
+            return resp.status_code in (200, 201)
+        except Exception:  # noqa: BLE001
+            return False
 
     def refund(self, *, provider_ref: str, amount: Decimal, reason: str = "") -> RefundResult:
         import requests
