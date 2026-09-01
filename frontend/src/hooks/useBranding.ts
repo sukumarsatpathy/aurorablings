@@ -57,10 +57,14 @@ const getBackendOrigin = (): string => {
     // ignore and fallback
   }
 
-  if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-    return `${window.location.protocol}//${window.location.hostname}:8000`;
-  }
-
+  // Same origin. Media is served by nginx at /media/ in every deployed stack, and
+  // proxied to the backend by Vite in development, so a relative path resolves
+  // correctly everywhere without guessing at a port.
+  //
+  // This used to hard-code :8000 on localhost, which is only right for the dev
+  // stack. On local-prod the site is :8080 and the backend :8001, so every image
+  // pointed at a port with nothing behind it — logos, favicons and product
+  // pictures all silently failed to load.
   return window.location.origin;
 };
 
