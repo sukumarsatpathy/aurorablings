@@ -1,10 +1,15 @@
-import { useState } from 'react';
+import { useEffect, useState } from 'react';
+
+import posService, { type CustomerLookup } from '@/services/api/pos';
 
 export interface CounterCustomer {
   name: string;
   phone: string;
   email: string;
   createAccount: boolean;
+  /** Set once the server recognises the number — an existing account. */
+  existing?: boolean;
+  orders?: number;
 }
 
 interface Props {
@@ -27,9 +32,56 @@ const EMPTY: CounterCustomer = { name: '', phone: '', email: '', createAccount: 
  */
 export function CustomerPanel({ value, onChange }: Props) {
   const [open, setOpen] = useState(false);
+  const [lookup, setLookup] = useState<CustomerLookup | null>(null);
+  const [looking, setLooking] = useState(false);
   const draft = value ?? EMPTY;
 
   const update = (patch: Partial<CounterCustomer>) => onChange({ ...draft, ...patch });
+
+  // Look the number up as soon as it is complete. Staff should not have to press
+  // anything to find out they are serving a regular — and a till that says "new
+  // customer" about someone who has shopped four times is how duplicate accounts
+  // get made.
+  useEffect(() => {
+    const phone = draft.phone;
+    if (!open || phone.length !== 10) {
+      setLookup(null);
+      return;
+    }
+
+    let active = true;
+    setLooking(true);
+    const timer = window.setTimeout(async () => {
+      try {
+        const result = await posService.lookupCustomer(phone);
+        if (!active) return;
+        setLookup(result);
+        if (result.found && result.customer) {
+          // Prefill from the account, but never overwrite something staff typed.
+          onChange({
+            ...draft,
+            name: draft.name || result.customer.name,
+            email: draft.email || result.customer.email,
+            existing: true,
+            orders: result.customer.orders,
+            createAccount: false,
+          });
+        } else {
+          onChange({ ...draft, existing: false, orders: 0 });
+        }
+      } catch {
+        if (active) setLookup(null);
+      } finally {
+        if (active) setLooking(false);
+      }
+    }, 350);
+
+    return () => {
+      active = false;
+      window.clearTimeout(timer);
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [draft.phone, open]);
 
   if (!open && !value) {
     return (
@@ -52,7 +104,11 @@ export function CustomerPanel({ value, onChange }: Props) {
     return (
       <div className="flex items-center gap-3 border-b border-border bg-card px-4 py-2.5">
         <span className="rounded-full bg-emerald-500/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-emerald-700">
-          {value.email && value.createAccount ? 'account' : 'contact only'}
+          {value.existing
+            ? `known · ${value.orders ?? 0} orders`
+            : value.email && value.createAccount
+              ? 'new account'
+              : 'contact only'}
         </span>
         <span className="flex-1 truncate text-sm">
           <strong>{value.name || 'Unnamed'}</strong>
@@ -111,7 +167,29 @@ export function CustomerPanel({ value, onChange }: Props) {
         </label>
       </div>
 
-      {draft.email && (
+      {open && draft.phone.length === 10 && (
+        <p
+          className={
+            lookup?.found
+              ? 'rounded-lg bg-emerald-500/10 px-3 py-2 text-sm text-emerald-800'
+              : lookup?.conflict
+                ? 'rounded-lg bg-amber-500/10 px-3 py-2 text-sm text-amber-800'
+                : 'rounded-lg bg-muted px-3 py-2 text-sm text-muted-foreground'
+          }
+        >
+          {looking
+            ? 'Checking…'
+            : lookup?.found && lookup.customer
+              ? `Existing account — ${lookup.customer.name}, ${lookup.customer.orders} past ${
+                  lookup.customer.orders === 1 ? 'order' : 'orders'
+                }. This sale links to it; no new account, no welcome email.`
+              : lookup?.conflict
+                ? `Needs a human: ${lookup.reason}. The sale still works — it just won't create an account.`
+                : 'No account on this number — new customer.'}
+        </p>
+      )}
+
+      {draft.email && !draft.existing && (
         <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
           <input
             type="checkbox"

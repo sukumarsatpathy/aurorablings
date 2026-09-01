@@ -67,7 +67,26 @@ export interface PaymentState {
   tenders: Array<{ method: string; amount: string; status: string; at: string }>;
 }
 
+export interface CustomerLookup {
+  found: boolean;
+  conflict: boolean;
+  reason: string;
+  customer?: {
+    id: string;
+    name: string;
+    email: string;
+    phone: string;
+    orders: number;
+  };
+}
+
 const posService = {
+  /** Phone is the identity at a counter, so this runs before anything else. */
+  lookupCustomer: async (phone: string): Promise<CustomerLookup> => {
+    const { data } = await apiClient.get('/v1/pos/customers/lookup/', { params: { phone } });
+    return data;
+  },
+
   // ── Terminals and shifts ────────────────────────────────
   terminals: async (): Promise<PosTerminal[]> => {
     const { data } = await apiClient.get('/v1/pos/terminals/');

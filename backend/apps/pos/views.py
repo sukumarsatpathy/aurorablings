@@ -518,3 +518,49 @@ class CatalogueSearchView(APIView):
             }
             for v in variants.order_by("product__name", "name")[:limit]
         ])
+
+
+class CustomerLookupView(APIView):
+    """
+    Is this number already a customer?
+
+    Phone is the identity at a counter, so this is the first thing staff do. It
+    returns only what a staff member needs to greet someone correctly — name,
+    whether an account exists, and how many past orders. Not an address book:
+    anything more would make the till a customer-data export.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        from apps.accounts.customer_linking import find_customer, phone_digits
+        from apps.orders.models import Order
+
+        phone = (request.query_params.get("phone") or "").strip()
+        if len(phone_digits(phone)) < 10:
+            return _bad("Enter a full phone number.")
+
+        match = find_customer(phone=phone, email=(request.query_params.get("email") or "").strip())
+
+        if match.conflict and match.user is None:
+            return Response({
+                "found": False,
+                "conflict": True,
+                "reason": match.reason,
+            })
+
+        if match.user is None:
+            return Response({"found": False, "conflict": False, "reason": match.reason})
+
+        user = match.user
+        return Response({
+            "found": True,
+            "conflict": match.conflict,
+            "reason": match.reason,
+            "customer": {
+                "id": str(user.id),
+                "name": user.get_full_name() or user.email,
+                "email": user.email,
+                "phone": user.phone,
+                "orders": Order.objects.filter(user=user).count(),
+            },
+        })

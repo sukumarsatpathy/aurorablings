@@ -26,11 +26,13 @@ a typo is working credentials to a stranger's purchase history.
 
 from __future__ import annotations
 
+import re
 import secrets
 from datetime import timedelta
 
 import structlog
 from django.db import transaction
+from django.db.models import Q
 from django.utils import timezone
 
 from apps.accounts.models import User, UserRole
@@ -56,6 +58,42 @@ class CustomerLinkResult:
         return f"<CustomerLinkResult created={self.created} conflict={self.conflict} {self.reason}>"
 
 
+def phone_digits(raw: str) -> str:
+    """Last ten digits — the part that actually identifies an Indian number."""
+    digits = re.sub(r"\D", "", str(raw or ""))
+    return digits[-10:] if len(digits) >= 10 else digits
+
+
+def phone_query(raw: str) -> Q:
+    """
+    Match a number against however it happens to be stored.
+
+    ``User.phone`` is a free-text CharField with no normalisation anywhere in the
+    codebase, so the same customer may be on file as ``9876543210``,
+    ``+91 98765 43210``, ``09876543210`` or ``+919876543210``. An exact match
+    finds one of those and misses the rest, which at a counter looks exactly like
+    "the customer isn't in the system" — so staff create a duplicate.
+
+    This matches the common shapes directly and falls back to a suffix match,
+    which catches anything with a prefix but no internal spacing. Numbers stored
+    with spaces or dashes *inside* them still need the normalisation command to
+    be found; see ``normalize_customer_phones``.
+    """
+    digits = phone_digits(raw)
+    if not digits:
+        return Q(pk__isnull=True)  # matches nothing
+
+    return (
+        Q(phone=raw.strip())
+        | Q(phone=digits)
+        | Q(phone=f"0{digits}")
+        | Q(phone=f"91{digits}")
+        | Q(phone=f"+91{digits}")
+        | Q(phone=f"+91 {digits}")
+        | Q(phone__endswith=digits)
+    )
+
+
 def find_customer(*, phone: str = "", email: str = "") -> CustomerLinkResult:
     """
     Match a walk-in against existing accounts.
@@ -70,7 +108,7 @@ def find_customer(*, phone: str = "", email: str = "") -> CustomerLinkResult:
     email = (email or "").strip().lower()
 
     if phone:
-        by_phone = list(User.objects.filter(phone=phone, role=UserRole.CUSTOMER)[:2])
+        by_phone = list(User.objects.filter(phone_query(phone), role=UserRole.CUSTOMER)[:2])
         if len(by_phone) > 1:
             return CustomerLinkResult(conflict=True, reason="multiple accounts share this phone number")
         if by_phone:

@@ -176,3 +176,58 @@ class SettlementTimingTests(TestCase):
         self.assertEqual(order.payment_status, PaymentStatus.PAID)
         mock_task.assert_called_once()
         self.assertEqual(mock_task.call_args.kwargs["order_id"], str(order.id))
+
+
+class MessyPhoneFormatTests(TestCase):
+    """
+    User.phone is free text with no normalisation anywhere, so the same customer
+    can be on file half a dozen ways. An exact match finds one and misses the
+    rest — which at a counter reads as "not in the system", and staff duly create
+    a duplicate of a regular.
+    """
+
+    def setUp(self):
+        self.stored_as = {}
+        for i, stored in enumerate([
+            "9876543210",
+            "+919876543211",
+            "+91 9876543212",
+            "09876543213",
+            "919876543214",
+        ]):
+            self.stored_as[stored] = User.objects.create_user(
+                email=f"c{i}@example.com", password="x", first_name="C", last_name=str(i),
+                phone=stored, role=UserRole.CUSTOMER,
+            )
+
+    def test_every_stored_shape_is_found_by_the_bare_number(self):
+        for stored, user in self.stored_as.items():
+            typed = customer_linking.phone_digits(stored)
+            result = customer_linking.find_customer(phone=typed)
+            self.assertEqual(
+                result.user, user,
+                f"{typed} typed at the counter did not find the customer stored as {stored!r}",
+            )
+
+    def test_phone_digits_takes_the_last_ten(self):
+        self.assertEqual(customer_linking.phone_digits("+91 98765 43210"), "9876543210")
+        self.assertEqual(customer_linking.phone_digits("09876543210"), "9876543210")
+        self.assertEqual(customer_linking.phone_digits("98765"), "98765")
+
+    def test_the_normalise_command_cleans_what_lookup_cannot(self):
+        """Numbers with spaces inside them need the data fixed, not the query."""
+        from io import StringIO
+
+        from django.core.management import call_command
+
+        spaced = User.objects.create_user(
+            email="spaced@example.com", password="x", first_name="S", last_name="P",
+            phone="+91 98765 43299", role=UserRole.CUSTOMER,
+        )
+        self.assertIsNone(customer_linking.find_customer(phone="9876543299").user)
+
+        call_command("normalize_customer_phones", stdout=StringIO())
+        spaced.refresh_from_db()
+
+        self.assertEqual(spaced.phone, "9876543299")
+        self.assertEqual(customer_linking.find_customer(phone="9876543299").user, spaced)
