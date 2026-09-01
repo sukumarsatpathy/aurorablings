@@ -128,6 +128,13 @@ const posService = {
     return data;
   },
 
+  /** Re-read price and stock for a restored cart. Never trust what the browser kept. */
+  catalogueByIds: async (ids: string[]): Promise<CatalogueRow[]> => {
+    if (!ids.length) return [];
+    const { data } = await apiClient.get('/v1/pos/catalogue/', { params: { ids: ids.join(',') } });
+    return data;
+  },
+
   quote: async (items: CartLine[], couponCode = '') => {
     const { data } = await apiClient.post('/v1/pos/quote/', {
       items,

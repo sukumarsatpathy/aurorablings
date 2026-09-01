@@ -492,6 +492,15 @@ class CatalogueSearchView(APIView):
             .filter(is_active=True, product__is_active=True)
             .select_related("product")
         )
+
+        # Restoring a cart after a refresh: the till knows which variants it had,
+        # and needs today's price and stock for each rather than whatever it
+        # remembered. Prices and stock are re-read here, never restored from the
+        # browser.
+        ids = [i for i in (request.query_params.get("ids") or "").split(",") if i.strip()]
+        if ids:
+            return Response(self._rows(variants.filter(id__in=ids[:100])))
+
         if query:
             variants = variants.filter(
                 Q(sku__icontains=query)
@@ -504,7 +513,11 @@ class CatalogueSearchView(APIView):
         except (TypeError, ValueError):
             limit = 40
 
-        return Response([
+        return Response(self._rows(variants.order_by("product__name", "name")[:limit]))
+
+    @staticmethod
+    def _rows(variants):
+        return [
             {
                 "variant_id": str(v.id),
                 "sku": v.sku,
@@ -516,8 +529,8 @@ class CatalogueSearchView(APIView):
                 "track_inventory": v.track_inventory,
                 "low_stock": v.stock_quantity <= v.low_stock_threshold,
             }
-            for v in variants.order_by("product__name", "name")[:limit]
-        ])
+            for v in variants
+        ]
 
 
 class CustomerLookupView(APIView):

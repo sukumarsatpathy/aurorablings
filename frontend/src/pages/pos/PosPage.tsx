@@ -1,4 +1,4 @@
-import { useMemo, useState } from 'react';
+import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { CartPanel } from '@/components/pos/CartPanel';
@@ -30,6 +30,58 @@ export function PosPage() {
   const [orderError, setOrderError] = useState('');
   const [order, setOrder] = useState<PosOrder | null>(null);
   const [customer, setCustomer] = useState<CounterCustomer | null>(null);
+  const [resuming, setResuming] = useState(true);
+
+  /**
+   * An in-progress sale must survive a reload.
+   *
+   * This is the half that actually matters. A created order has stock reserved
+   * against it and may already hold cash; if a refresh loses the reference, the
+   * till shows an empty cart as though nothing happened while a real order sits
+   * open in the database. Only the id is kept — every figure is re-read from the
+   * server on resume.
+   */
+  useEffect(() => {
+    let active = true;
+    const stored = sessionStorage.getItem('pos_active_order');
+    if (!stored) {
+      setResuming(false);
+      return;
+    }
+
+    (async () => {
+      try {
+        const state = await posService.paymentState(stored);
+        if (!active) return;
+        if (Number(state.balance_due) > 0) {
+          setOrder({
+            order_id: stored,
+            order_number: state.order_number,
+            subtotal: state.grand_total,
+            discount_amount: '0',
+            grand_total: state.grand_total,
+            fulfilment_type: 'carry_away',
+          });
+        } else {
+          // Settled while the tab was away — nothing left to collect.
+          sessionStorage.removeItem('pos_active_order');
+        }
+      } catch {
+        sessionStorage.removeItem('pos_active_order');
+      } finally {
+        if (active) setResuming(false);
+      }
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, []);
+
+  useEffect(() => {
+    if (order) sessionStorage.setItem('pos_active_order', order.order_id);
+    else sessionStorage.removeItem('pos_active_order');
+  }, [order]);
 
   const inCart = useMemo(
     () =>
@@ -71,7 +123,7 @@ export function PosPage() {
     }
   };
 
-  if (loading) {
+  if (loading || resuming || cart.restoring) {
     return <p className="p-10 text-center text-sm text-muted-foreground">Loading counter…</p>;
   }
 
@@ -134,6 +186,18 @@ export function PosPage() {
         </div>
       ) : (
       <div className="flex flex-1 flex-col overflow-hidden">
+      {cart.restoreNote && (
+        <div className="flex items-center gap-3 border-b border-border bg-amber-500/10 px-4 py-2.5 text-sm text-amber-800">
+          <span>Cart restored, with changes: {cart.restoreNote}.</span>
+          <button
+            type="button"
+            className="ml-auto text-xs font-semibold underline"
+            onClick={cart.dismissRestoreNote}
+          >
+            Dismiss
+          </button>
+        </div>
+      )}
       <CustomerPanel value={customer} onChange={setCustomer} />
       <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[1.35fr_1fr]">
         <div className="overflow-hidden border-r border-border">
