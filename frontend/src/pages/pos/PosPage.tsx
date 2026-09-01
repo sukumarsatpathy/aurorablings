@@ -1,6 +1,7 @@
 import { useMemo, useState } from 'react';
 
 import { CartPanel } from '@/components/pos/CartPanel';
+import { PaymentStage } from '@/components/pos/PaymentStage';
 import { CatalogueGrid } from '@/components/pos/CatalogueGrid';
 import { ShiftGate } from '@/components/pos/ShiftGate';
 import { usePosCart } from '@/hooks/usePosCart';
@@ -97,22 +98,25 @@ export function PosPage() {
         </span>
       </header>
 
-      {order && (
-        <div className="flex items-center gap-3 border-b border-border bg-emerald-500/10 px-4 py-3 text-sm text-emerald-800">
-          <span>
-            Sale <strong className="font-mono">{order.order_number}</strong> created ·{' '}
-            <strong>₹{Number(order.grand_total).toLocaleString('en-IN')}</strong> to collect.
-          </span>
-          <button
-            type="button"
-            className="ml-auto text-xs font-semibold underline"
-            onClick={() => setOrder(null)}
-          >
-            Start another
-          </button>
+      {order ? (
+        // Once a sale exists the counter has one job: collect the money. The
+        // catalogue is deliberately out of the way — a half-finished sale sitting
+        // behind a product grid is how part-paid orders get forgotten.
+        <div className="flex-1 overflow-y-auto bg-muted/20">
+          <PaymentStage
+            order={order}
+            shiftId={shift.id}
+            onFinished={() => {
+              setOrder(null);
+              void refresh();
+            }}
+            onVoided={() => {
+              setOrder(null);
+              void refresh();
+            }}
+          />
         </div>
-      )}
-
+      ) : (
       <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[1.35fr_1fr]">
         <div className="overflow-hidden border-r border-border">
           <CatalogueGrid onAdd={cart.add} inCart={inCart} />
@@ -128,6 +132,7 @@ export function PosPage() {
           error={orderError}
         />
       </div>
+      )}
     </div>
   );
 }
