@@ -7,6 +7,9 @@ class NotificationEvent:
     ORDER_DELIVERED = "order.delivered"
     USER_FORGOT_PASSWORD = "user.forgot_password"
     USER_BLOCKED = "user.blocked"
+    # Sent once, after a counter or guest-checkout sale creates an account.
+    # Carries a set-password link, never a password.
+    USER_WELCOME = "user.welcome"
     CONTACT_FORM_SUBMITTED = "contact.form.submitted"
     PRODUCT_NOTIFY_ME = "product.notify_me"
     PRODUCT_RESTOCKED = "product.restocked"
@@ -53,6 +56,7 @@ DEFAULT_EVENT_CHANNELS: dict[str, list[str]] = {
     NotificationEvent.ORDER_DELIVERED: [NotificationChannel.EMAIL],
     NotificationEvent.USER_FORGOT_PASSWORD: [NotificationChannel.EMAIL],
     NotificationEvent.USER_BLOCKED: [NotificationChannel.EMAIL],
+    NotificationEvent.USER_WELCOME: [NotificationChannel.EMAIL],
     NotificationEvent.CONTACT_FORM_SUBMITTED: [NotificationChannel.EMAIL],
     NotificationEvent.PRODUCT_NOTIFY_ME: [NotificationChannel.EMAIL],
     NotificationEvent.PRODUCT_RESTOCKED: [NotificationChannel.EMAIL],
@@ -64,6 +68,7 @@ EVENT_CHOICES = [
     (NotificationEvent.ORDER_DELIVERED, NotificationEvent.ORDER_DELIVERED),
     (NotificationEvent.USER_FORGOT_PASSWORD, NotificationEvent.USER_FORGOT_PASSWORD),
     (NotificationEvent.USER_BLOCKED, NotificationEvent.USER_BLOCKED),
+    (NotificationEvent.USER_WELCOME, NotificationEvent.USER_WELCOME),
     (NotificationEvent.CONTACT_FORM_SUBMITTED, NotificationEvent.CONTACT_FORM_SUBMITTED),
     (NotificationEvent.PRODUCT_NOTIFY_ME, NotificationEvent.PRODUCT_NOTIFY_ME),
     (NotificationEvent.PRODUCT_RESTOCKED, NotificationEvent.PRODUCT_RESTOCKED),

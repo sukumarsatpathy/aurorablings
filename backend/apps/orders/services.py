@@ -791,6 +791,16 @@ def mark_paid(
             _queue_order_confirmation_email(order=order)
         except Exception:
             pass
+
+        # Settlement is the only safe moment to create a customer account: an
+        # abandoned cart or a voided part-paid sale must never leave a stranger
+        # holding a login. Queued, never inline — see the task's docstring.
+        if not order.user_id and (order.contact_phone or order.guest_email):
+            try:
+                from apps.accounts.tasks import link_customer_for_order_task
+                link_customer_for_order_task.delay(order_id=str(order.id))
+            except Exception:  # noqa: BLE001
+                logger.warning("customer_link_enqueue_failed", order_id=str(order.id))
     return order
 
 
