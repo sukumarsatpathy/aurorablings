@@ -468,3 +468,53 @@ class ManualDiscountView(APIView):
             "approved": approver is not None,
             "grand_total": str(order.grand_total),
         })
+
+
+class CatalogueSearchView(APIView):
+    """
+    Variant-level search for the counter.
+
+    The catalogue API searches products; a till needs the thing with a price and
+    a stock count on it, which is the variant. Flat rows, one query, capped —
+    a stall on 4G types a couple of characters and expects results, not a tree
+    to expand.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        from django.db.models import Q
+
+        from apps.catalog.models import ProductVariant
+
+        query = (request.query_params.get("q") or "").strip()
+        variants = (
+            ProductVariant.objects
+            .filter(is_active=True, product__is_active=True)
+            .select_related("product")
+        )
+        if query:
+            variants = variants.filter(
+                Q(sku__icontains=query)
+                | Q(name__icontains=query)
+                | Q(product__name__icontains=query)
+            )
+
+        try:
+            limit = min(int(request.query_params.get("limit", 40)), 100)
+        except (TypeError, ValueError):
+            limit = 40
+
+        return Response([
+            {
+                "variant_id": str(v.id),
+                "sku": v.sku,
+                "product_name": v.product.name if v.product_id else "",
+                "variant_name": v.name or "",
+                "price": str(v.effective_price),
+                "compare_at_price": str(v.compare_at_price) if v.compare_at_price else None,
+                "stock": v.stock_quantity,
+                "track_inventory": v.track_inventory,
+                "low_stock": v.stock_quantity <= v.low_stock_threshold,
+            }
+            for v in variants.order_by("product__name", "name")[:limit]
+        ])

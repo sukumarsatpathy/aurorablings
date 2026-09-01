@@ -51,6 +51,9 @@ const AccountProfilePage = lazy(() => import('./pages/account/AccountProfilePage
 const AccountLogoutPage = lazy(() => import('./pages/account/AccountLogoutPage').then(m => ({ default: m.AccountLogoutPage })));
 
 // ── Admin (all lazy: ~10k lines, unreachable without a staff token) ─────────
+// The counter. Lazily loaded and staff-gated: a stall on 4G should not pay for
+// this chunk on the storefront, and the storefront should not pay for it either.
+const PosPage = lazy(() => import('./pages/pos/PosPage').then(m => ({ default: m.PosPage })));
 const DashboardLayout = lazy(() => import('./components/layouts/DashboardLayout').then(m => ({ default: m.DashboardLayout })));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard').then(m => ({ default: m.Dashboard })));
 const ProductManagement = lazy(() => import('./pages/admin/ProductManagement').then(m => ({ default: m.ProductManagement })));
@@ -462,6 +465,16 @@ function AppContent() {
         
         {/* Admin/Dashboard Routes */}
         <Route path="/admin" element={<Navigate to="/admin/dashboard" replace />} />
+        {/* Point of sale. Outside /admin on purpose: the counter is a full-screen
+            till, not a page inside the dashboard chrome. */}
+        <Route path="/pos" element={
+          <RequireAdminOrStaff>
+            <Suspense fallback={<div className="p-10 text-center text-sm">Loading counter…</div>}>
+              <PosPage />
+            </Suspense>
+          </RequireAdminOrStaff>
+        } />
+
         <Route path="/admin/*" element={
           <RequireAdminOrStaff>
             <DashboardLayout>
