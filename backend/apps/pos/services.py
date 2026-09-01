@@ -20,7 +20,7 @@ from django.db import transaction
 from django.db.models import Q, Sum
 from django.utils import timezone
 
-from apps.orders.models import Order, PaymentStatus
+from apps.orders.models import Order, PaymentStatus, SalesChannel
 from apps.payments import tender_service
 from apps.payments.models import TenderMethod, TenderStatus
 from apps.pos.models import (
@@ -242,3 +242,73 @@ def void_cash_tender(*, tender, staff, reason: str = "sale voided"):
     if shift:
         logger.info("pos_cash_tender_voided", tender_id=str(tender.id), shift_id=str(shift.id))
     return tender
+
+
+# ─────────────────────────────────────────────────────────────
+#  Voiding a part-paid sale
+# ─────────────────────────────────────────────────────────────
+
+@transaction.atomic
+def void_sale(*, order: Order, staff, reason: str) -> Order:
+    """
+    Abandon a counter sale that already holds money.
+
+    The scenario is ordinary: cash was taken, the customer changed their mind or
+    walked off before the QR was paid, and the sale has to go away. What must not
+    happen is the money going away quietly with it — so every cash leg is voided
+    explicitly, which is what pulls it back out of the shift's expected drawer
+    total, and the stock is released by the existing cancel path.
+
+    Gateway legs are deliberately *not* voided here. Money that reached Razorpay
+    comes back through the refund API, not by editing a row; a captured gateway
+    tender makes this refuse and points at the refund flow instead.
+    """
+    if not reason:
+        raise ShiftError("A void needs a reason. An unexplained reversal is what this prevents.")
+
+    captured = order.tenders.filter(status=TenderStatus.CAPTURED)
+    gateway_legs = captured.exclude(method=TenderMethod.CASH)
+    if gateway_legs.exists():
+        raise ShiftError(
+            "This sale has a settled gateway payment. Refund it through the refund "
+            "flow rather than voiding — the money is with Razorpay, not in the drawer."
+        )
+
+    refunded = ZERO
+    for tender in captured.filter(method=TenderMethod.CASH):
+        tender_service.void_tender(tender=tender, reason=f"sale voided: {reason}", changed_by=staff)
+        refunded += tender.amount_applied
+
+    order.refresh_from_db()
+
+    from apps.orders.services import cancel_order
+    cancel_order(order=order, changed_by=staff, reason=f"POS void: {reason}")
+
+    order.refresh_from_db()
+    logger.info(
+        "pos_sale_voided",
+        order_id=str(order.id), order_number=order.order_number,
+        cash_refunded=str(refunded), reason=reason,
+        staff=getattr(staff, "id", None),
+    )
+    return order
+
+
+def part_paid_orders(*, terminal=None, shift=None):
+    """
+    Every counter sale holding money that was never completed.
+
+    This is the list that belongs on the counter screen permanently. An order with
+    cash against it and no second leg is the one thing that must not be forgotten
+    at closing time, and nothing else in the system will raise its hand about it.
+    """
+    qs = Order.objects.filter(
+        payment_status=PaymentStatus.PARTIALLY_PAID,
+        channel=SalesChannel.POS,
+    ).select_related("pos_terminal", "pos_shift").order_by("-created_at")
+
+    if shift is not None:
+        qs = qs.filter(pos_shift=shift)
+    elif terminal is not None:
+        qs = qs.filter(pos_terminal=terminal)
+    return qs

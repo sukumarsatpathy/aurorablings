@@ -78,3 +78,7 @@ class CashTenderSerializer(serializers.Serializer):
     order = serializers.UUIDField()
     amount_applied = serializers.DecimalField(max_digits=12, decimal_places=2)
     cash_received = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+
+
+class VoidSaleSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=255)
