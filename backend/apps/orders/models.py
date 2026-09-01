@@ -168,6 +168,19 @@ class Order(models.Model):
         max_length=20, choices=FulfilmentType.choices,
         default=FulfilmentType.SHIP, db_index=True,
     )
+    pos_terminal = models.ForeignKey(
+        "pos.POSTerminal",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orders",
+    )
+    pos_shift = models.ForeignKey(
+        "pos.POSShift",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orders",
+        help_text="The trading session this sale belongs to.",
+    )
     created_by_staff = models.ForeignKey(
         "accounts.User",
         null=True, blank=True,

@@ -309,6 +309,14 @@ class OrderTender(models.Model):
         related_name="collected_tenders",
         help_text="Staff member who took the money. Null for online orders.",
     )
+    shift = models.ForeignKey(
+        "pos.POSShift",
+        null=True, blank=True,
+        on_delete=models.PROTECT,
+        related_name="tenders",
+        help_text="The trading session this money belongs to. Cash without a "
+                  "shift cannot be reconciled at close.",
+    )
     notes      = models.CharField(max_length=255, blank=True)
     raw        = models.JSONField(default=dict, blank=True)
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)

@@ -98,6 +98,7 @@ def record_tender(
     provider_ref: str = "",
     payment_transaction=None,
     collected_by=None,
+    shift=None,
     payment_method: str | None = None,
     notes: str = "",
     raw: dict | None = None,
@@ -170,6 +171,7 @@ def record_tender(
             provider_ref=provider_ref,
             transaction=payment_transaction,
             collected_by=collected_by,
+            shift=shift,
             notes=notes,
             raw=raw or {},
         )
