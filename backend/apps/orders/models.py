@@ -78,10 +78,29 @@ class PaymentMethod(models.TextChoices):
 
 class PaymentStatus(models.TextChoices):
     PENDING   = "pending",   _("Pending")
+    # Real money has been collected, but not all of it. A counter sale where the
+    # customer paid part in cash and then walked away from the UPI leg lives here.
+    # It is a genuine state with cash against it, not a transient UI condition.
+    PARTIALLY_PAID = "partially_paid", _("Partially Paid")
     PAID      = "paid",      _("Paid")
     FAILED    = "failed",    _("Failed")
     REFUNDED  = "refunded",  _("Refunded")
     PARTIALLY_REFUNDED = "partially_refunded", _("Partially Refunded")
+
+
+class SalesChannel(models.TextChoices):
+    """Where the order was taken. Every existing report gets an online/POS split."""
+    ONLINE = "online", _("Online")
+    POS    = "pos",    _("Point of sale")
+
+
+class FulfilmentType(models.TextChoices):
+    """
+    Load-bearing: shipping tasks must never try to book a courier shipment for a
+    customer who walked away from the stall with the earrings in their hand.
+    """
+    SHIP       = "ship",       _("Ship to customer")
+    CARRY_AWAY = "carry_away", _("Carried away from counter")
 
 
 class ShippingApprovalStatus(models.TextChoices):
@@ -138,6 +157,48 @@ class Order(models.Model):
     payment_reference = models.CharField(
         max_length=200, blank=True,
         help_text="Gateway transaction ID / UPI ref.",
+    )
+
+    # ── Point of sale ────────────────────────────────────────
+    channel = models.CharField(
+        max_length=20, choices=SalesChannel.choices,
+        default=SalesChannel.ONLINE, db_index=True,
+    )
+    fulfilment_type = models.CharField(
+        max_length=20, choices=FulfilmentType.choices,
+        default=FulfilmentType.SHIP, db_index=True,
+    )
+    created_by_staff = models.ForeignKey(
+        "accounts.User",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pos_orders_created",
+        help_text="Staff member who rang up this sale. Null for online orders.",
+    )
+    contact_name = models.CharField(
+        max_length=150, blank=True,
+        help_text="Walk-in customer name. Kept on the order even when no account exists.",
+    )
+    contact_phone = models.CharField(
+        max_length=20, blank=True, db_index=True,
+        help_text="Phone is the identity at the counter — this is what customer "
+                  "lookup matches on.",
+    )
+
+    # ── Manual discount audit ────────────────────────────────
+    # A staff override is the margin leak a POS has to be able to explain later,
+    # so who / how much / why are stored, not just the resulting total.
+    manual_discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+    )
+    manual_discount_reason = models.CharField(max_length=100, blank=True)
+    manual_discount_approved_by = models.ForeignKey(
+        "accounts.User",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_pos_discounts",
+        help_text="Set when the discount exceeded the staff ceiling and a manager "
+                  "authorised it.",
     )
     shipping_approval_status = models.CharField(
         max_length=40,

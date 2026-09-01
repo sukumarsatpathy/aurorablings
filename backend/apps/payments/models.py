@@ -225,3 +225,118 @@ class Refund(models.Model):
 
     def __str__(self):
         return f"Refund {self.refund_id} | {self.status} | {self.amount}"
+
+
+# ─────────────────────────────────────────────────────────────
+#  Tender ledger
+# ─────────────────────────────────────────────────────────────
+
+class TenderMethod(models.TextChoices):
+    """How money physically reached us for one leg of an order."""
+    ONLINE    = "online",    _("Online checkout")
+    UPI       = "upi",       _("UPI")
+    CASH      = "cash",      _("Cash")
+    CARD      = "card",      _("Card machine")
+    BANK_UPI  = "bank_upi",  _("Direct bank UPI")
+
+
+class TenderStatus(models.TextChoices):
+    PENDING   = "pending",   _("Pending")
+    CAPTURED  = "captured",  _("Captured")
+    FAILED    = "failed",    _("Failed")
+    REFUNDED  = "refunded",  _("Refunded")
+    VOIDED    = "voided",    _("Voided")
+
+
+class OrderTender(models.Model):
+    """
+    One row per payment leg of an order — the settlement ledger.
+
+    An order is not paid by *a* payment; it is paid by a list of tenders whose
+    ``amount_applied`` sums to ``order.grand_total``.  A normal sale is a list of
+    length one; a split cash+UPI counter sale is a list of two.  Online orders get
+    exactly one ONLINE tender so reporting is uniform across channels.
+
+    Distinct from :class:`PaymentTransaction`, which logs every *gateway attempt*
+    including failures and retries.  A tender is money that actually settled, and
+    cash tenders have no transaction at all.
+
+    Invariants (enforced in ``payments.tender_service``, not by the DB):
+      - captured tenders sum to at most ``order.grand_total``
+      - ``cash_received - change_given == amount_applied`` for cash tenders
+      - a gateway tender is only ever created by a verified webhook
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(
+        "orders.Order",
+        on_delete=models.CASCADE,
+        related_name="tenders",
+    )
+    method = models.CharField(max_length=20, choices=TenderMethod.choices, db_index=True)
+    status = models.CharField(
+        max_length=20, choices=TenderStatus.choices,
+        default=TenderStatus.CAPTURED, db_index=True,
+    )
+
+    # The amount this leg contributes to the order total.
+    amount_applied = models.DecimalField(max_digits=12, decimal_places=2)
+    currency = models.CharField(max_length=3, default="INR")
+
+    # Cash only.  received - change = applied.  Change is a drawer movement,
+    # never revenue; conflating the two inflates sales figures.
+    cash_received = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+    change_given  = models.DecimalField(max_digits=12, decimal_places=2, null=True, blank=True)
+
+    # Gateway legs only.
+    provider     = models.CharField(max_length=50, blank=True, db_index=True)
+    provider_ref = models.CharField(
+        max_length=255, blank=True, db_index=True,
+        help_text="Provider payment id. Unique per provider — this is what makes "
+                  "webhook redelivery idempotent.",
+    )
+    transaction = models.ForeignKey(
+        "payments.PaymentTransaction",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="tenders",
+    )
+
+    collected_by = models.ForeignKey(
+        "accounts.User",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="collected_tenders",
+        help_text="Staff member who took the money. Null for online orders.",
+    )
+    notes      = models.CharField(max_length=255, blank=True)
+    raw        = models.JSONField(default=dict, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = _("order tender")
+        verbose_name_plural = _("order tenders")
+        ordering            = ["created_at"]
+        indexes = [
+            models.Index(fields=["order", "status"]),
+        ]
+        constraints = [
+            # Webhook redelivery must never create a second tender.
+            models.UniqueConstraint(
+                fields=["provider", "provider_ref"],
+                condition=models.Q(provider_ref__gt=""),
+                name="uniq_tender_provider_ref",
+            ),
+            models.CheckConstraint(
+                check=~models.Q(amount_applied=0),
+                name="tender_amount_nonzero",
+            ),
+        ]
+
+    def __str__(self):
+        return f"Tender {self.method} {self.amount_applied} {self.currency} ({self.status})"
+
+    @property
+    def is_cash(self) -> bool:
+        return self.method == TenderMethod.CASH
