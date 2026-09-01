@@ -21,6 +21,9 @@ from apps.pos import services
 from apps.pos.models import POSShift, POSTerminal, ShiftStatus
 from apps.pos.serializers import (
     CashMovementCreateSerializer,
+    ManualDiscountSerializer,
+    POSOrderCreateSerializer,
+    POSQuoteSerializer,
     VoidSaleSerializer,
     CashTenderSerializer,
     CloseShiftSerializer,
@@ -347,3 +350,121 @@ class ShiftHistoryView(APIView):
             limit = 30
 
         return Response(POSShiftSerializer(shifts[:limit], many=True).data)
+
+
+class POSQuoteView(APIView):
+    """Price a cart without creating anything."""
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request):
+        from apps.pos import order_service
+
+        payload = POSQuoteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        items = [
+            {"variant_id": str(i["variant_id"]), "quantity": i["quantity"]}
+            for i in payload.validated_data["items"]
+        ]
+        try:
+            return Response(order_service.quote(
+                items=items, coupon_code=payload.validated_data.get("coupon_code", ""),
+            ))
+        except Exception as exc:  # pricing/stock validation errors
+            return _bad(exc)
+
+
+class POSOrderCreateView(APIView):
+    """Ring up a sale. Unpaid on creation — money is taken separately."""
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request):
+        from apps.pos import order_service
+
+        payload = POSOrderCreateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        shift = POSShift.objects.filter(pk=data["shift"], status=ShiftStatus.OPEN).first()
+        if shift is None:
+            return _bad("No open shift with that id.", status.HTTP_409_CONFLICT)
+
+        items = [
+            {"variant_id": str(i["variant_id"]), "quantity": i["quantity"]}
+            for i in data["items"]
+        ]
+        try:
+            order = order_service.create_pos_order(
+                items=items,
+                shift=shift,
+                staff=request.user,
+                contact_name=data.get("contact_name", ""),
+                contact_phone=data.get("contact_phone", ""),
+                contact_email=data.get("contact_email", ""),
+                coupon_code=data.get("coupon_code", ""),
+                fulfilment_type=data["fulfilment_type"],
+                shipping_address=data.get("shipping_address"),
+                notes=data.get("notes", ""),
+            )
+        except order_service.POSOrderError as exc:
+            return _bad(exc, status.HTTP_409_CONFLICT)
+        except Exception as exc:  # stock/pricing failures from place_order
+            return _bad(exc)
+
+        return Response({
+            "order_id": str(order.id),
+            "order_number": order.order_number,
+            "subtotal": str(order.subtotal),
+            "discount_amount": str(order.discount_amount),
+            "grand_total": str(order.grand_total),
+            "fulfilment_type": order.fulfilment_type,
+        }, status=status.HTTP_201_CREATED)
+
+
+class ManualDiscountView(APIView):
+    """
+    Apply a staff discount.
+
+    The ceiling is enforced in the service, not here and not in the tablet — a
+    counter device is shared and unlocked, and this is the copy that counts.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request, order_id):
+        from apps.pos import order_service
+
+        payload = ManualDiscountSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        try:
+            order = Order.objects.get(pk=order_id)
+        except Order.DoesNotExist:
+            return _bad("Order not found.", status.HTTP_404_NOT_FOUND)
+
+        approver = None
+        if data.get("approver_email") and data.get("approver_password"):
+            approver = order_service.authenticate_approver(
+                email=data["approver_email"], password=data["approver_password"],
+            )
+            if approver is None:
+                return _bad("Manager approval failed.", status.HTTP_403_FORBIDDEN)
+
+        try:
+            order = order_service.apply_manual_discount(
+                order=order,
+                percent=data.get("percent"),
+                amount=data.get("amount"),
+                reason=data["reason"],
+                staff=request.user,
+                approved_by=approver,
+            )
+        except order_service.POSOrderError as exc:
+            return _bad(exc, status.HTTP_409_CONFLICT)
+
+        return Response({
+            "order_number": order.order_number,
+            "manual_discount_amount": str(order.manual_discount_amount),
+            "reason": order.manual_discount_reason,
+            "approved": approver is not None,
+            "grand_total": str(order.grand_total),
+        })

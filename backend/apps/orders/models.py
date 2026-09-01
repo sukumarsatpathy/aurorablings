@@ -68,6 +68,9 @@ CANCELLABLE_STATUSES = {OrderStatus.DRAFT, OrderStatus.PLACED, OrderStatus.PAID,
 
 class PaymentMethod(models.TextChoices):
     COD          = "cod",          _("Cash on Delivery")
+    # Cash at the counter. Distinct from COD, which is cash collected by a
+    # courier on a shipped order — different reconciliation, different owner.
+    CASH         = "cash",         _("Cash at counter")
     CASHFREE     = "cashfree",     _("Cashfree")
     RAZORPAY     = "razorpay",     _("Razorpay")
     PHONEPE      = "phonepe",      _("PhonePe")

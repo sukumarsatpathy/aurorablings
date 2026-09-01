@@ -82,3 +82,37 @@ class CashTenderSerializer(serializers.Serializer):
 
 class VoidSaleSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=255)
+
+
+class POSLineItemSerializer(serializers.Serializer):
+    """
+    What the counter is allowed to say about a line: which variant, how many.
+    Notably absent: price. That is the server's to decide.
+    """
+    variant_id = serializers.UUIDField()
+    quantity = serializers.IntegerField(min_value=1, max_value=999)
+
+
+class POSQuoteSerializer(serializers.Serializer):
+    items = POSLineItemSerializer(many=True)
+    coupon_code = serializers.CharField(required=False, allow_blank=True, max_length=50)
+
+
+class POSOrderCreateSerializer(POSQuoteSerializer):
+    shift = serializers.UUIDField()
+    contact_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    contact_phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    contact_email = serializers.EmailField(required=False, allow_blank=True)
+    fulfilment_type = serializers.ChoiceField(choices=["carry_away", "ship"], default="carry_away")
+    shipping_address = serializers.DictField(required=False)
+    notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
+
+
+class ManualDiscountSerializer(serializers.Serializer):
+    percent = serializers.DecimalField(max_digits=5, decimal_places=2, required=False)
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
+    reason = serializers.CharField(max_length=50)
+    # Present only when the discount exceeds the staff ceiling. A manager types
+    # their own credentials at the counter; there is no separate PIN to leak.
+    approver_email = serializers.EmailField(required=False, allow_blank=True)
+    approver_password = serializers.CharField(required=False, allow_blank=True)

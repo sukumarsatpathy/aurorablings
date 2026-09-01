@@ -12,6 +12,7 @@ from apps.orders.models import (
     OrderStatus,
     FulfillmentMethod,
     ShippingApprovalStatus,
+    FulfilmentType,
 )
 from apps.orders import services as order_services
 from audit.models import ActorType, AuditAction
@@ -92,6 +93,14 @@ def approve_order_shipping(
     local_meta: dict | None = None,
 ) -> Order:
     order = Order.objects.select_for_update().get(id=order_id)
+
+    # A counter sale the customer walked out with has no shipment. Approving one
+    # would book a courier for goods that left the building days ago.
+    if order.fulfilment_type == FulfilmentType.CARRY_AWAY:
+        raise ValidationError(
+            "This order was carried away from the counter; it has no shipment to approve."
+        )
+
     method = str(fulfillment_method or "").strip().lower()
     if method not in {FulfillmentMethod.LOCAL_DELIVERY, FulfillmentMethod.NIMBUSPOST, FulfillmentMethod.SHIPROCKET}:
         raise ValidationError("Invalid fulfillment method.")
@@ -205,6 +214,9 @@ def _create_event(
 def preflight_validate_order(order: Order) -> PreflightResult:
     errors: list[str] = []
     shipping = order.shipping_address or {}
+
+    if order.fulfilment_type == FulfilmentType.CARRY_AWAY:
+        errors.append("Order was carried away from the counter; no shipment is required.")
 
     if order.shipping_approval_status != ShippingApprovalStatus.APPROVED:
         errors.append("Shipping is not approved for this order.")

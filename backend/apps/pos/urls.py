@@ -15,7 +15,10 @@ urlpatterns = [
     path("shifts/<uuid:shift_id>/cash-movement/", views.CashMovementView.as_view(), name="cash-movement"),
     path("shifts/<uuid:shift_id>/cash-tender/",   views.CashTenderView.as_view(),   name="cash-tender"),
 
+    path("quote/",                        views.POSQuoteView.as_view(),          name="quote"),
+    path("orders/",                       views.POSOrderCreateView.as_view(),    name="order-create"),
     path("orders/part-paid/",             views.PartPaidOrderListView.as_view(), name="part-paid"),
+    path("orders/<uuid:order_id>/discount/", views.ManualDiscountView.as_view(), name="manual-discount"),
     path("orders/<uuid:order_id>/void/",  views.VoidSaleView.as_view(),          name="void-sale"),
     path("orders/<uuid:order_id>/upi/",   views.UpiCollectionView.as_view(),     name="upi-collection"),
     path("orders/<uuid:order_id>/payment-state/", views.PaymentStateView.as_view(), name="payment-state"),
