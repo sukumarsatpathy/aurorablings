@@ -53,6 +53,7 @@ const AccountLogoutPage = lazy(() => import('./pages/account/AccountLogoutPage')
 // ── Admin (all lazy: ~10k lines, unreachable without a staff token) ─────────
 // The counter. Lazily loaded and staff-gated: a stall on 4G should not pay for
 // this chunk on the storefront, and the storefront should not pay for it either.
+const NotFoundPage = lazy(() => import('./pages/NotFoundPage').then(m => ({ default: m.NotFoundPage })));
 const PosPage = lazy(() => import('./pages/pos/PosPage').then(m => ({ default: m.PosPage })));
 const DashboardLayout = lazy(() => import('./components/layouts/DashboardLayout').then(m => ({ default: m.DashboardLayout })));
 const Dashboard = lazy(() => import('./pages/admin/Dashboard').then(m => ({ default: m.Dashboard })));
@@ -518,7 +519,11 @@ function AppContent() {
             </DashboardLayout>
           </RequireAdminOrStaff>
         } />
-      </Routes>
+              {/* Anything unmatched. Without this the router rendered nothing at all,
+            so a typo or a stale build looked identical to a broken app. */}
+        <Route path="*" element={<NotFoundPage />} />
+
+</Routes>
       </Suspense>
     </>
   );
