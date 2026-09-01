@@ -109,6 +109,31 @@ def find_customer(*, phone: str = "", email: str = "") -> CustomerLinkResult:
 
     if phone:
         by_phone = list(User.objects.filter(phone_query(phone), role=UserRole.CUSTOMER)[:2])
+
+        if not by_phone:
+            # Most customers never fill in User.phone — they type a number into
+            # checkout, which stores it on the Address. Searching only the user
+            # record makes a regular look like a stranger at the counter, so the
+            # saved addresses are the second place to look.
+            from apps.accounts.models import Address
+
+            address_users = list(
+                User.objects.filter(
+                    pk__in=Address.objects.filter(phone_query(phone)).values("user_id"),
+                    role=UserRole.CUSTOMER,
+                )[:2]
+            )
+            if len(address_users) > 1:
+                return CustomerLinkResult(
+                    conflict=True, reason="several accounts have this number on an address"
+                )
+            if address_users:
+                user = address_users[0]
+                if not user.phone:
+                    # Promote it onto the account so the next lookup is direct.
+                    user.phone = phone_digits(phone)
+                    user.save(update_fields=["phone"])
+                return CustomerLinkResult(user=user, reason="matched on a saved address")
         if len(by_phone) > 1:
             return CustomerLinkResult(conflict=True, reason="multiple accounts share this phone number")
         if by_phone:

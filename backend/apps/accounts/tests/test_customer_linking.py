@@ -231,3 +231,34 @@ class MessyPhoneFormatTests(TestCase):
 
         self.assertEqual(spaced.phone, "9876543299")
         self.assertEqual(customer_linking.find_customer(phone="9876543299").user, spaced)
+
+
+class AddressPhoneTests(TestCase):
+    """
+    Most customers never fill in User.phone — they type a number into checkout,
+    which saves it on the Address. Searching only the user record makes a regular
+    look like a stranger at the counter.
+    """
+
+    def setUp(self):
+        from apps.accounts.models import Address
+
+        self.user = User.objects.create_user(
+            email="regular@example.com", password="x", first_name="Reg", last_name="Ular",
+            role=UserRole.CUSTOMER,
+        )
+        self.assertEqual(self.user.phone, "")
+        Address.objects.create(
+            user=self.user, full_name="Reg Ular", line1="1 Street", city="Bhubaneswar",
+            state="Odisha", postal_code="751001", country="IN", phone="9876543210",
+        )
+
+    def test_a_number_saved_only_on_an_address_is_found(self):
+        result = customer_linking.find_customer(phone="9876543210")
+        self.assertEqual(result.user, self.user)
+        self.assertIn("address", result.reason)
+
+    def test_the_number_is_promoted_onto_the_account_for_next_time(self):
+        customer_linking.find_customer(phone="9876543210")
+        self.user.refresh_from_db()
+        self.assertEqual(self.user.phone, "9876543210")
