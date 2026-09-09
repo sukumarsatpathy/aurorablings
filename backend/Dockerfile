@@ -1,5 +1,5 @@
 # Stage 1: Build Dependencies
-FROM python:3.11.7-slim-bullseye AS builder
+FROM python:3.11-slim-bookworm AS builder
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -11,7 +11,7 @@ RUN apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
         build-essential \
         libpq-dev \
-        netcat \
+        netcat-openbsd \
         libcairo2 \
         libpango-1.0-0 \
         libpangocairo-1.0-0 \
@@ -23,7 +23,7 @@ RUN apt-get update && \
     || (apt-get update && apt-get install -y --no-install-recommends --fix-missing \
         build-essential \
         libpq-dev \
-        netcat \
+        netcat-openbsd \
         libcairo2 \
         libpango-1.0-0 \
         libpangocairo-1.0-0 \
@@ -44,7 +44,7 @@ COPY ./requirements.txt /app/
 RUN pip install --no-cache-dir -r requirements.txt
 
 # Stage 2: Final Production Image
-FROM python:3.11.7-slim-bullseye AS runner
+FROM python:3.11-slim-bookworm AS runner
 
 ENV PYTHONDONTWRITEBYTECODE=1
 ENV PYTHONUNBUFFERED=1
@@ -57,26 +57,26 @@ WORKDIR /app
 RUN apt-get update && \
     apt-get install -y --no-install-recommends --fix-missing \
         libpq5 \
-        netcat \
+        netcat-openbsd \
         curl \
         libcairo2 \
         libpango-1.0-0 \
         libpangocairo-1.0-0 \
         libpangoft2-1.0-0 \
         libgdk-pixbuf2.0-0 \
-        libffi7 \
+        libffi8 \
         shared-mime-info \
         fonts-dejavu-core \
     || (apt-get update && apt-get install -y --no-install-recommends --fix-missing \
         libpq5 \
-        netcat \
+        netcat-openbsd \
         curl \
         libcairo2 \
         libpango-1.0-0 \
         libpangocairo-1.0-0 \
         libpangoft2-1.0-0 \
         libgdk-pixbuf2.0-0 \
-        libffi7 \
+        libffi8 \
         shared-mime-info \
         fonts-dejavu-core) \
     && rm -rf /var/lib/apt/lists/*
