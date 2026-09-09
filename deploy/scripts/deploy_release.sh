@@ -125,6 +125,37 @@ done
 echo "Pulling latest images..."
 docker compose -f "${COMPOSE_FILE}" pull
 
+# ── Align shared-volume ownership with the image's app user ───────────────────
+# The backend image runs as the unprivileged `django` user and chowns
+# /app/logs, /app/media and /app/staticfiles at build time. That build-time
+# ownership is irrelevant at runtime: docker-compose.prod.yml bind-mounts
+# host directories over all three, and a bind mount carries the HOST's
+# ownership. Those host directories are created by root (here, and by
+# bootstrap_server.sh), so the container gets root-owned directories it cannot
+# write to, and Django dies during logging setup before it reaches any of its
+# own code:
+#     PermissionError: [Errno 13] Permission denied: '/app/logs/app.log'
+#
+# The uid is not hard-coded because `adduser --system` assigns whatever is
+# free in the 100-999 range when the image is built; it can differ between
+# base images. Ask the image what it actually is. Runs after `pull` so the
+# image is present, and before `up -d` so the fix lands before first start.
+echo "Aligning shared directory ownership..."
+BACKEND_IMAGE="$(docker compose -f "${COMPOSE_FILE}" config --images 2>/dev/null | grep -m1 backend || true)"
+APP_UID=""; APP_GID=""
+if [[ -n "${BACKEND_IMAGE}" ]]; then
+  APP_UID="$(docker run --rm --entrypoint id "${BACKEND_IMAGE}" -u django 2>/dev/null || true)"
+  APP_GID="$(docker run --rm --entrypoint id "${BACKEND_IMAGE}" -g django 2>/dev/null || true)"
+fi
+if [[ -n "${APP_UID}" && -n "${APP_GID}" ]]; then
+  chown -R "${APP_UID}:${APP_GID}" \
+    "${SHARED_DIR}/logs" "${SHARED_DIR}/media" "${SHARED_DIR}/static" || true
+  echo "  shared logs/media/static owned by ${APP_UID}:${APP_GID} (django in ${BACKEND_IMAGE})"
+else
+  echo "  WARNING: could not resolve the image's django uid; leaving ownership unchanged."
+  echo "           If the backend dies with 'Permission denied: /app/logs/app.log', this is why."
+fi
+
 echo "Starting containers..."
 docker compose -f "${COMPOSE_FILE}" up -d --remove-orphans --force-recreate
 

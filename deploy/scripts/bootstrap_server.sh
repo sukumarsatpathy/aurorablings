@@ -65,6 +65,14 @@ if ! swapon --show | grep -q '/swapfile'; then
   grep -q '^/swapfile' /etc/fstab || echo '/swapfile none swap sw 0 0' >> /etc/fstab
   sysctl -w vm.swappiness=10 >/dev/null
   grep -q 'vm.swappiness' /etc/sysctl.conf || echo 'vm.swappiness=10' >> /etc/sysctl.conf
+fi
+
+# Redis warns about this on every start: without overcommit, a background save
+# fork can fail under memory pressure -- and on a box this size, it will.
+if [[ "$(sysctl -n vm.overcommit_memory)" != "1" ]]; then
+  log "Enabling vm.overcommit_memory for Redis"
+  sysctl -w vm.overcommit_memory=1 >/dev/null
+  grep -q 'vm.overcommit_memory' /etc/sysctl.conf || echo 'vm.overcommit_memory=1' >> /etc/sysctl.conf
 else
   log "Swap already present"
 fi
