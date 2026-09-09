@@ -99,8 +99,11 @@ pushd "${RELEASE_DIR}" >/dev/null
 echo "Validating compose file..."
 docker compose -f "${COMPOSE_FILE}" config >/dev/null
 
-echo "Stopping old containers..."
-docker compose -f "${COMPOSE_FILE}" down --remove-orphans
+# --timeout 60: compose's default is 10s before SIGKILL, which is how the
+# database got killed mid-checkpoint on 2026-09-09. See the note in
+# .github/workflows/deploy.yml.
+echo "Stopping old containers (graceful, 60s)..."
+docker compose -f "${COMPOSE_FILE}" down --remove-orphans --timeout 60
 
 # Re-ensure network after 'down' detaches all containers (FIX 2)
 if ! docker network inspect "${NETWORK_NAME}" >/dev/null 2>&1; then
@@ -115,9 +118,9 @@ echo "Releasing ports 80 and 443 from any stale containers..."
 for PORT in 80 443; do
   STALE="$(docker ps -q --filter "publish=${PORT}" || true)"
   if [[ -n "${STALE}" ]]; then
-    echo "  Port ${PORT} held by container(s): ${STALE} — stopping..."
-    docker stop ${STALE} || true
-    docker rm   ${STALE} || true
+    echo "  Port ${PORT} held by container(s): ${STALE} — stopping (60s)..."
+    docker stop -t 60 ${STALE} || true
+    docker rm ${STALE} || true
   fi
 done
 # ──────────────────────────────────────────────────────────────────────────────

@@ -132,11 +132,24 @@ jobs:
           # ── Stop ALL running containers before deploy ──────────────────────
           # Timestamp-based project names mean each deploy is a new Compose
           # project. Without this, every failed/previous deploy keeps running.
-          echo "Stopping all running containers..."
+          #
+          # -t 60 is NOT cosmetic. Bare 'docker stop' gives 10 seconds, then
+          # SIGKILLs. On 2026-09-09 that killed Postgres in the middle of a
+          # shutdown checkpoint AND an in-flight DROP DATABASE: the WAL segment
+          # the checkpoint pointed at had already been recycled, so the cluster
+          # would not start ("could not locate a valid checkpoint record"), and
+          # the half-dropped database left a corrupt entry in pg_database that
+          # ultimately cost a full restore from a three-week-old dump.
+          #
+          # The postgres image maps SIGTERM to a fast shutdown, which needs
+          # seconds, not minutes -- it just needs to be allowed to finish.
+          # Never lower this, and never replace it with 'docker rm -v' or
+          # 'docker volume prune': those delete the database itself.
+          echo "Stopping all running containers (graceful, 60s)..."
           RUNNING=\$(docker ps -q || true)
           if [ -n "\$RUNNING" ]; then
-            docker stop \$RUNNING || true
-            docker rm   \$RUNNING || true
+            docker stop -t 60 \$RUNNING || true
+            docker rm \$RUNNING || true
           fi
           # ──────────────────────────────────────────────────────────────────
 
