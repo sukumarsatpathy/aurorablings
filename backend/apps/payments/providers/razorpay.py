@@ -392,8 +392,13 @@ class RazorpayProvider(BasePaymentProvider):
         }
 
         try:
+            # /v1/payments/qr_codes — plural. The singular spelling reaches
+            # Razorpay's gateway and 404s with "no Route matched with those
+            # values", which reads like the QR product is disabled on the
+            # account rather than like a typo, and sends the caller down the
+            # payment-link fallback for every single sale.
             resp = requests.post(
-                "https://api.razorpay.com/v1/payment/qr_codes",
+                f"{self.base_url}/payments/qr_codes",
                 json=payload,
                 auth=(self.key_id, self.key_secret),
                 timeout=20,
@@ -426,7 +431,7 @@ class RazorpayProvider(BasePaymentProvider):
             return False
         try:
             resp = requests.post(
-                f"https://api.razorpay.com/v1/payment/qr_codes/{provider_ref}/close",
+                f"{self.base_url}/payments/qr_codes/{provider_ref}/close",
                 auth=(self.key_id, self.key_secret),
                 timeout=15,
             )

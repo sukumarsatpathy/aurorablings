@@ -3,6 +3,21 @@ import Lenis from 'lenis';
 import { ScrollTrigger } from 'gsap/ScrollTrigger';
 import { initGsap } from '@/animations/gsapConfig';
 
+/**
+ * The single live Lenis instance, or null before it initialises / after teardown.
+ *
+ * MainLayout is the only caller of useLenis(), so there is never more than one.
+ * It is exposed because anything that needs to move the scroll position has to
+ * go through Lenis rather than around it: Lenis drives window scroll from its
+ * own rAF loop, so a bare `window.scrollTo(0, 0)` gets overwritten on the next
+ * frame by whatever Lenis still believes the target is. See useScrollToTop.
+ */
+let activeLenis: Lenis | null = null;
+
+export function getLenis(): Lenis | null {
+  return activeLenis;
+}
+
 export function useLenis() {
   useEffect(() => {
     // Lenis's constructor and ScrollTrigger's first update both read layout
@@ -36,6 +51,8 @@ export function useLenis() {
           return Boolean(node.closest('[data-lenis-prevent]'));
         },
       });
+
+      activeLenis = lenis;
 
       // Writing a custom property on <html> invalidates style for every element
       // that inherits it — i.e. the whole document — so doing it on every scroll
@@ -81,6 +98,9 @@ export function useLenis() {
       }
       cancelAnimationFrame(rafId);
       document.documentElement.style.removeProperty('--scroll-velocity');
+      if (activeLenis === lenis) {
+        activeLenis = null;
+      }
       lenis?.destroy();
     };
   }, []);

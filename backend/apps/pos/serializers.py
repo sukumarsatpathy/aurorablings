@@ -96,6 +96,9 @@ class POSLineItemSerializer(serializers.Serializer):
 class POSQuoteSerializer(serializers.Serializer):
     items = POSLineItemSerializer(many=True)
     coupon_code = serializers.CharField(required=False, allow_blank=True, max_length=50)
+    # A quote has to know how the goods are leaving, because that decides whether
+    # shipping is charged. Defaulted, so an existing caller keeps working.
+    fulfilment_type = serializers.ChoiceField(choices=["carry_away", "ship"], default="carry_away")
 
 
 class POSOrderCreateSerializer(POSQuoteSerializer):
@@ -103,7 +106,9 @@ class POSOrderCreateSerializer(POSQuoteSerializer):
     contact_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
     contact_phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
     contact_email = serializers.EmailField(required=False, allow_blank=True)
-    fulfilment_type = serializers.ChoiceField(choices=["carry_away", "ship"], default="carry_away")
+    # Separate from the address itself: staff may take an email purely to send
+    # the receipt, without the customer wanting a login.
+    create_account = serializers.BooleanField(default=True)
     shipping_address = serializers.DictField(required=False)
     notes = serializers.CharField(required=False, allow_blank=True, max_length=500)
 

@@ -123,13 +123,18 @@ class OrderListSerializer(serializers.ModelSerializer):
     item_count = serializers.IntegerField(read_only=True)
     customer_name = serializers.SerializerMethodField()
     customer_email = serializers.SerializerMethodField()
+    customer_phone = serializers.SerializerMethodField()
     invoice_url = serializers.SerializerMethodField()
 
     class Meta:
         model  = Order
         fields = [
             "id", "order_number", "status", "payment_status",
-            "grand_total", "currency", "item_count", "customer_name", "customer_email",
+            "grand_total", "currency", "item_count",
+            "customer_name", "customer_email", "customer_phone",
+            # Which till or channel took it. Every order list gets a POS/online
+            # split for free once this is on the wire.
+            "channel", "fulfilment_type",
             "shipping_approval_status", "fulfillment_method",
             "placed_at", "created_at", "invoice_url",
         ]
@@ -140,6 +145,12 @@ class OrderListSerializer(serializers.ModelSerializer):
             full_name = obj.user.get_full_name().strip()
             if full_name:
                 return full_name
+        # A counter sale keeps its customer in contact_name: there is no account
+        # until the money settles, and a carried-away sale has no shipping
+        # address to borrow a name from either. Without this line every POS
+        # order reads "Guest" in the admin even when staff took the details.
+        if getattr(obj, "contact_name", ""):
+            return obj.contact_name
         shipping_name = (obj.shipping_address or {}).get("full_name")
         if shipping_name:
             return str(shipping_name)
@@ -149,6 +160,14 @@ class OrderListSerializer(serializers.ModelSerializer):
         if obj.user and obj.user.email:
             return obj.user.email
         return obj.guest_email or ""
+
+    def get_customer_phone(self, obj) -> str:
+        """At a counter the phone is the identity — often the only detail given."""
+        if getattr(obj, "contact_phone", ""):
+            return obj.contact_phone
+        if obj.user and getattr(obj.user, "phone", ""):
+            return obj.user.phone
+        return str((obj.shipping_address or {}).get("phone") or "")
 
     def get_invoice_url(self, obj) -> str:
         from apps.invoices.services.invoice_service import InvoiceService
@@ -163,6 +182,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
     item_count     = serializers.IntegerField(read_only=True)
     customer_name  = serializers.SerializerMethodField()
     customer_email = serializers.SerializerMethodField()
+    customer_phone = serializers.SerializerMethodField()
     shipment = serializers.SerializerMethodField()
     invoice_url = serializers.SerializerMethodField()
 
@@ -173,7 +193,9 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "status", "payment_status", "payment_method", "payment_reference",
             "shipping_approval_status", "fulfillment_method",
             "shipping_approved_at", "shipping_approval_notes",
-            "customer_name", "customer_email", "guest_email",
+            "customer_name", "customer_email", "customer_phone", "guest_email",
+            "contact_name", "contact_phone",
+            "channel", "fulfilment_type",
             "shipping_address", "billing_address",
             "subtotal", "coupon_code", "discount_amount", "shipping_cost", "tax_amount",
             "grand_total", "currency",
@@ -192,6 +214,12 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             full_name = obj.user.get_full_name().strip()
             if full_name:
                 return full_name
+        # A counter sale keeps its customer in contact_name: there is no account
+        # until the money settles, and a carried-away sale has no shipping
+        # address to borrow a name from either. Without this line every POS
+        # order reads "Guest" in the admin even when staff took the details.
+        if getattr(obj, "contact_name", ""):
+            return obj.contact_name
         shipping_name = (obj.shipping_address or {}).get("full_name")
         if shipping_name:
             return str(shipping_name)
@@ -201,6 +229,14 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         if obj.user and obj.user.email:
             return obj.user.email
         return obj.guest_email or ""
+
+    def get_customer_phone(self, obj) -> str:
+        """At a counter the phone is the identity — often the only detail given."""
+        if getattr(obj, "contact_phone", ""):
+            return obj.contact_phone
+        if obj.user and getattr(obj.user, "phone", ""):
+            return obj.user.phone
+        return str((obj.shipping_address or {}).get("phone") or "")
 
     def get_shipment(self, obj):
         from apps.invoices.services.invoice_service import InvoiceService

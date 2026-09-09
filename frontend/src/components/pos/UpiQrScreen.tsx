@@ -54,6 +54,11 @@ export function UpiQrScreen({
   const { state, error, refresh } = usePaymentPolling(orderId, true);
   const [checking, setChecking] = useState(false);
   const [regenerating, setRegenerating] = useState(false);
+  // Razorpay serves the code from rzp.io. If that image fails to load — offline
+  // stall, blocked host, a URL that isn't an image — the screen would otherwise
+  // show an empty space with no explanation, which is indistinguishable from
+  // the button having done nothing.
+  const [imageBroken, setImageBroken] = useState(false);
   const [secondsLeft, setSecondsLeft] = useState(() =>
     collection.close_by ? Math.max(collection.close_by - Math.floor(Date.now() / 1000), 0) : 15 * 60,
   );
@@ -118,25 +123,42 @@ export function UpiQrScreen({
           </div>
         ) : (
           <div className="flex flex-col items-center gap-5">
-            {collection.kind === 'qr' && collection.image_url ? (
-              <img
-                src={collection.image_url}
-                alt="Scan to pay"
-                className="w-[230px] rounded-2xl bg-white p-3"
-              />
+            {/*
+              A code, not a URL — whichever path produced it. The link fallback
+              used to render the Razorpay URL as text, which is unusable at a
+              stall: nobody reads a link off a tablet and types it into their
+              phone. The server now renders that link as a QR too, so this only
+              needs to know whether it got an image.
+            */}
+            {collection.image_url && !imageBroken ? (
+              <>
+                <img
+                  src={collection.image_url}
+                  alt="Scan to pay"
+                  onError={() => setImageBroken(true)}
+                  className="w-[230px] rounded-2xl bg-white p-3"
+                />
+                {collection.kind === 'link' && (
+                  <p className="-mt-2 max-w-xs text-xs text-white/50">
+                    Payment link, shown as a code — QR codes aren't enabled on this
+                    Razorpay account.
+                  </p>
+                )}
+              </>
             ) : (
               <div className="max-w-sm rounded-2xl bg-white/5 p-5">
                 <p className="text-sm text-white/70">
-                  QR codes aren't enabled on this Razorpay account, so this sale uses a
-                  payment link instead.
+                  {imageBroken
+                    ? "The code image wouldn't load from the payment gateway. Use this link instead:"
+                    : "Couldn't draw a code for this collection. Open the payment link instead:"}
                 </p>
                 <a
-                  href={collection.payment_url}
+                  href={collection.payment_url || collection.image_url}
                   target="_blank"
                   rel="noreferrer"
                   className="mt-3 block break-all font-mono text-xs text-emerald-300 underline"
                 >
-                  {collection.payment_url}
+                  {collection.payment_url || collection.image_url}
                 </a>
               </div>
             )}

@@ -265,7 +265,7 @@ export const Orders: React.FC = () => {
   const filteredOrders = useMemo(() => {
     const q = searchTerm.trim().toLowerCase();
     return orders.filter((o) => {
-      const matchesSearch = !q || [o.order_number, o.customer_name, o.customer_email].join(' ').toLowerCase().includes(q);
+      const matchesSearch = !q || [o.order_number, o.customer_name, o.customer_email, o.customer_phone].join(' ').toLowerCase().includes(q);
       const matchesStatus = !statusFilter || o.status === statusFilter;
       return matchesSearch && matchesStatus;
     });
@@ -284,7 +284,20 @@ export const Orders: React.FC = () => {
       cell: (item: AdminOrderListRow) => (
         <div className="flex flex-col">
           <span className="font-medium">{item.customer_name || 'Guest'}</span>
-          <span className="text-xs text-muted-foreground">{item.customer_email || '-'}</span>
+          {/*
+            A counter sale usually has a phone and no email — phone is the
+            identity at a stall, and an account only exists once the money has
+            settled. Showing the email alone made every POS order look
+            anonymous even when staff had taken the details.
+          */}
+          <span className="text-xs text-muted-foreground">
+            {item.customer_email || item.customer_phone || '-'}
+          </span>
+          {item.channel === 'pos' && (
+            <span className="mt-0.5 w-fit rounded-full bg-muted px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-muted-foreground">
+              counter
+            </span>
+          )}
         </div>
       ),
     },
@@ -318,12 +331,27 @@ export const Orders: React.FC = () => {
       header: 'Shipping',
       accessorKey: 'shipping_approval_status',
       align: 'right' as const,
-      cell: (item: AdminOrderListRow) => (
-        <div className="flex flex-col items-end">
-          <StatusBadge status={toTitle(String(item.shipping_approval_status || 'pending_shipping_approval'))} type="generic" />
-          <span className="mt-1 text-[11px] text-muted-foreground">{toTitle(String(item.fulfillment_method || 'unassigned'))}</span>
-        </div>
-      ),
+      cell: (item: AdminOrderListRow) => {
+        // A carried-away sale has no shipping story to tell. It used to render
+        // "Rejected / Unassigned", which reads as a refusal followed by a
+        // courier nobody picked — for an order the customer walked out with.
+        if (item.fulfilment_type === 'carry_away') {
+          return (
+            <div className="flex flex-col items-end">
+              <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                Handed over
+              </span>
+              <span className="mt-1 text-[11px] text-muted-foreground">at the counter</span>
+            </div>
+          );
+        }
+        return (
+          <div className="flex flex-col items-end">
+            <StatusBadge status={toTitle(String(item.shipping_approval_status || 'pending_shipping_approval'))} type="generic" />
+            <span className="mt-1 text-[11px] text-muted-foreground">{toTitle(String(item.fulfillment_method || 'unassigned'))}</span>
+          </div>
+        );
+      },
     },
     {
       header: 'Invoice',

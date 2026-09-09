@@ -142,6 +142,35 @@ export function usePosCart() {
     setEntries((current) => current.filter((e) => e.row.variant_id !== variantId));
   }, []);
 
+  /**
+   * Refill the cart from a set of lines the server gave us.
+   *
+   * Used when stepping back from a sale to the cart. The tablet's own copy of
+   * the basket is gone after a reload — or after the app was rebuilt under the
+   * staff member's hands — but the order still knows what was on it, so the
+   * lines come back from there. Prices and stock are re-read here, exactly as
+   * they are on restore: nothing about a cart is ever trusted from elsewhere.
+   */
+  const replaceFromLines = useCallback(
+    async (lines: Array<{ variant_id: string; quantity: number }>) => {
+      if (!lines.length) return;
+      try {
+        const rows = await posService.catalogueByIds(lines.map((l) => l.variant_id));
+        const rebuilt: CartEntry[] = [];
+        for (const line of lines) {
+          const row = rows.find((r) => r.variant_id === line.variant_id);
+          if (!row) continue;
+          const capped = row.track_inventory ? Math.min(line.quantity, row.stock) : line.quantity;
+          if (capped > 0) rebuilt.push({ row, quantity: capped });
+        }
+        if (rebuilt.length) setEntries(rebuilt);
+      } catch {
+        // The cart on screen is better than no cart. Staff can re-add.
+      }
+    },
+    [],
+  );
+
   const clear = useCallback(() => {
     setEntries([]);
     setRestoreNote('');
@@ -179,6 +208,7 @@ export function usePosCart() {
     add,
     setQuantity,
     remove,
+    replaceFromLines,
     clear,
   };
 }

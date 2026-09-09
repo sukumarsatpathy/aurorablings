@@ -31,7 +31,11 @@ const EMPTY: CounterCustomer = { name: '', phone: '', email: '', createAccount: 
  * only collects.
  */
 export function CustomerPanel({ value, onChange }: Props) {
-  const [open, setOpen] = useState(false);
+  // Open when there is already a customer on the sale. This panel is unmounted
+  // while the payment screen is up, so stepping back — or resuming a sale after
+  // a reload — used to bring it back collapsed, which reads as "the name is
+  // gone" even though the details were still attached to the order.
+  const [open, setOpen] = useState(() => Boolean(value?.phone || value?.name));
   const [lookup, setLookup] = useState<CustomerLookup | null>(null);
   const [looking, setLooking] = useState(false);
   const draft = value ?? EMPTY;

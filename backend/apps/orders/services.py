@@ -61,6 +61,7 @@ from apps.features import services as feature_services
 from apps.accounts import services as account_services
 
 from .models import (
+    FulfilmentType,
     Order, OrderItem, OrderStatusHistory,
     OrderStatus, PaymentStatus, PaymentMethod,
     STATE_TRANSITIONS, CANCELLABLE_STATUSES,
@@ -783,6 +784,28 @@ def mark_paid(
         order_number=order.order_number,
         payment_reference=payment_reference,
     )
+
+    # A counter sale is over. The customer paid and walked out with the parcel,
+    # so there is no shipment to arrange and nothing left to wait for — closing
+    # it here is what keeps POS revenue out of the "still open" pile and out of
+    # every queue that exists to chase unfinished orders. Guarded by
+    # can_transition_to, which only permits this for carry-away.
+    if (
+        order.fulfilment_type == FulfilmentType.CARRY_AWAY
+        and order.can_transition_to(OrderStatus.COMPLETED)
+    ):
+        order.delivered_at = order.delivered_at or timezone.now()
+        order.save(update_fields=["delivered_at"])
+        _apply_transition(
+            order=order,
+            new_status=OrderStatus.COMPLETED,
+            changed_by=changed_by,
+            notes="Handed over at the counter — no shipment required.",
+        )
+        logger.info(
+            "counter_sale_completed",
+            order_id=str(order.id), order_number=order.order_number,
+        )
 
     # Shipping creation is explicitly admin-approved; never auto-send to courier.
 

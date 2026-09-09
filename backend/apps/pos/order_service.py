@@ -28,7 +28,10 @@ from django.conf import settings
 from django.db import transaction
 
 from apps.orders import services as order_services
-from apps.orders.models import FulfilmentType, Order, PaymentMethod, PaymentStatus, ShippingApprovalStatus
+from apps.orders.models import (
+    FulfilmentType, FulfillmentMethod, Order, PaymentMethod, PaymentStatus,
+    ShippingApprovalStatus,
+)
 from apps.pos.models import POSShift
 from apps.pos.services import attach_to_counter
 
@@ -58,14 +61,35 @@ def discount_ceiling_pct() -> Decimal:
     return Decimal(str(getattr(settings, "POS_DISCOUNT_CEILING_PCT", DEFAULT_DISCOUNT_CEILING_PCT)))
 
 
-def quote(*, items: list[dict], coupon_code: str = "") -> dict:
+def quote(
+    *,
+    items: list[dict],
+    coupon_code: str = "",
+    fulfilment_type: str = FulfilmentType.CARRY_AWAY,
+) -> dict:
     """
     Price a cart without persisting anything — what the counter shows while the
     customer is still deciding. Same pricing engine as checkout.
+
+    Carry-away drops the shipping line the same way create_pos_order does. A
+    quote that disagrees with the sale it turns into is worse than no quote:
+    staff read the figure out loud before the order exists.
     """
-    return order_services.calculate_admin_order_pricing(
+    priced = order_services.calculate_admin_order_pricing(
         items=items, coupon_code=(coupon_code or "").strip(),
     )
+
+    if fulfilment_type == FulfilmentType.CARRY_AWAY:
+        shipping = Decimal(str(priced.get("shipping_cost") or 0))
+        if shipping:
+            total = Decimal(str(priced.get("grand_total") or 0)) - shipping
+            # Decimal in, Decimal out — the caller serialises. Handing back a
+            # string for one key and a Decimal for the rest is how arithmetic
+            # further up quietly becomes string concatenation.
+            priced["grand_total"] = total.quantize(Decimal("0.01"))
+            priced["shipping_cost"] = Decimal("0.00")
+
+    return priced
 
 
 @transaction.atomic
@@ -77,6 +101,7 @@ def create_pos_order(
     contact_name: str = "",
     contact_phone: str = "",
     contact_email: str = "",
+    create_account: bool = True,
     coupon_code: str = "",
     fulfilment_type: str = FulfilmentType.CARRY_AWAY,
     shipping_address: dict | None = None,
@@ -110,16 +135,37 @@ def create_pos_order(
     order.contact_name = (contact_name or "").strip()
     order.contact_phone = (contact_phone or "").strip()
     order.fulfilment_type = fulfilment_type
+    # The email is on the order either way — a receipt is transactional and needs
+    # somewhere to go. This flag is the separate question of whether they wanted
+    # an account, and it is what the post-settlement task honours.
+    order.contact_wants_account = bool(create_account and (contact_email or "").strip())
 
-    fields = ["contact_name", "contact_phone", "fulfilment_type"]
+    fields = ["contact_name", "contact_phone", "fulfilment_type", "contact_wants_account"]
 
     if fulfilment_type == FulfilmentType.CARRY_AWAY:
         # The customer is walking out with it. Leaving this pending would park
         # every stall sale in the shipping-approval queue forever, and the queue
         # is only useful if everything in it actually needs a decision.
-        order.shipping_approval_status = ShippingApprovalStatus.REJECTED
+        order.shipping_approval_status = ShippingApprovalStatus.NOT_REQUIRED
         order.shipping_approval_notes = "Carried away from the counter — no shipment required."
-        fields += ["shipping_approval_status", "shipping_approval_notes"]
+        order.fulfillment_method = FulfillmentMethod.COUNTER
+        fields += [
+            "shipping_approval_status", "shipping_approval_notes", "fulfillment_method",
+        ]
+
+        if order.shipping_cost:
+            # And nobody is shipping it, so nobody may be charged for shipping.
+            #
+            # The surcharge engine prices every order as a delivery, because until
+            # now every order was one. Its free-above-threshold rule lands a flat
+            # rate on any sale under the threshold — which at a stall is most of
+            # them. The customer is standing at the counter watching the screen,
+            # so this is not a rounding error they will forgive.
+            #
+            # Only shipping is removed. Tax still applies to a counter sale.
+            order.grand_total = (order.grand_total - order.shipping_cost).quantize(Decimal("0.01"))
+            order.shipping_cost = Decimal("0.00")
+            fields += ["shipping_cost", "grand_total"]
 
     order.save(update_fields=fields)
     attach_to_counter(order=order, shift=shift, staff=staff)

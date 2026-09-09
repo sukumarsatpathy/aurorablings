@@ -83,6 +83,29 @@ export function CatalogueGrid({ onAdd, inCart }: Props) {
               onClick={() => onAdd(row)}
               className="flex flex-col gap-1 rounded-lg border border-border bg-card p-3 text-left transition hover:border-primary disabled:cursor-not-allowed disabled:opacity-45"
             >
+              {/*
+                Staff pick by sight, not by SKU. A jewellery stall carries forty
+                variations of the same shape, and a text-only grid makes someone
+                read every line to find the pair the customer is holding.
+
+                Fixed aspect box so a missing image doesn't reflow the grid —
+                tiles must not move under a finger that is already reaching for
+                one. loading="lazy" keeps a long scroll cheap on 4G.
+              */}
+              <span className="mb-1 block aspect-square w-full overflow-hidden rounded-md bg-muted">
+                {row.image ? (
+                  <img
+                    src={row.image}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                ) : (
+                  <span className="flex h-full w-full items-center justify-center text-[10px] text-muted-foreground">
+                    no image
+                  </span>
+                )}
+              </span>
               <span className="font-mono text-[10px] text-muted-foreground">{row.sku}</span>
               <span className="text-sm font-semibold leading-tight">{row.product_name}</span>
               {row.variant_name && (

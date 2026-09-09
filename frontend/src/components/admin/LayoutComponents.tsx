@@ -18,10 +18,6 @@ import { useAddressAutoFill } from '@/hooks/useAddressAutoFill';
 
 const NAV_ITEMS = [
   { path: '/admin/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  // Lives outside /admin: the counter is a full-screen till, not a page inside
-  // the dashboard chrome. It is second in the rail because on an exhibition day
-  // it is the only thing staff open the app for.
-  { path: '/pos', icon: Store, label: 'Point of Sale' },
   { path: '/admin/categories', icon: FolderTree, label: 'Categories' },
   { path: '/admin/attributes', icon: Tags, label: 'Attributes' },
   { path: '/admin/products', icon: Box, label: 'Products' },
@@ -67,7 +63,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Nav Items */}
       {NAV_ITEMS.map((item) => {
-        // Exact match: /pos is a sibling of /admin, not a child of it.
+        // Exact match: some destinations are siblings of /admin, not children.
         const isActive = location.pathname === item.path;
         return (
           <Link
@@ -595,6 +591,14 @@ export const Topbar: React.FC = () => {
 
       {/* Actions */}
       <div className="flex items-center gap-3">
+        <Link
+          to="/pos"
+          className="w-10 h-10 rounded-full border border-border bg-white flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+          title="Point of Sale"
+          aria-label="Open point of sale"
+        >
+          <Store size={18} />
+        </Link>
         <button
           type="button"
           onClick={handleToggleTheme}

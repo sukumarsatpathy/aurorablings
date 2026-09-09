@@ -91,6 +91,9 @@ def link_customer_for_order_task(self, *, order_id: str):
             name=order.contact_name,
             phone=order.contact_phone,
             email=order.guest_email,
+            # An email captured for the receipt is not consent to a login. An
+            # existing account is still linked; this only governs creating a new one.
+            create_account=getattr(order, "contact_wants_account", True),
         )
         if result.created and result.user is not None:
             customer_linking.send_welcome(user=result.user, order=order)

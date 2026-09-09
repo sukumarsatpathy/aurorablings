@@ -32,6 +32,24 @@ export interface PosShift {
   part_paid_orders: Array<{ id: string; order_number: string; grand_total: string }>;
 }
 
+export interface ShiftSummary {
+  shift_id: string;
+  terminal: string;
+  opened_at: string;
+  closed_at: string | null;
+  orders: number;
+  by_tender: Record<string, { total: string; count?: number }>;
+  cash_taken: string;
+  cash_movements_net: string;
+  opening_float: string;
+  expected_cash: string;
+  counted_cash: string | null;
+  variance: string | null;
+  manual_discounts: string;
+  coupon_discounts: string;
+  part_paid_open: number;
+}
+
 export interface CatalogueRow {
   variant_id: string;
   sku: string;
@@ -42,6 +60,8 @@ export interface CatalogueRow {
   stock: number;
   track_inventory: boolean;
   low_stock: boolean;
+  /** Product's primary image, small derivative. Null when none is uploaded. */
+  image: string | null;
 }
 
 export interface CartLine {
@@ -61,7 +81,19 @@ export interface PosOrder {
 export interface PaymentState {
   order_number: string;
   payment_status: string;
+  subtotal: string;
+  /** Coupon discount. Separate from the manual one — they report differently. */
+  discount_amount: string;
+  manual_discount_amount: string;
+  manual_discount_reason: string;
+  tax_amount: string;
+  shipping_cost: string;
   grand_total: string;
+  contact_name: string;
+  contact_phone: string;
+  contact_email: string;
+  /** The order's own lines — what "back to cart" refills from. */
+  items: Array<{ variant_id: string; quantity: number }>;
   amount_paid: string;
   balance_due: string;
   tenders: Array<{ method: string; amount: string; status: string; at: string }>;
@@ -108,12 +140,17 @@ const posService = {
     return data;
   },
 
-  shiftSummary: async (shiftId: string) => {
+  shiftSummary: async (shiftId: string): Promise<ShiftSummary> => {
     const { data } = await apiClient.get(`/v1/pos/shifts/${shiftId}/summary/`);
     return data;
   },
 
-  closeShift: async (shiftId: string, countedCash: string, note = '', force = false) => {
+  closeShift: async (
+    shiftId: string,
+    countedCash: string,
+    note = '',
+    force = false,
+  ): Promise<PosShift> => {
     const { data } = await apiClient.post(`/v1/pos/shifts/${shiftId}/close/`, {
       counted_cash: countedCash,
       note,
@@ -150,6 +187,8 @@ const posService = {
     contact_name?: string;
     contact_phone?: string;
     contact_email?: string;
+    /** Whether a NEW account may be created. An existing one is linked regardless. */
+    create_account?: boolean;
     fulfilment_type?: 'carry_away' | 'ship';
     shipping_address?: Record<string, unknown>;
   }): Promise<PosOrder> => {

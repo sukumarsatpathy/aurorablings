@@ -1,0 +1,204 @@
+# Run the PRODUCTION images locally on macOS.
+#
+#   docker compose -f docker-compose.local-prod.yml --env-file .env.local-prod build
+#   docker compose -f docker-compose.local-prod.yml --env-file .env.local-prod up -d
+#
+# NOTE: backend, celery_worker and frontend are BUILT FROM LOCAL SOURCE, not
+# pulled from GHCR. You must `build` after changing code -- `restart` alone
+# reuses the existing image and will silently show you the old app.
+#
+# Differences from docker-compose.prod.yml, and why:
+#   - no external network/volume  : those are created by the server bootstrap
+#   - no nginx_proxy service      : it needs Let's Encrypt certs for the real domain
+#   - frontend proxies /api itself: see deploy/nginx/frontend.local.conf
+#   - images are built locally    : so this stack tests the code in this working
+#                                   tree. It also means native arm64 on Apple
+#                                   Silicon, instead of the amd64-only GHCR
+#                                   images running under Rosetta.
+#   - bind mounts under .localprod/ instead of /srv/aurora/shared/
+#
+# Site: http://localhost:8080     Django admin: http://localhost:8080/admin/
+
+name: aurora-localprod
+
+services:
+  db:
+    image: postgres:15-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_DB: ${POSTGRES_DB:-aurora_db}
+      POSTGRES_USER: ${POSTGRES_USER:-aurora_user}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD:-admin}
+    ports:
+      # 5434, so this can run alongside docker-compose.dev.yml (which uses 5433)
+      # without either stack fighting for the port.
+      - "5434:5432"
+    volumes:
+      - localprod_postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER:-aurora_user} -d ${POSTGRES_DB:-aurora_db}"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  backend:
+    # Build from LOCAL source instead of pulling the CI image.
+    #
+    # This service used to be `image: ghcr.io/.../backend:latest`, which is a
+    # prebuilt artifact from the last CI run. Local edits to backend/ had no
+    # effect on it whatsoever -- and neither did restarting the stack, since
+    # restarting re-runs the same image. Building here is the whole point of a
+    # local-prod stack: it exercises the production settings module, gunicorn
+    # config and entrypoint against the code actually on this machine.
+    #
+    # context MUST be ./backend -- backend/Dockerfile does `COPY ./requirements.txt`
+    # and `COPY . /app/`, both relative to the backend directory. This matches
+    # `context: ./backend` in .github/workflows/deploy.yml, so what builds here
+    # is what builds in CI.
+    #
+    # Rebuild after changing backend code:
+    #   docker compose -f docker-compose.local-prod.yml build backend
+    #   docker compose -f docker-compose.local-prod.yml up -d
+    build:
+      context: ./backend
+    # No `platform:` -- building locally produces a native arm64 image on Apple
+    # Silicon, so this no longer runs under Rosetta and is markedly faster than
+    # the amd64-only GHCR image.
+    restart: unless-stopped
+    command: ["gunicorn", "--bind", "0.0.0.0:8000", "-c", "config/gunicorn.conf.py", "config.wsgi:application"]
+    env_file:
+      - .env.local-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-aurora_user}:${POSTGRES_PASSWORD:-admin}@db:5432/${POSTGRES_DB:-aurora_db}
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      DATABASE: postgres
+      SQL_HOST: db
+      SQL_PORT: 5432
+      # REDIS_HOST/REDIS_PORT are consumed only by scripts/entrypoint.sh's
+      # nc wait loop. Django reads REDIS_URL (base.py line 207), which
+      # defaults to localhost -- so it must be set explicitly here or every
+      # cached request, including the DRF throttles, fails with Error 111.
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      RUN_MIGRATIONS: "true"
+      RUN_COLLECTSTATIC: "true"
+      SECURE_SSL_REDIRECT: "False"
+    volumes:
+      - ./.localprod/static:/app/staticfiles
+      - ./.localprod/media:/app/media
+      - ./.localprod/logs:/app/logs
+    ports:
+      # Direct access for debugging. The browser should use :8080.
+      - "8001:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD", "curl", "-fL", "http://localhost:8000/health/server"]
+      interval: 15s
+      timeout: 10s
+      retries: 5
+      # Longer than prod's 90s: migrate + collectstatic under emulation is slow.
+      start_period: 240s
+
+  celery_worker:
+    # Same build as the backend service. Compose builds the context once and
+    # reuses the layer cache, so this does not double the build time.
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "worker", "--loglevel=info"]
+    env_file:
+      - .env.local-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-aurora_user}:${POSTGRES_PASSWORD:-admin}@db:5432/${POSTGRES_DB:-aurora_db}
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      DATABASE: postgres
+      SQL_HOST: db
+      SQL_PORT: 5432
+      # REDIS_HOST/REDIS_PORT are consumed only by scripts/entrypoint.sh's
+      # nc wait loop. Django reads REDIS_URL (base.py line 207), which
+      # defaults to localhost -- so it must be set explicitly here or every
+      # cached request, including the DRF throttles, fails with Error 111.
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECURE_SSL_REDIRECT: "False"
+      # RUN_MIGRATIONS / RUN_COLLECTSTATIC intentionally omitted
+    volumes:
+      - ./.localprod/media:/app/media
+      - ./.localprod/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
+
+  # celery_beat is deliberately omitted, same as docker-compose.dev.yml.
+  # Uncomment if you need the scheduled tasks (health checks, stale-order
+  # expiry, shipping token refresh) to actually fire locally.
+  #
+  # celery_beat:
+  #   build:
+  #     context: ./backend
+  #   command: ["celery", "-A", "config", "beat", "--loglevel=info", "--pidfile=",
+  #             "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+  #   env_file: [.env.local-prod]
+  #   environment: *same as celery_worker*
+  #   depends_on: {backend: {condition: service_healthy}}
+
+  frontend:
+    # Build from LOCAL source instead of pulling the CI image. See the note on
+    # the backend service; the same trap applies here and is the reason a
+    # frontend change plus `docker compose restart` appeared to do nothing.
+    #
+    # context MUST be the repo root, NOT ./frontend -- frontend/Dockerfile does
+    # `COPY frontend/package*.json ./` and `COPY deploy/nginx/frontend.conf`,
+    # both relative to the root. This mirrors `context: .` +
+    # `file: ./frontend/Dockerfile` in .github/workflows/deploy.yml.
+    #
+    # Rebuild after changing frontend code:
+    #   docker compose -f docker-compose.local-prod.yml build frontend
+    #   docker compose -f docker-compose.local-prod.yml up -d
+    #
+    # For day-to-day frontend work prefer docker-compose.dev.yml (port 5173):
+    # it bind-mounts ./frontend and runs Vite, so changes appear without a rebuild.
+    build:
+      context: .
+      dockerfile: frontend/Dockerfile
+    restart: unless-stopped
+    volumes:
+      # The baked-in frontend.conf serves the SPA but does NOT proxy /api.
+      # In production nginx_proxy does that routing; here the frontend
+      # container has to do it itself or every API call 404s into index.html.
+      - ./deploy/nginx/frontend.local.conf:/etc/nginx/conf.d/default.conf:ro
+      # Django does not serve /media/ under prod settings (urls.py guards it
+      # behind DEBUG), so nginx serves the same bind mount the backend writes
+      # uploads into -- the same split production uses.
+      - ./.localprod/media:/app/media:ro
+    ports:
+      - "8080:80"
+    depends_on:
+      backend:
+        condition: service_healthy
+
+volumes:
+  localprod_postgres_data:

@@ -218,6 +218,10 @@ export function LuxuryFooter() {
                 <label htmlFor="footer-email" className="sr-only">
                   Enter your email
                 </label>
+                {/* The wrapper is flex-col on mobile and flex-row from sm up, which
+                    means the flex MAIN AXIS flips from vertical to horizontal at the
+                    breakpoint. Anything sized with flex-* in here has to account for
+                    that -- see the input below. */}
                 <div className="flex flex-col gap-3 sm:flex-row">
                   <input
                     id="footer-email"
@@ -225,7 +229,15 @@ export function LuxuryFooter() {
                     placeholder="Enter your email"
                     value={newsletterEmail}
                     onChange={(event) => setNewsletterEmail(event.target.value)}
-                    className="h-13 min-w-0 flex-1 rounded-full border border-[#d6e0cf] bg-[#f5f8f2] px-5 text-sm text-[#1f2937] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none transition-all duration-300 placeholder:text-[#7c8777] focus:border-[#517b4b] focus:ring-4 focus:ring-[#517b4b]/10 dark:border-[#3a4938] dark:bg-[#10160f] dark:text-white dark:placeholder:text-[#8f998b]"
+                    /* `w-full ... sm:w-auto sm:flex-1`, NOT a bare `flex-1`.
+                       Below sm the main axis is vertical, so `flex-1`
+                       (= flex: 1 1 0%) applied a flex-basis of 0 to the HEIGHT and
+                       beat `h-13`: the field collapsed to 18px tall next to the
+                       button's 52px. That is the squashed box on phones, and it
+                       looked fine on desktop because the row layout makes the same
+                       declaration control width instead. Stretch horizontally on
+                       mobile; only take part in flex sizing once the axis flips. */
+                    className="h-13 w-full min-w-0 rounded-full border border-[#d6e0cf] bg-[#f5f8f2] px-5 text-sm text-[#1f2937] shadow-[inset_0_1px_0_rgba(255,255,255,0.8)] outline-none transition-all duration-300 placeholder:text-[#7c8777] focus:border-[#517b4b] focus:ring-4 focus:ring-[#517b4b]/10 sm:w-auto sm:flex-1 dark:border-[#3a4938] dark:bg-[#10160f] dark:text-white dark:placeholder:text-[#8f998b]"
                     aria-label="Enter your email"
                     disabled={isSubmittingNewsletter}
                     autoComplete="email"

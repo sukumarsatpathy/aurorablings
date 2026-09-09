@@ -42,6 +42,30 @@ class CollectionError(Exception):
 
 
 @transaction.atomic
+def qr_data_uri(payload: str) -> str:
+    """
+    Render a string as a QR PNG, inline.
+
+    Returns "" on any failure rather than raising: a missing image is a counter
+    that falls back to the link text, while an exception here would lose a
+    collection that the gateway has already accepted.
+    """
+    if not payload:
+        return ""
+    try:
+        import base64
+        import io as _io
+
+        import qrcode
+
+        buffer = _io.BytesIO()
+        qrcode.make(payload).save(buffer, format="PNG")
+        return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+    except Exception as exc:  # noqa: BLE001 - never fail a sale over an image
+        logger.warning("pos_qr_render_failed", error=str(exc))
+        return ""
+
+
 def create_upi_collection(
     *,
     order: Order,
@@ -150,8 +174,13 @@ def create_upi_collection(
         "transaction_id": str(txn.id),
         "qr_id": link.provider_ref,
         "payment_url": txn.payment_url,
+        # The counter renders a code, not a URL, whichever path got us here.
+        # Nobody at a stall is going to read a Razorpay link off a tablet and
+        # type it into their phone, so a fallback that only returns text is a
+        # fallback that doesn't work.
+        "image_url": qr_data_uri(txn.payment_url),
         "amount": str(outstanding),
-        "note": "QR codes unavailable on this account — render this link as a QR.",
+        "note": "QR codes unavailable on this account — this is a payment link, shown as a QR.",
         "qr_error": qr_error,
     }
 
@@ -198,7 +227,34 @@ def payment_state(*, order: Order) -> dict:
     return {
         "order_number": order.order_number,
         "payment_status": order.payment_status,
+        # The pricing breakdown, so the counter can show what was taken off the
+        # price rather than only the figure that survived it. Sent from here
+        # rather than remembered by the tablet: a discount applied on the payment
+        # screen, or a refresh mid-sale, must not leave the till showing stale
+        # arithmetic to a customer who is watching it.
+        "subtotal": str(order.subtotal),
+        "discount_amount": str(order.discount_amount),
+        "manual_discount_amount": str(order.manual_discount_amount),
+        "manual_discount_reason": order.manual_discount_reason or "",
+        # Named, not lumped into a mystery "other charges" line. A staff member
+        # asked what a charge was and could not answer the customer; that is the
+        # bug, and an itemised name is the fix.
+        "tax_amount": str(order.tax_amount),
+        "shipping_cost": str(order.shipping_cost),
         "grand_total": str(order.grand_total),
+        # Who it is for, and what is on it. Both exist so a counter that has been
+        # refreshed — or rebuilt under the staff member's hands — can put the
+        # sale back on screen instead of showing an anonymous total. The lines
+        # are also what "back to cart" refills from: the tablet's own copy of the
+        # basket is gone after a reload, but the order still knows.
+        "contact_name": order.contact_name or "",
+        "contact_phone": order.contact_phone or "",
+        "contact_email": order.guest_email or "",
+        "items": [
+            {"variant_id": str(i.variant_id), "quantity": i.quantity}
+            for i in order.items.all()
+            if i.variant_id
+        ],
         "amount_paid": str(tender_service.amount_paid(order)),
         "balance_due": str(tender_service.balance_due(order)),
         "tenders": [

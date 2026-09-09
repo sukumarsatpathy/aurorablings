@@ -90,3 +90,11 @@ ehthumbs.db
 Desktop.ini
 *.swp
 *.swo
+
+.localprod/
+.env.local-prod
+aurora-backups/
+
+.localprod/
+.env.local-prod
+aurora-backups/

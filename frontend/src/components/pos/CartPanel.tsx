@@ -54,8 +54,23 @@ export function CartPanel({
           entries.map(({ row, quantity }) => (
             <div
               key={row.variant_id}
-              className="grid grid-cols-[1fr_auto] gap-x-3 border-b border-border/60 p-4"
+              className="grid grid-cols-[auto_1fr_auto] gap-x-3 border-b border-border/60 p-4"
             >
+              {/*
+                A thumbnail in the cart is the check staff make before taking
+                money: the line they added is the thing on the counter. Small
+                and fixed-size so a long cart still scrolls in one column.
+              */}
+              <span className="h-11 w-11 shrink-0 overflow-hidden rounded-md bg-muted">
+                {row.image && (
+                  <img
+                    src={row.image}
+                    alt=""
+                    loading="lazy"
+                    className="h-full w-full object-cover"
+                  />
+                )}
+              </span>
               <div>
                 <p className="text-sm font-semibold leading-tight">{row.product_name}</p>
                 <p className="mt-0.5 font-mono text-[11px] text-muted-foreground">

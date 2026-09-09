@@ -4,6 +4,7 @@ import { Link } from 'react-router-dom';
 import { CartPanel } from '@/components/pos/CartPanel';
 import { PaymentStage } from '@/components/pos/PaymentStage';
 import { CatalogueGrid } from '@/components/pos/CatalogueGrid';
+import { CloseShiftDialog } from '@/components/pos/CloseShiftDialog';
 import { CustomerPanel, type CounterCustomer } from '@/components/pos/CustomerPanel';
 import { ShiftGate } from '@/components/pos/ShiftGate';
 import { usePosCart } from '@/hooks/usePosCart';
@@ -31,6 +32,7 @@ export function PosPage() {
   const [order, setOrder] = useState<PosOrder | null>(null);
   const [customer, setCustomer] = useState<CounterCustomer | null>(null);
   const [resuming, setResuming] = useState(true);
+  const [closingShift, setClosingShift] = useState(false);
 
   /**
    * An in-progress sale must survive a reload.
@@ -57,11 +59,24 @@ export function PosPage() {
           setOrder({
             order_id: stored,
             order_number: state.order_number,
-            subtotal: state.grand_total,
-            discount_amount: '0',
+            // Re-read, not guessed: the payment screen shows this breakdown to
+            // a customer, and a resumed sale that had a discount on it must not
+            // come back looking like it never did.
+            subtotal: state.subtotal,
+            discount_amount: state.discount_amount,
             grand_total: state.grand_total,
             fulfilment_type: 'carry_away',
           });
+          // Who the sale is for comes back too. A resumed order that shows no
+          // name reads as a different sale to the person holding the tablet.
+          if (state.contact_phone || state.contact_name) {
+            setCustomer({
+              name: state.contact_name,
+              phone: state.contact_phone,
+              email: state.contact_email,
+              createAccount: Boolean(state.contact_email),
+            });
+          }
         } else {
           // Settled while the tab was away — nothing left to collect.
           sessionStorage.removeItem('pos_active_order');
@@ -103,12 +118,19 @@ export function PosPage() {
         fulfilment_type: 'carry_away',
         contact_name: customer?.name || '',
         contact_phone: customer?.phone || '',
-        // Only send the address if an account is wanted. No email means the
-        // order keeps the name and number and no account is ever created.
-        contact_email: customer?.createAccount ? customer?.email || '' : '',
+        // The email always goes on the order. A receipt is transactional and
+        // needs somewhere to send it, and dropping the address because the
+        // account box was unticked left the sale with no way to reach the
+        // customer at all. Whether they wanted a login is a separate answer,
+        // sent separately, and honoured after settlement.
+        contact_email: customer?.email || '',
+        create_account: Boolean(customer?.createAccount && customer?.email),
       });
       setOrder(created);
-      cart.clear();
+      // The cart is deliberately kept until the sale is settled or abandoned:
+      // it is what "back to cart" restores, and re-typing a five-line sale
+      // because a customer added one more pair is the kind of friction that
+      // makes staff stop using the till.
       void refresh();
     } catch (err: any) {
       // Stock that sold online mid-sale surfaces here. Say so plainly rather
@@ -161,8 +183,41 @@ export function PosPage() {
               {shift.part_paid_orders.length} part-paid
             </span>
           )}
+          {/*
+            Ending the day is a counter action, so it lives on the counter. The
+            button is disabled mid-sale rather than hidden: an order with stock
+            reserved and possibly cash against it must be finished or voided
+            before the drawer is counted, and a hidden control just sends staff
+            looking for it.
+          */}
+          <button
+            type="button"
+            onClick={() => setClosingShift(true)}
+            disabled={Boolean(order)}
+            title={order ? 'Finish or void the open sale first' : 'Count the drawer and end the shift'}
+            className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-foreground disabled:opacity-40"
+          >
+            Close shift
+          </button>
         </span>
       </header>
+
+      {closingShift && (
+        <CloseShiftDialog
+          shiftId={shift.id}
+          onCancel={() => setClosingShift(false)}
+          onClosed={() => {
+            setClosingShift(false);
+            setOrder(null);
+            setCustomer(null);
+            cart.clear();
+            sessionStorage.removeItem('pos_active_order');
+            // No shift means the gate takes over — the till is closed until
+            // someone opens the next one with a counted float.
+            void refresh();
+          }}
+        />
+      )}
 
       {order ? (
         // Once a sale exists the counter has one job: collect the money. The
@@ -176,10 +231,19 @@ export function PosPage() {
             onFinished={() => {
               setOrder(null);
               setCustomer(null);
+              cart.clear();
               void refresh();
             }}
             onVoided={() => {
               setOrder(null);
+              cart.clear();
+              void refresh();
+            }}
+            // Back keeps the lines. Void throws them away — that is the whole
+            // difference between the two, and why they are separate controls.
+            onBack={(lines) => {
+              setOrder(null);
+              void cart.replaceFromLines(lines);
               void refresh();
             }}
           />

@@ -367,7 +367,9 @@ class POSQuoteView(APIView):
         ]
         try:
             return Response(order_service.quote(
-                items=items, coupon_code=payload.validated_data.get("coupon_code", ""),
+                items=items,
+                coupon_code=payload.validated_data.get("coupon_code", ""),
+                fulfilment_type=payload.validated_data["fulfilment_type"],
             ))
         except Exception as exc:  # pricing/stock validation errors
             return _bad(exc)
@@ -400,6 +402,7 @@ class POSOrderCreateView(APIView):
                 contact_name=data.get("contact_name", ""),
                 contact_phone=data.get("contact_phone", ""),
                 contact_email=data.get("contact_email", ""),
+                create_account=data.get("create_account", True),
                 coupon_code=data.get("coupon_code", ""),
                 fulfilment_type=data["fulfilment_type"],
                 shipping_address=data.get("shipping_address"),
@@ -470,6 +473,22 @@ class ManualDiscountView(APIView):
         })
 
 
+def _available(variant) -> int:
+    """
+    Sellable units for a variant, matching ProductVariant.available_quantity.
+
+    Warehouse rows win when any exist; the legacy `stock_quantity` column is the
+    fallback for variants inventory has never touched. Reads the annotations set
+    by CatalogueSearchView when present so a page of results is one query.
+    """
+    rows = getattr(variant, "wh_rows", None)
+    if rows is None:
+        return int(variant.available_quantity)
+    if int(rows or 0) > 0:
+        return int(getattr(variant, "wh_available", 0) or 0)
+    return int(variant.stock_quantity or 0)
+
+
 class CatalogueSearchView(APIView):
     """
     Variant-level search for the counter.
@@ -482,15 +501,38 @@ class CatalogueSearchView(APIView):
     permission_classes = [IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
-        from django.db.models import Q
+        from django.db.models import Count, Prefetch, Q, Sum
 
-        from apps.catalog.models import ProductVariant
+        from apps.catalog.models import ProductMedia, ProductVariant
 
         query = (request.query_params.get("q") or "").strip()
+        # Stock has two possible homes: WarehouseStock rows in the inventory app,
+        # and the legacy `stock_quantity` column on the variant. The storefront
+        # reads ProductVariant.available_quantity, which prefers the warehouse
+        # rows and only falls back to the column. The till must use the same
+        # source or it will call a fully stocked variant out of stock — the
+        # column is a placeholder that stays at 0 once inventory is in use.
+        # Annotated rather than read per row: a search returns up to 100 variants
+        # and the property costs a query each.
+        _active_wh = Q(stock_records__warehouse__is_active=True)
         variants = (
             ProductVariant.objects
             .filter(is_active=True, product__is_active=True)
             .select_related("product")
+            # One image per row, fetched in one extra query rather than one per
+            # variant. Ordered so the flagged primary wins; the till only ever
+            # renders the first.
+            .prefetch_related(
+                Prefetch(
+                    "product__media",
+                    queryset=ProductMedia.objects.order_by("-is_primary", "sort_order"),
+                    to_attr="pos_media",
+                )
+            )
+            .annotate(
+                wh_available=Sum("stock_records__available", filter=_active_wh),
+                wh_rows=Count("stock_records", filter=_active_wh),
+            )
         )
 
         # Restoring a cart after a refresh: the till knows which variants it had,
@@ -516,7 +558,26 @@ class CatalogueSearchView(APIView):
         return Response(self._rows(variants.order_by("product__name", "name")[:limit]))
 
     @staticmethod
-    def _rows(variants):
+    def _thumbnail(variant, request):
+        """
+        The product's primary image, at the smallest generated size.
+
+        Images live on the product, not the variant, so every variant of a
+        product shows the same picture — which is what a staff member needs:
+        they are looking for "the green jhumkas", then picking the size. The
+        small derivative is deliberate: a stall runs on 4G and a grid of
+        full-size jewellery photographs is a counter that will not load.
+        """
+        from core.media import build_media_url
+
+        media = getattr(variant.product, "pos_media", None) if variant.product_id else None
+        if not media:
+            return None
+        first = media[0]
+        return build_media_url(first.image_small or first.image, request=request)
+
+    def _rows(self, variants):
+        request = self.request
         return [
             {
                 "variant_id": str(v.id),
@@ -525,9 +586,10 @@ class CatalogueSearchView(APIView):
                 "variant_name": v.name or "",
                 "price": str(v.effective_price),
                 "compare_at_price": str(v.compare_at_price) if v.compare_at_price else None,
-                "stock": v.stock_quantity,
+                "stock": _available(v),
                 "track_inventory": v.track_inventory,
-                "low_stock": v.stock_quantity <= v.low_stock_threshold,
+                "low_stock": _available(v) <= v.low_stock_threshold,
+                "image": self._thumbnail(v, request),
             }
             for v in variants
         ]

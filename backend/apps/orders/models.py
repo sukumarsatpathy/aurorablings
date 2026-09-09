@@ -110,10 +110,16 @@ class ShippingApprovalStatus(models.TextChoices):
     PENDING_SHIPPING_APPROVAL = "pending_shipping_approval", _("Pending Shipping Approval")
     APPROVED = "approved", _("Approved")
     REJECTED = "rejected", _("Rejected")
+    # A counter sale has no shipment to approve — the customer is holding the
+    # parcel. It used to be marked REJECTED to keep it out of the approval
+    # queue, which worked but read as though someone had refused to ship it.
+    # "Rejected" is a decision; this is the absence of a question.
+    NOT_REQUIRED = "not_required", _("Not required — handed over")
 
 
 class FulfillmentMethod(models.TextChoices):
     UNASSIGNED = "unassigned", _("Unassigned")
+    COUNTER = "counter", _("Handed over at the counter")
     LOCAL_DELIVERY = "local_delivery", _("Local Delivery")
     NIMBUSPOST = "nimbuspost", _("NimbusPost")
     SHIPROCKET = "shiprocket", _("Shiprocket")
@@ -199,6 +205,14 @@ class Order(models.Model):
         max_length=20, blank=True, db_index=True,
         help_text="Phone is the identity at the counter — this is what customer "
                   "lookup matches on.",
+    )
+    contact_wants_account = models.BooleanField(
+        default=True,
+        help_text="Did the customer agree to an account being created? Kept apart "
+                  "from the email itself: the email is needed for the receipt "
+                  "whatever they decided, and a receipt is transactional. An "
+                  "existing account is still linked either way — declining means "
+                  "no NEW account, not no record.",
     )
 
     # ── Manual discount audit ────────────────────────────────
@@ -309,7 +323,21 @@ class Order(models.Model):
                 return candidate
 
     def can_transition_to(self, new_status: str) -> bool:
-        return new_status in STATE_TRANSITIONS.get(self.status, set())
+        allowed = set(STATE_TRANSITIONS.get(self.status, set()))
+
+        # A carried-away sale is finished the moment it is paid: the goods
+        # changed hands across the counter. The shared map routes every order
+        # through PROCESSING → SHIPPED → DELIVERED before COMPLETED, so without
+        # this a counter sale would sit at PAID for ever, permanently open in
+        # every report. Narrow on purpose — carry-away only, from PAID only —
+        # so nothing lets an online order skip its shipment.
+        if (
+            self.status == OrderStatus.PAID
+            and self.fulfilment_type == FulfilmentType.CARRY_AWAY
+        ):
+            allowed.add(OrderStatus.COMPLETED)
+
+        return new_status in allowed
 
     @property
     def is_cancellable(self) -> bool:
