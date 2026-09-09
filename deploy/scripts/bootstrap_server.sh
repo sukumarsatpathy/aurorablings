@@ -149,7 +149,14 @@ else
 DJANGO_SETTINGS_MODULE=config.settings.prod
 DJANGO_SECRET_KEY=${DJANGO_KEY}
 DJANGO_DEBUG=False
-DJANGO_ALLOWED_HOSTS=${DOMAIN},www.${DOMAIN}
+# localhost/127.0.0.1 are required, not optional: the container healthcheck
+# curls http://localhost:8000/, so the Host header is "localhost". Django
+# answers a Host outside this list with 400, curl -f reads 400 as failure, and
+# the container never reports healthy -- the deploy then hangs on "backend
+# Waiting" and eventually fails, with nothing in the logs to explain why.
+# "backend" is the compose service name, used by the Celery health checks
+# (HEALTH_API_BASE_URL=http://backend:8000/api).
+DJANGO_ALLOWED_HOSTS=${DOMAIN},www.${DOMAIN},localhost,127.0.0.1,backend
 DJANGO_CSRF_TRUSTED_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}
 CORS_ALLOWED_ORIGINS=https://${DOMAIN},https://www.${DOMAIN}
 BACKEND_URL=https://${DOMAIN}
