@@ -5,7 +5,7 @@ from django.db import models
 from django.db.models import Count, Sum
 from django.db.models.functions import TruncDate, Coalesce
 from django.utils import timezone
-from rest_framework.decorators import api_view, permission_classes
+from rest_framework.decorators import api_view, permission_classes, throttle_classes
 from rest_framework.permissions import AllowAny, IsAuthenticated
 
 from apps.accounts.permissions import IsStaffOrAdmin
@@ -36,10 +36,25 @@ def api_root(request):
 
 @api_view(["GET"])
 @permission_classes([AllowAny])
+@throttle_classes([])
 def health_check(request):
     """
     Lightweight liveness probe for container orchestration.
-    Full health-check stack lives at /health/ (django-health-check).
+
+    docker-compose.prod.yml uses this as the backend container's healthcheck,
+    so it must touch NOTHING that can fail independently of gunicorn.
+
+    @throttle_classes([]) is required, not cosmetic. DEFAULT_THROTTLE_CLASSES
+    applies AnonRateThrottle to every view that does not opt out, and
+    AnonRateThrottle reads and writes the cache -- which is Redis -- *before*
+    the view body runs. Without this decorator a Redis outage would make this
+    probe 500, Docker would mark the container unhealthy and restart it, and
+    restarting Django does not fix Redis. That is the exact restart loop this
+    endpoint was chosen to avoid; see apps/health/deploy_views.py, which had to
+    solve the same problem for /health/server.
+
+    Dependency health (DB, cache, disk) is reported at /health/server for
+    monitoring to read. This endpoint answers only "is gunicorn alive".
     """
     return success_response(
         data={"status": "healthy"},

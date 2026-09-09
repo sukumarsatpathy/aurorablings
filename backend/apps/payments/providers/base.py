@@ -75,6 +75,24 @@ class WebhookResult:
 
 
 @dataclass
+class QRCodeResult:
+    """
+    A dynamic collection QR for one order.
+
+    ``image_url`` is what the counter shows the customer. ``provider_ref`` is the
+    QR's own id, which is what closes it later — distinct from the payment id that
+    eventually settles against it and lands in the tender ledger.
+    """
+    success: bool
+    provider_ref: str = ""
+    image_url: str = ""
+    amount: Decimal = Decimal("0")
+    close_by: int | None = None
+    raw: dict | None = None
+    error: str | None = None
+
+
+@dataclass
 class RefundResult:
     """Returned by BasePaymentProvider.refund()"""
     success:      bool
@@ -190,6 +208,27 @@ class BasePaymentProvider(abc.ABC):
             "platform": "aurora_blings",
             **(extra or {}),
         }
+
+    def create_qr_code(
+        self,
+        *,
+        order_id: str,
+        amount: Decimal,
+        currency: str = "INR",
+        close_by_minutes: int = 15,
+        metadata: dict | None = None,
+    ) -> "QRCodeResult":
+        """
+        Create a single-use, fixed-amount collection QR.
+
+        Optional: providers that cannot do this raise, and the caller falls back
+        to a payment link rendered as a QR.
+        """
+        raise NotImplementedError(f"{self.name} does not support dynamic QR codes.")
+
+    def close_qr_code(self, *, provider_ref: str) -> bool:
+        """Close a QR so it can no longer be paid. Optional."""
+        raise NotImplementedError(f"{self.name} does not support dynamic QR codes.")
 
     def create_checkout_order(
         self,

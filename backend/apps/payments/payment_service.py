@@ -8,7 +8,8 @@ from django.db import transaction
 from core.logging import get_logger
 
 from apps.orders.models import OrderStatus
-from apps.orders.services import mark_paid
+from apps.orders.services import mark_paid  # noqa: F401  (kept for callers importing it from here)
+from apps.payments import tender_service
 from apps.payments.models import PaymentTransaction, TransactionStatus
 
 logger = get_logger(__name__)
@@ -190,12 +191,14 @@ def handle_payment_success(*, payment_data: dict[str, Any], provider_name: str =
         txn.provider_ref = provider_ref or txn.provider_ref
         txn.save(update_fields=["status", "provider_ref", "updated_at"])
 
-    if txn.order.status in {OrderStatus.PLACED, OrderStatus.DRAFT}:
-        mark_paid(
-            order=txn.order,
-            payment_reference=txn.provider_ref,
-            payment_method=txn.provider,
-        )
+    # Settle through the tender ledger rather than calling mark_paid directly:
+    # the ledger is idempotent on (provider, provider_ref), so a redelivered
+    # webhook racing the reconciler cannot record the same rupees twice. It calls
+    # mark_paid itself once the order is fully covered.
+    tender_service.settle_gateway_payment(
+        payment_transaction=txn,
+        provider_ref=txn.provider_ref,
+    )
 
     logger.info(
         "payment_success_applied",

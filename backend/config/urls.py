@@ -28,7 +28,18 @@ def _serve_frontend_index_or_root_redirect():
                 return HttpResponse(candidate.read_text(encoding="utf-8"), content_type="text/html; charset=utf-8")
         except Exception:
             continue
-    return HttpResponseRedirect("/")
+    # Nothing to serve. Redirecting to "/" here is what made a refresh on
+    # /admin/settings land on the shop's home page: silent, and indistinguishable
+    # from a routing bug. Say what happened instead — this path is staff-only, and
+    # in a correctly configured deployment nginx serves these routes from the
+    # frontend and never reaches this view at all.
+    return HttpResponse(
+        "<h1>Admin app not available from this service</h1>"
+        "<p>The backend has no frontend build to serve. These routes should be "
+        "handled by nginx and sent to the frontend container.</p>",
+        content_type="text/html; charset=utf-8",
+        status=503,
+    )
 
 
 def spa_admin_route(request, _path: str = ""):
@@ -66,6 +77,7 @@ urlpatterns = [
         path("cart/",      include("apps.cart.urls",      namespace="cart")),
         path("orders/",    include("apps.orders.urls",    namespace="orders")),
         path("payments/",   include("apps.payments.urls",  namespace="payments")),
+        path("pos/",        include("apps.pos.urls",       namespace="pos")),
         path("surcharge/",  include("apps.surcharge.urls", namespace="surcharge")),
         path("returns/",       include("apps.returns.urls",        namespace="returns")),
         path("notifications/", include("apps.notifications.urls",   namespace="notifications")),

@@ -14,11 +14,13 @@ import requests
 class APIHealthService:
     """Checks configured endpoints and returns structured health results."""
 
+    # These four paths matched no route in this project -- every check they
+    # produced was a guaranteed 404 (or, before HEALTH_API_BASE_URL was
+    # defined, a connection error). Settings supply the real list via
+    # HEALTH_API_ENDPOINTS; these are the fallback if that is ever unset.
     DEFAULT_ENDPOINTS = (
-        "/v1/catalog/health/",
-        "/v1/cart/health/",
-        "/v1/checkout/health/",
-        "/v1/system/ping/",
+        "/v1/health-check/",        # no DB, no cache -- pure liveness
+        "/v1/catalog/categories/",  # a real read through DRF + ORM
     )
 
     def __init__(

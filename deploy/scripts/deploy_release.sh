@@ -52,7 +52,7 @@ cleanup_on_error() {
     (
       cd "${RELEASE_DIR}" || exit 0
       docker compose -f "${COMPOSE_FILE}" ps || true
-      docker compose -f "${COMPOSE_FILE}" logs --tail=200 backend nginx_proxy frontend celery_worker celery_beat db redis || true
+      docker compose -f "${COMPOSE_FILE}" logs --tail=200 backend nginx_proxy frontend celery_worker db redis || true
     )
   fi
 }

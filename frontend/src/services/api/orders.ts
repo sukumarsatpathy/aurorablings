@@ -10,6 +10,10 @@ export interface AdminOrderListRow {
   item_count: number;
   customer_name: string;
   customer_email: string;
+  /** Phone is the identity on a counter sale, and often the only detail given. */
+  customer_phone?: string;
+  channel?: string;
+  fulfilment_type?: string;
   shipping_approval_status?: string;
   fulfillment_method?: string;
   placed_at?: string | null;
@@ -99,6 +103,10 @@ export interface CustomerOrderListRow {
   item_count: number;
   customer_name: string;
   customer_email: string;
+  /** Phone is the identity on a counter sale, and often the only detail given. */
+  customer_phone?: string;
+  channel?: string;
+  fulfilment_type?: string;
   shipping_approval_status?: string;
   fulfillment_method?: string;
   placed_at?: string | null;

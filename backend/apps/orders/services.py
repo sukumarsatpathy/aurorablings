@@ -61,6 +61,7 @@ from apps.features import services as feature_services
 from apps.accounts import services as account_services
 
 from .models import (
+    FulfilmentType,
     Order, OrderItem, OrderStatusHistory,
     OrderStatus, PaymentStatus, PaymentMethod,
     STATE_TRANSITIONS, CANCELLABLE_STATUSES,
@@ -784,6 +785,28 @@ def mark_paid(
         payment_reference=payment_reference,
     )
 
+    # A counter sale is over. The customer paid and walked out with the parcel,
+    # so there is no shipment to arrange and nothing left to wait for — closing
+    # it here is what keeps POS revenue out of the "still open" pile and out of
+    # every queue that exists to chase unfinished orders. Guarded by
+    # can_transition_to, which only permits this for carry-away.
+    if (
+        order.fulfilment_type == FulfilmentType.CARRY_AWAY
+        and order.can_transition_to(OrderStatus.COMPLETED)
+    ):
+        order.delivered_at = order.delivered_at or timezone.now()
+        order.save(update_fields=["delivered_at"])
+        _apply_transition(
+            order=order,
+            new_status=OrderStatus.COMPLETED,
+            changed_by=changed_by,
+            notes="Handed over at the counter — no shipment required.",
+        )
+        logger.info(
+            "counter_sale_completed",
+            order_id=str(order.id), order_number=order.order_number,
+        )
+
     # Shipping creation is explicitly admin-approved; never auto-send to courier.
 
     if not was_paid:
@@ -791,6 +814,16 @@ def mark_paid(
             _queue_order_confirmation_email(order=order)
         except Exception:
             pass
+
+        # Settlement is the only safe moment to create a customer account: an
+        # abandoned cart or a voided part-paid sale must never leave a stranger
+        # holding a login. Queued, never inline — see the task's docstring.
+        if not order.user_id and (order.contact_phone or order.guest_email):
+            try:
+                from apps.accounts.tasks import link_customer_for_order_task
+                link_customer_for_order_task.delay(order_id=str(order.id))
+            except Exception:  # noqa: BLE001
+                logger.warning("customer_link_enqueue_failed", order_id=str(order.id))
     return order
 
 

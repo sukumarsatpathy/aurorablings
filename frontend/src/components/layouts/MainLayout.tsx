@@ -8,6 +8,7 @@ import { BackgroundDecoration } from '@/components/storefront/BackgroundDecorati
 import { SignInModal } from '@/components/storefront/SignInModal';
 import { gsap, shouldAnimate } from '@/animations/gsapConfig';
 import { useLenis } from '@/hooks/useLenis';
+import { useScrollToTop } from '@/hooks/useScrollToTop';
 
 interface LayoutProps {
   children: React.ReactNode;
@@ -20,6 +21,13 @@ export const MainLayout: React.FC<LayoutProps> = ({ children }) => {
   // also ran for the whole time an admin was using the dashboard, where smooth
   // scrolling is neither wanted nor used.
   useLenis();
+
+  // Reset the scroll position on route change. Without this the window offset
+  // carried over from the previous page, so clicking a product part-way down
+  // the homepage landed the visitor at the bottom of the product page -- on the
+  // footer, with the description above them. Must be called after useLenis so
+  // the instance exists to scroll through. See useScrollToTop for the details.
+  useScrollToTop();
 
   const mainRef = useRef<HTMLElement>(null);
   const location = useLocation();

@@ -89,7 +89,7 @@ def expire_stale_razorpay_orders_task():
 
     from apps.orders.models import PaymentStatus
     from apps.orders.services import cancel_order
-    from apps.payments.models import PaymentTransaction, TransactionStatus
+    from apps.payments.models import PaymentTransaction, TenderStatus, TransactionStatus
     from apps.payments.services import reconcile_transaction_status
     from core.exceptions import ConflictError
 
@@ -153,6 +153,24 @@ def expire_stale_razorpay_orders_task():
 
         if txn.status == TransactionStatus.SUCCESS:
             skipped += 1
+            continue
+
+        # Never sweep an order that already holds money.
+        #
+        # A counter sale where the customer paid Rs 2,000 in cash and then walked
+        # away from the UPI leg is part_paid, and its Razorpay transaction looks
+        # exactly like an abandoned online checkout to everything above. Cancelling
+        # it would release the stock, mark it FAILED, and quietly discard a real
+        # cash receipt that is already reconciled against a shift. These need a
+        # human — they surface on the counter screen and block the shift close.
+        if txn.order.tenders.filter(status=TenderStatus.CAPTURED).exists():
+            skipped += 1
+            logger.info(
+                "razorpay_stale_order_skipped_has_tenders",
+                order_id=str(txn.order_id),
+                transaction_id=str(txn.id),
+                payment_status=txn.order.payment_status,
+            )
             continue
 
         reason = (

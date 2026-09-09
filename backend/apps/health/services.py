@@ -137,7 +137,10 @@ class APIHealthMonitorService:
     """Health checks for internal API endpoints."""
 
     def check_all(self) -> list[dict]:
-        base_url = getattr(settings, "HEALTH_API_BASE_URL", "").strip() or "http://127.0.0.1:8000/api"
+        # Default lives in settings.base (HEALTH_API_BASE_URL). The old inline
+        # fallback was "http://127.0.0.1:8000/api", which inside the celery_worker
+        # container points at the worker itself -- nothing listens there.
+        base_url = str(getattr(settings, "HEALTH_API_BASE_URL", "") or "").strip() or "http://backend:8000/api"
         timeout_seconds = float(getattr(settings, "HEALTH_API_TIMEOUT_SECONDS", 3.0))
         endpoints = tuple(getattr(settings, "HEALTH_API_ENDPOINTS", APIHealthService.DEFAULT_ENDPOINTS))
 

@@ -68,6 +68,9 @@ CANCELLABLE_STATUSES = {OrderStatus.DRAFT, OrderStatus.PLACED, OrderStatus.PAID,
 
 class PaymentMethod(models.TextChoices):
     COD          = "cod",          _("Cash on Delivery")
+    # Cash at the counter. Distinct from COD, which is cash collected by a
+    # courier on a shipped order — different reconciliation, different owner.
+    CASH         = "cash",         _("Cash at counter")
     CASHFREE     = "cashfree",     _("Cashfree")
     RAZORPAY     = "razorpay",     _("Razorpay")
     PHONEPE      = "phonepe",      _("PhonePe")
@@ -78,20 +81,45 @@ class PaymentMethod(models.TextChoices):
 
 class PaymentStatus(models.TextChoices):
     PENDING   = "pending",   _("Pending")
+    # Real money has been collected, but not all of it. A counter sale where the
+    # customer paid part in cash and then walked away from the UPI leg lives here.
+    # It is a genuine state with cash against it, not a transient UI condition.
+    PARTIALLY_PAID = "partially_paid", _("Partially Paid")
     PAID      = "paid",      _("Paid")
     FAILED    = "failed",    _("Failed")
     REFUNDED  = "refunded",  _("Refunded")
     PARTIALLY_REFUNDED = "partially_refunded", _("Partially Refunded")
 
 
+class SalesChannel(models.TextChoices):
+    """Where the order was taken. Every existing report gets an online/POS split."""
+    ONLINE = "online", _("Online")
+    POS    = "pos",    _("Point of sale")
+
+
+class FulfilmentType(models.TextChoices):
+    """
+    Load-bearing: shipping tasks must never try to book a courier shipment for a
+    customer who walked away from the stall with the earrings in their hand.
+    """
+    SHIP       = "ship",       _("Ship to customer")
+    CARRY_AWAY = "carry_away", _("Carried away from counter")
+
+
 class ShippingApprovalStatus(models.TextChoices):
     PENDING_SHIPPING_APPROVAL = "pending_shipping_approval", _("Pending Shipping Approval")
     APPROVED = "approved", _("Approved")
     REJECTED = "rejected", _("Rejected")
+    # A counter sale has no shipment to approve — the customer is holding the
+    # parcel. It used to be marked REJECTED to keep it out of the approval
+    # queue, which worked but read as though someone had refused to ship it.
+    # "Rejected" is a decision; this is the absence of a question.
+    NOT_REQUIRED = "not_required", _("Not required — handed over")
 
 
 class FulfillmentMethod(models.TextChoices):
     UNASSIGNED = "unassigned", _("Unassigned")
+    COUNTER = "counter", _("Handed over at the counter")
     LOCAL_DELIVERY = "local_delivery", _("Local Delivery")
     NIMBUSPOST = "nimbuspost", _("NimbusPost")
     SHIPROCKET = "shiprocket", _("Shiprocket")
@@ -138,6 +166,69 @@ class Order(models.Model):
     payment_reference = models.CharField(
         max_length=200, blank=True,
         help_text="Gateway transaction ID / UPI ref.",
+    )
+
+    # ── Point of sale ────────────────────────────────────────
+    channel = models.CharField(
+        max_length=20, choices=SalesChannel.choices,
+        default=SalesChannel.ONLINE, db_index=True,
+    )
+    fulfilment_type = models.CharField(
+        max_length=20, choices=FulfilmentType.choices,
+        default=FulfilmentType.SHIP, db_index=True,
+    )
+    pos_terminal = models.ForeignKey(
+        "pos.POSTerminal",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orders",
+    )
+    pos_shift = models.ForeignKey(
+        "pos.POSShift",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="orders",
+        help_text="The trading session this sale belongs to.",
+    )
+    created_by_staff = models.ForeignKey(
+        "accounts.User",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="pos_orders_created",
+        help_text="Staff member who rang up this sale. Null for online orders.",
+    )
+    contact_name = models.CharField(
+        max_length=150, blank=True,
+        help_text="Walk-in customer name. Kept on the order even when no account exists.",
+    )
+    contact_phone = models.CharField(
+        max_length=20, blank=True, db_index=True,
+        help_text="Phone is the identity at the counter — this is what customer "
+                  "lookup matches on.",
+    )
+    contact_wants_account = models.BooleanField(
+        default=True,
+        help_text="Did the customer agree to an account being created? Kept apart "
+                  "from the email itself: the email is needed for the receipt "
+                  "whatever they decided, and a receipt is transactional. An "
+                  "existing account is still linked either way — declining means "
+                  "no NEW account, not no record.",
+    )
+
+    # ── Manual discount audit ────────────────────────────────
+    # A staff override is the margin leak a POS has to be able to explain later,
+    # so who / how much / why are stored, not just the resulting total.
+    manual_discount_amount = models.DecimalField(
+        max_digits=12, decimal_places=2, default=0,
+    )
+    manual_discount_reason = models.CharField(max_length=100, blank=True)
+    manual_discount_approved_by = models.ForeignKey(
+        "accounts.User",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="approved_pos_discounts",
+        help_text="Set when the discount exceeded the staff ceiling and a manager "
+                  "authorised it.",
     )
     shipping_approval_status = models.CharField(
         max_length=40,
@@ -232,7 +323,21 @@ class Order(models.Model):
                 return candidate
 
     def can_transition_to(self, new_status: str) -> bool:
-        return new_status in STATE_TRANSITIONS.get(self.status, set())
+        allowed = set(STATE_TRANSITIONS.get(self.status, set()))
+
+        # A carried-away sale is finished the moment it is paid: the goods
+        # changed hands across the counter. The shared map routes every order
+        # through PROCESSING → SHIPPED → DELIVERED before COMPLETED, so without
+        # this a counter sale would sit at PAID for ever, permanently open in
+        # every report. Narrow on purpose — carry-away only, from PAID only —
+        # so nothing lets an online order skip its shipment.
+        if (
+            self.status == OrderStatus.PAID
+            and self.fulfilment_type == FulfilmentType.CARRY_AWAY
+        ):
+            allowed.add(OrderStatus.COMPLETED)
+
+        return new_status in allowed
 
     @property
     def is_cancellable(self) -> bool:

@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users, Mail } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users, Mail, Store } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -63,6 +63,7 @@ export const Sidebar: React.FC = () => {
 
       {/* Nav Items */}
       {NAV_ITEMS.map((item) => {
+        // Exact match: some destinations are siblings of /admin, not children.
         const isActive = location.pathname === item.path;
         return (
           <Link
@@ -590,6 +591,14 @@ export const Topbar: React.FC = () => {
 
       {/* Actions */}
       <div className="flex items-center gap-3">
+        <Link
+          to="/pos"
+          className="w-10 h-10 rounded-full border border-border bg-white flex items-center justify-center text-muted-foreground hover:text-foreground transition-colors"
+          title="Point of Sale"
+          aria-label="Open point of sale"
+        >
+          <Store size={18} />
+        </Link>
         <button
           type="button"
           onClick={handleToggleTheme}

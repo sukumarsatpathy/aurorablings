@@ -218,10 +218,8 @@ export const SettingsContent: React.FC<Props> = ({
       // ignore and fallback
     }
 
-    if (['localhost', '127.0.0.1'].includes(window.location.hostname)) {
-      return `${window.location.protocol}//${window.location.hostname}:8000`;
-    }
-
+    // Same origin — see the note in hooks/useBranding.ts. Hard-coding :8000 here
+    // only ever worked on the dev stack.
     return window.location.origin;
   };
 

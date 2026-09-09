@@ -42,6 +42,7 @@ from typing import Any
 from django.db import transaction
 from django.utils import timezone
 
+from apps.payments import tender_service
 from core.exceptions import ValidationError, NotFoundError
 from core.logging import get_logger
 
@@ -567,11 +568,12 @@ def _update_transaction_from_webhook(txn: PaymentTransaction, result: WebhookRes
     log.transaction = txn
 
     order = txn.order
-    if result.status == "success" and order.status in ("placed", "draft"):
-        mark_paid(
-            order=order,
-            payment_reference=result.provider_ref,
-            payment_method=txn.provider,
+    if result.status == "success":
+        # Idempotent by (provider, provider_ref) — Razorpay retries webhooks, and
+        # the reconciler may already have settled this payment.
+        tender_service.settle_gateway_payment(
+            payment_transaction=txn,
+            provider_ref=result.provider_ref,
         )
     elif result.status == "failed":
         logger.warning(
@@ -775,11 +777,14 @@ def reconcile_transaction_status(*, transaction: PaymentTransaction) -> PaymentT
             update_fields.append("razorpay_order_id")
     transaction.save(update_fields=list(dict.fromkeys(update_fields)))
 
-    if new_status == TransactionStatus.SUCCESS and transaction.order.status in ("placed", "draft"):
-        mark_paid(
-            order=transaction.order,
-            payment_reference=str((transaction.raw_response or {}).get("cf_payment_id") or transaction.provider_ref or provider_ref),
-            payment_method=transaction.provider,
+    if new_status == TransactionStatus.SUCCESS:
+        tender_service.settle_gateway_payment(
+            payment_transaction=transaction,
+            provider_ref=str(
+                (transaction.raw_response or {}).get("cf_payment_id")
+                or transaction.provider_ref
+                or provider_ref
+            ),
         )
 
     return transaction
