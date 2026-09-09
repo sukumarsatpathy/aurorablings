@@ -2,6 +2,7 @@ import os
 from pathlib import Path
 import environ
 import structlog
+from celery.schedules import crontab
 
 # Build paths inside the project like this: BASE_DIR / 'subdir'.
 BASE_DIR = Path(__file__).resolve().parent.parent.parent
@@ -174,9 +175,33 @@ REST_FRAMEWORK = {
         'rest_framework.throttling.UserRateThrottle',
         'rest_framework.throttling.ScopedRateThrottle',
     ],
+    # Throttle rates.
+    #
+    # `anon` is keyed by client IP (DRF reads X-Forwarded-For, which nginx sets
+    # correctly). 300/hour was far too low for a storefront, for a reason that
+    # is easy to miss in testing: Indian mobile carriers run CGNAT, so hundreds
+    # or thousands of subscribers share a single public IP -- and therefore a
+    # single bucket. Once it was spent, every one of those users got 429 on
+    # every API call. In a client-rendered SPA a 429 does not surface as an
+    # error page; it surfaces as a blank or half-empty screen. And because the
+    # bucket resets hourly, the site appeared to heal itself and then break
+    # again, which is exactly the "works sometimes, worse at busy times"
+    # symptom that was reported.
+    #
+    # 3000/hour is still a real ceiling against scraping, but it is no longer
+    # trippable by one busy mobile tower. The endpoints that actually attract
+    # abuse -- login, registration, password reset, contact, reviews -- carry
+    # their own much tighter scoped rates below and are unaffected by this.
+    #
+    # If it needs tuning again, measure first:
+    #     grep -c ' 429 ' /var/log/nginx/access.log
     'DEFAULT_THROTTLE_RATES': {
-        'anon': '300/hour',
-        'user': '1000/hour',
+        'anon': '3000/hour',
+        # Keyed by user id, not IP, so this is genuinely per-person and CGNAT
+        # does not apply. Raised alongside `anon` so a signed-in customer is
+        # never limited more tightly than an anonymous one -- which is what
+        # 1000 vs 3000 would otherwise mean.
+        'user': '5000/hour',
         'auth_login': '30/hour',
         'auth_register': '15/hour',
         'auth_forgot_password': '10/hour',
@@ -224,35 +249,105 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+# Razorpay credentials.
+#
+# RazorpayProvider._load_runtime_config() reads these as its base and lets an
+# AppSetting / ProviderConfig row in the database override them, so the admin
+# stays the primary place to manage keys. Until now the settings half of that
+# pair did not exist: the provider did getattr(settings, "RAZORPAY_KEY_ID", "")
+# against a name nothing defined, so putting the keys in .env looked reasonable
+# and did precisely nothing. Defined here so both routes work.
+RAZORPAY_KEY_ID = env("RAZORPAY_KEY_ID", default="")
+RAZORPAY_KEY_SECRET = env("RAZORPAY_KEY_SECRET", default="")
+RAZORPAY_WEBHOOK_SECRET = env("RAZORPAY_WEBHOOK_SECRET", default="")
+
 RAZORPAY_STALE_ORDER_TIMEOUT_MINUTES = env.int("RAZORPAY_STALE_ORDER_TIMEOUT_MINUTES", default=20)
-RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS = env.int("RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS", default=300)
+# 300s tied health.run_server_health_checks for the busiest slot in the whole
+# schedule. Stale-order expiry is a janitorial sweep; it does not need to run
+# twelve times an hour on a single-core box.
+RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS = env.int("RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS", default=1800)
 
 # Celery Beat — periodic tasks
-from celery.schedules import crontab
+# ── Health monitoring configuration ───────────────────────────
+#
+# HEALTH_API_BASE_URL was previously not defined at all, so
+# apps/health/services.py fell through to its hard-coded default of
+# "http://127.0.0.1:8000/api". That default is evaluated *inside the
+# celery_worker container*, where nothing listens on port 8000 -- gunicorn
+# lives in a different container. Every run of health.run_api_health_checks
+# therefore produced nothing but connection errors, and did so every two
+# minutes, forever. The reachable address is the compose service name.
+# Master switch for the in-app health-monitoring subsystem (the three health.*
+# beat tasks and the rows they write). Off by default.
+#
+# Not primarily a performance setting -- the tasks cost well under 1% of a core.
+# The reason it defaults off is that a monitor running on the box it monitors
+# cannot report that box being down: when the server falls over, these tasks
+# fall over with it and the dashboard silently goes stale. External uptime
+# monitoring hitting /health/server does the same job, better, from outside the
+# failure domain, and costs this box nothing.
+#
+# The models, views, admin dashboard and tasks all remain intact. Set
+# HEALTH_MONITORING_ENABLED=true to turn collection back on.
+HEALTH_MONITORING_ENABLED = env.bool("HEALTH_MONITORING_ENABLED", default=False)
+
+HEALTH_API_BASE_URL = env("HEALTH_API_BASE_URL", default="http://backend:8000/api")
+HEALTH_API_TIMEOUT_SECONDS = env.float("HEALTH_API_TIMEOUT_SECONDS", default=3.0)
+
+# The previous default endpoint list (/v1/catalog/health/, /v1/cart/health/,
+# /v1/checkout/health/, /v1/system/ping/) matched no route in this codebase.
+# These two do, and they answer the two different questions worth asking:
+#   /v1/health-check/       - no DB, no cache. Is gunicorn routing at all?
+#   /v1/catalog/categories/ - a real read through DRF + ORM + serializer.
+# The in-process ServerHealthService already covers DB/cache/disk, so there is
+# no value in re-checking those over HTTP.
+HEALTH_API_ENDPOINTS = env.list(
+    "HEALTH_API_ENDPOINTS",
+    default=["/v1/health-check/", "/v1/catalog/categories/"],
+)
+
+# How long persisted HealthCheckResult rows are kept. Nothing pruned this table
+# before; at the old intervals it grew by roughly 13,000 rows a day, across
+# four indexes, forever, and the resulting autovacuum churn is a real and
+# steadily growing CPU cost on a small box.
+HEALTH_RESULT_RETENTION_DAYS = env.int("HEALTH_RESULT_RETENTION_DAYS", default=14)
+
+# ── Celery beat schedule ──────────────────────────────────────
+#
+# Every interval here is a standing CPU cost paid forever, on an idle site, on
+# whatever hardware production runs on. The previous schedule ran 157 task
+# executions an hour with no visitors present -- and none of them had ever
+# executed in local development, because docker-compose.dev.yml has no
+# celery_beat service. That is the whole "fine on localhost, hot on the
+# server" gap.
+#
+# Intervals are env-driven so they can be tightened on bigger hardware without
+# a code change. The defaults are sized for a 1 vCPU box.
+HEALTH_SERVER_CHECK_INTERVAL_SECONDS = env.int("HEALTH_SERVER_CHECK_INTERVAL_SECONDS", default=300)
+HEALTH_API_CHECK_INTERVAL_SECONDS = env.int("HEALTH_API_CHECK_INTERVAL_SECONDS", default=600)
+HEALTH_PAYMENT_CHECK_INTERVAL_SECONDS = env.int("HEALTH_PAYMENT_CHECK_INTERVAL_SECONDS", default=900)
+NOTIFICATION_RETRY_INTERVAL_SECONDS = env.int("NOTIFICATION_RETRY_INTERVAL_SECONDS", default=900)
+NOTIFICATION_RETRY_LOGS_INTERVAL_SECONDS = env.int("NOTIFICATION_RETRY_LOGS_INTERVAL_SECONDS", default=1800)
+
 CELERY_BEAT_SCHEDULE = {
     "retry-pending-notifications": {
         "task":     "notifications.retry_pending",
-        "schedule": 300,    # every 5 minutes
+        "schedule": NOTIFICATION_RETRY_INTERVAL_SECONDS,    # was 300
     },
     "retry-failed-notification-logs": {
         "task": "notifications.retry_failed_logs",
-        "schedule": 600,  # every 10 minutes
+        "schedule": NOTIFICATION_RETRY_LOGS_INTERVAL_SECONDS,  # was 600
     },
     "notification-provider-health-check": {
         "task": "notifications.provider_health_check",
-        "schedule": 1800,  # every 30 minutes
+        "schedule": 3600,  # was 1800
     },
-    "health-server-checks": {
-        "task": "health.run_server_health_checks",
-        "schedule": 60,  # every 1 minute
-    },
-    "health-api-checks": {
-        "task": "health.run_api_health_checks",
-        "schedule": 120,  # every 2 minutes
-    },
-    "health-payment-checks": {
-        "task": "health.run_payment_health_checks",
-        "schedule": 120,  # every 2 minutes
+    # New: bounds the HealthCheckResult table. Runs once a day, off-peak IST.
+    # Stays scheduled even when collection is disabled -- there is existing
+    # history to drain, and an empty sweep costs one indexed query a day.
+    "health-prune-results": {
+        "task": "health.prune_health_results",
+        "schedule": crontab(hour=20, minute=30),  # 02:00 IST
     },
     "shipping-refresh-token": {
         "task": "shipping.refresh_shiprocket_token",
@@ -260,13 +355,35 @@ CELERY_BEAT_SCHEDULE = {
     },
     "shipping-reconcile-stuck": {
         "task": "shipping.reconcile_stuck_shipments",
-        "schedule": 900,
+        "schedule": 1800,  # was 900
     },
     "payments-expire-stale-razorpay-orders": {
         "task": "payments.expire_stale_razorpay_orders",
         "schedule": RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS,
     },
 }
+
+# Collection tasks are added only when the subsystem is switched on.
+#
+# NOTE: beat runs the DatabaseScheduler, so this dict is synced *into* the
+# database. Removing an entry here does not delete the PeriodicTask row it
+# already created -- see the guard in apps/health/tasks.py, which is what
+# actually stops a stale row from doing work.
+if HEALTH_MONITORING_ENABLED:
+    CELERY_BEAT_SCHEDULE.update({
+        "health-server-checks": {
+            "task": "health.run_server_health_checks",
+            "schedule": HEALTH_SERVER_CHECK_INTERVAL_SECONDS,  # was 60
+        },
+        "health-api-checks": {
+            "task": "health.run_api_health_checks",
+            "schedule": HEALTH_API_CHECK_INTERVAL_SECONDS,  # was 120
+        },
+        "health-payment-checks": {
+            "task": "health.run_payment_health_checks",
+            "schedule": HEALTH_PAYMENT_CHECK_INTERVAL_SECONDS,  # was 120
+        },
+    })
 
 # ── Email ──────────────────────────────────────────────────────
 EMAIL_BACKEND    = env("EMAIL_BACKEND", default="django.core.mail.backends.console.EmailBackend")

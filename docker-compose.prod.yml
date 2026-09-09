@@ -2,6 +2,39 @@ services:
   db:
     image: postgres:15-alpine
     restart: always
+    # Postgres' defaults assume it owns the machine. Here it shares one box
+    # with gunicorn, Celery, Redis and three nginx instances, so every value
+    # below is sized against the box, not against Postgres' idea of a server.
+    #
+    # Defaults are the 1 vCPU / 1 GB profile. Override in
+    # /srv/aurora/shared/.env to move to a bigger box -- see
+    # deploy/server-sizing.env.sample. These are SIZING knobs only; none of
+    # them affects the Celery beat schedule or health monitoring.
+    command:
+      - postgres
+      - -c
+      - max_connections=${PG_MAX_CONNECTIONS:-30}
+      - -c
+      - shared_buffers=${PG_SHARED_BUFFERS:-96MB}
+      - -c
+      - effective_cache_size=${PG_EFFECTIVE_CACHE_SIZE:-256MB}
+      - -c
+      - work_mem=${PG_WORK_MEM:-4MB}
+      - -c
+      - maintenance_work_mem=${PG_MAINTENANCE_WORK_MEM:-32MB}
+      - -c
+      - autovacuum_max_workers=${PG_AUTOVACUUM_MAX_WORKERS:-1}
+      - -c
+      - max_wal_size=${PG_MAX_WAL_SIZE:-512MB}
+      - -c
+      - min_wal_size=${PG_MIN_WAL_SIZE:-128MB}
+      # Storage-shape hints. The defaults below describe a spinning disk;
+      # random_page_cost=4.0 biases the planner away from index scans, which
+      # on NVMe is simply wrong. Set 1.1 / 200 on an NVMe box.
+      - -c
+      - random_page_cost=${PG_RANDOM_PAGE_COST:-4.0}
+      - -c
+      - effective_io_concurrency=${PG_EFFECTIVE_IO_CONCURRENCY:-1}
     volumes:
       - postgres_data:/var/lib/postgresql/data/
     env_file:
@@ -12,7 +45,7 @@ services:
       - POSTGRES_PASSWORD=${POSTGRES_PASSWORD}
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U ${POSTGRES_USER} -d ${POSTGRES_DB}"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
 
@@ -21,7 +54,7 @@ services:
     restart: always
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 30s
       timeout: 5s
       retries: 5
 
@@ -47,23 +80,95 @@ services:
       - RUN_MIGRATIONS=true
       - RUN_COLLECTSTATIC=true
       - SECURE_SSL_REDIRECT=False
+      # Sized for 1 vCPU / 1 GB. Each gunicorn worker is a full Django process
+      # at roughly 180 MB resident, and on a single core extra workers buy
+      # nothing but memory pressure and context switching. One worker with
+      # eight gthread threads keeps the same I/O concurrency for one process's
+      # worth of RAM. Raise BOTH numbers together when the box grows, and
+      # re-check `SHOW max_connections;` -- workers x threads is the ceiling on
+      # Postgres connections held.
+      - GUNICORN_WORKERS=${GUNICORN_WORKERS:-1}
+      - GUNICORN_THREADS=${GUNICORN_THREADS:-8}
+      - HEALTH_API_BASE_URL=http://backend:8000/api
     depends_on:
       db:
         condition: service_healthy
       redis:
         condition: service_healthy
     healthcheck:
+      # LIVENESS, not readiness. This asks one question: is gunicorn answering?
+      #
+      # It used to hit /health/server, which runs a database query, a Redis
+      # round trip and a disk_usage() stat on every call -- at a 15s interval,
+      # four full dependency sweeps a minute, forever, duplicating the Celery
+      # task that already did the same checks.
+      #
+      # Worse than the cost was the semantics. `curl -f` treats 500 as failure,
+      # and DRF's throttle classes touch Redis before the view runs, so a Redis
+      # blip made this endpoint 500 -> container marked unhealthy -> Docker
+      # restarts the backend -> entrypoint re-runs migrate and collectstatic
+      # behind a 90s start_period. A cache hiccup became a repeating 90-second
+      # outage, and restarting Django never fixes Redis.
+      #
+      # /api/v1/health-check/ touches no database and no cache. If gunicorn is
+      # up it answers; if the process is wedged it does not. That is exactly
+      # what a restart-triggering probe should test. Dependency health is still
+      # reported at /health/server for monitoring to read -- it just no longer
+      # gets to restart the container.
       # -L follows redirects in case SECURE_SSL_REDIRECT leaks through
-      test: ["CMD", "curl", "-fL", "http://localhost:8000/health/server"]
-      interval: 15s
+      test: ["CMD", "curl", "-fL", "http://localhost:8000/api/v1/health-check/"]
+      interval: 60s
       timeout: 10s
       retries: 5
       start_period: 90s   # covers wait + migrate + collectstatic time
 
+  # Celery worker, with beat embedded (-B).
+  #
+  # Two changes here, both driven by the 1 GB memory ceiling:
+  #
+  # Pool and concurrency are env-driven (CELERY_POOL / CELERY_CONCURRENCY); the
+  # defaults below are the 1 vCPU / 1 GB profile. On a 2 GB box set
+  # CELERY_POOL=prefork -- see deploy/server-sizing.env.sample.
+  #
+  # 1. --pool=solo. The default prefork pool runs a supervisor process plus one
+  #    child per concurrency slot, and every one of them is a full Django
+  #    import at ~180 MB. With --concurrency=1 that is still two processes to
+  #    do the work of one. solo runs tasks in the main process: one process,
+  #    one Django import.
+  #
+  #    Trade-off, stated plainly: soft_time_limit / time_limit are implemented
+  #    with signals into prefork children and are NOT enforced under solo. The
+  #    tasks in this project all set explicit timeouts on their outbound calls
+  #    (requests timeout=3s/5s), so nothing here can hang indefinitely -- but
+  #    if you add a task that can, move back to prefork first. On any box with
+  #    the RAM for it, CELERY_POOL=prefork is the better default precisely
+  #    because it restores those limits.
+  #
+  # 2. -B runs beat inside this container instead of a third one. That is a
+  #    whole Django process (~160 MB) recovered on a box that has 1 GB total.
+  #    Beat and the worker now share a lifecycle: restarting one restarts both.
+  #
+  # To split them apart again on bigger hardware, drop "-B" and its scheduler
+  # flags from this command and restore a celery_beat service running:
+  #   celery -A config beat --loglevel=info --pidfile= \
+  #          --scheduler django_celery_beat.schedulers:DatabaseScheduler
+  #
+  # --without-gossip/--without-mingle/--without-heartbeat remove inter-worker
+  # broker chatter that has no purpose with a single worker, and which polls
+  # Redis on a timer whether or not any task exists.
   celery_worker:
     image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
     restart: always
-    command: ["celery", "-A", "config", "worker", "--loglevel=info"]
+    command: [
+      "celery", "-A", "config", "worker",
+      "--loglevel=info",
+      "--pool=${CELERY_POOL:-solo}",
+      "--concurrency=${CELERY_CONCURRENCY:-1}",
+      "--without-gossip", "--without-mingle", "--without-heartbeat",
+      "-B",
+      "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler",
+      "--max-interval", "60"
+    ]
     volumes:
       - /srv/aurora/shared/media:/app/media
       - /srv/aurora/shared/logs:/app/logs
@@ -78,37 +183,7 @@ services:
       - REDIS_HOST=redis
       - REDIS_PORT=6379
       - SECURE_SSL_REDIRECT=False
-      # RUN_MIGRATIONS intentionally omitted
-    depends_on:
-      db:
-        condition: service_healthy
-      redis:
-        condition: service_healthy
-      backend:
-        condition: service_healthy
-
-  celery_beat:
-    image: ghcr.io/sukumarsatpathy/aurorablings/backend:latest
-    restart: always
-    command: [
-      "celery", "-A", "config", "beat",
-      "--loglevel=info",
-      "--pidfile=",
-      "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"
-    ]
-    volumes:
-      - /srv/aurora/shared/logs:/app/logs
-    env_file:
-      - .env
-    environment:
-      - DATABASE_URL=postgres://${POSTGRES_USER}:${POSTGRES_PASSWORD}@db:5432/${POSTGRES_DB}
-      - DJANGO_SETTINGS_MODULE=config.settings.prod
-      - DATABASE=postgres
-      - SQL_HOST=db
-      - SQL_PORT=5432
-      - REDIS_HOST=redis
-      - REDIS_PORT=6379
-      - SECURE_SSL_REDIRECT=False
+      - HEALTH_API_BASE_URL=http://backend:8000/api
       # RUN_MIGRATIONS intentionally omitted
     depends_on:
       db:

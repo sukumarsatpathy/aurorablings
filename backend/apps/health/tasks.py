@@ -2,8 +2,12 @@
 
 from __future__ import annotations
 
+from datetime import timedelta
+
 from celery import shared_task
+from django.conf import settings
 from django.db import transaction
+from django.utils import timezone
 
 from apps.health.alert_engine import HealthAlertEngine
 from apps.health.models import HealthCheckResult, HealthSource, HealthStatus
@@ -11,6 +15,23 @@ from apps.health.services import APIHealthMonitorService, PaymentHealthService, 
 from core.logging import get_logger
 
 logger = get_logger(__name__)
+
+
+def _collection_enabled() -> bool:
+    """Whether the health-monitoring subsystem should collect anything.
+
+    This guard is load-bearing, not belt-and-braces. Beat runs
+    django_celery_beat's DatabaseScheduler, which syncs CELERY_BEAT_SCHEDULE
+    into PeriodicTask rows but does not delete rows for entries that later
+    disappear from settings. Dropping the three health.* entries from the
+    schedule therefore does NOT stop an already-created row from firing. This
+    check is what actually stops the work.
+    """
+    return bool(getattr(settings, "HEALTH_MONITORING_ENABLED", False))
+
+
+def _disabled_result(source: str) -> dict:
+    return {"source": source, "skipped": True, "reason": "HEALTH_MONITORING_ENABLED is false"}
 
 
 @shared_task(
@@ -21,6 +42,8 @@ logger = get_logger(__name__)
     ignore_result=False,
 )
 def run_server_health_checks(self):
+    if not _collection_enabled():
+        return _disabled_result(HealthSource.SERVER)
     return _run_health_pipeline(
         source=HealthSource.SERVER,
         service=ServerHealthService(),
@@ -35,6 +58,8 @@ def run_server_health_checks(self):
     ignore_result=False,
 )
 def run_api_health_checks(self):
+    if not _collection_enabled():
+        return _disabled_result(HealthSource.API)
     return _run_health_pipeline(
         source=HealthSource.API,
         service=APIHealthMonitorService(),
@@ -49,10 +74,52 @@ def run_api_health_checks(self):
     ignore_result=False,
 )
 def run_payment_health_checks(self):
+    if not _collection_enabled():
+        return _disabled_result(HealthSource.PAYMENT)
     return _run_health_pipeline(
         source=HealthSource.PAYMENT,
         service=PaymentHealthService(),
     )
+
+
+@shared_task(
+    bind=True,
+    name="health.prune_health_results",
+    soft_time_limit=280,
+    time_limit=300,
+    ignore_result=True,
+)
+def prune_health_results(self, days: int | None = None) -> dict:
+    """Bound the HealthCheckResult table.
+
+    Nothing pruned this table before. The health tasks only ever appended to
+    it, so it grew by roughly 13,000 rows a day at the old check intervals --
+    each row carrying a TextField and a JSONField, across four indexes. The
+    cost is not the storage; it is that autovacuum and the dashboard's
+    per-component Subquery both get steadily slower, which reads as production
+    CPU that climbs week over week for no visible reason.
+
+    Deletes in batches so a long-overdue first run cannot hold a single
+    transaction open across millions of rows.
+    """
+    retention_days = days if days is not None else getattr(settings, "HEALTH_RESULT_RETENTION_DAYS", 14)
+    cutoff = timezone.now() - timedelta(days=int(retention_days))
+
+    deleted_total = 0
+    while True:
+        batch_ids = list(
+            HealthCheckResult.objects.filter(checked_at__lt=cutoff)
+            .values_list("id", flat=True)[:5000]
+        )
+        if not batch_ids:
+            break
+        deleted, _ = HealthCheckResult.objects.filter(id__in=batch_ids).delete()
+        deleted_total += deleted
+        if len(batch_ids) < 5000:
+            break
+
+    logger.info("health_results_pruned", deleted=deleted_total, retention_days=retention_days)
+    return {"deleted": deleted_total, "retention_days": retention_days}
 
 
 def _run_health_pipeline(*, source: str, service) -> dict:

@@ -1,9 +1,55 @@
 from __future__ import annotations
 
-import multiprocessing
 import os
+from pathlib import Path
 
 bind = os.getenv("GUNICORN_BIND", "127.0.0.1:8000")
+
+
+def available_cpus() -> int:
+    """CPUs this process may actually use — not the machine's core count.
+
+    `multiprocessing.cpu_count()` reads the host's CPU topology. It ignores
+    cgroup CPU limits entirely, and on a container-based VPS (LXC/OpenVZ) it
+    reports the *physical host's* cores rather than the vCPUs you pay for. A
+    2-vCPU slice of a 16-core box therefore sized itself for 16 cores and
+    forked 17 workers x 4 threads onto two cores' worth of quota. On a Mac,
+    Docker Desktop's VM has a small fixed CPU count, so this never reproduced
+    locally -- it only ever went wrong in production.
+
+    Order of preference:
+      1. cgroup v2 quota  (/sys/fs/cgroup/cpu.max)
+      2. cgroup v1 quota  (cpu.cfs_quota_us / cpu.cfs_period_us)
+      3. CPU affinity mask actually scheduled to us
+      4. os.cpu_count()
+    Always at least 1.
+    """
+    # cgroup v2
+    try:
+        quota, period = Path("/sys/fs/cgroup/cpu.max").read_text().split()
+        if quota != "max":
+            return max(1, int(int(quota) / int(period)))
+    except Exception:
+        pass
+
+    # cgroup v1
+    try:
+        quota = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_quota_us").read_text())
+        period = int(Path("/sys/fs/cgroup/cpu/cpu.cfs_period_us").read_text())
+        if quota > 0 and period > 0:
+            return max(1, int(quota / period))
+    except Exception:
+        pass
+
+    try:
+        return max(1, len(os.sched_getaffinity(0)))
+    except (AttributeError, OSError):
+        pass
+
+    return max(1, os.cpu_count() or 1)
+
+
+CPUS = available_cpus()
 
 # Worker count is deliberately lower than the classic (2*cores)+1 formula.
 # That formula assumes sync workers with one request each. Now that each worker
@@ -16,7 +62,13 @@ bind = os.getenv("GUNICORN_BIND", "127.0.0.1:8000")
 # cores+1 workers * 4 threads keeps concurrency healthy while bounding the
 # connection pool. If you raise either value, check:
 #     SHOW max_connections;
-workers = int(os.getenv("GUNICORN_WORKERS", multiprocessing.cpu_count() + 1))
+#
+# On a 1 vCPU / 1 GB box the binding constraint is RAM, not CPU: each gunicorn
+# worker is a full Django process at roughly 180 MB resident, and more workers
+# than cores buys nothing on a single core except memory pressure and context
+# switching. Set GUNICORN_WORKERS explicitly in the environment for anything
+# other than the smallest box -- the formula below is a floor, not a target.
+workers = int(os.getenv("GUNICORN_WORKERS", max(1, CPUS)))
 
 # Threaded workers, not sync.
 #
