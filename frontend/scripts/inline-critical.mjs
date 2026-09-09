@@ -39,5 +39,29 @@ if (!processed.includes('<style>') && !processed.includes('<style ')) {
   throw new Error('inline-critical: Beasties produced no inline <style>; refusing to overwrite index.html');
 }
 
-await writeFile(indexPath, processed);
-console.log('inline-critical: critical CSS inlined into dist/index.html');
+// Raise the priority of the demoted stylesheet.
+//
+// media="print" takes the stylesheet off the critical path, which is the whole
+// point -- but it also drops its fetch priority to Low, so it queues behind the
+// module chunks. Everything the inline critical block does not cover then stays
+// unstyled until after the bundle has downloaded and rendered. That is very
+// visible on /admin/*, whose rules are absent from the inline block entirely
+// (Beasties can only see the static homepage shell in index.html).
+//
+// fetchpriority="high" keeps the link non-blocking while letting it fetch
+// alongside the JS instead of after it. Only the swapped link is touched; the
+// <noscript> fallback Beasties emits has no media="print" and stays as-is.
+const SWAP_ATTRS = 'media="print"';
+const swapCount = (processed.match(/media="print"/g) || []).length;
+
+if (swapCount !== 1) {
+  throw new Error(
+    `inline-critical: expected exactly 1 media="print" stylesheet swap, found ${swapCount}. ` +
+      'Beasties output shape changed -- check preload mode before shipping.'
+  );
+}
+
+const withPriority = processed.replace(SWAP_ATTRS, 'media="print" fetchpriority="high"');
+
+await writeFile(indexPath, withPriority);
+console.log('inline-critical: critical CSS inlined into dist/index.html (deferred sheet fetchpriority=high)');

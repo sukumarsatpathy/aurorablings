@@ -39,12 +39,15 @@ from .serializers import PromoBannerSerializer
 
 BOOTSTRAP_FRAGMENT_CACHE_KEY = "promo_banners:bootstrap_fragment"
 BOOTSTRAP_FRAGMENT_TTL = 300  # match the /banners/active/ cache
+# A fragment built while a dependency was unavailable is retried this often
+# instead of being pinned for the full TTL. See bootstrap_fragment().
+DEGRADED_FRAGMENT_TTL = 15
 
 # Must stay in sync with BANNER_SIZES in
 # frontend/src/components/promo/PromoBannerCard/PromoBannerCard.jsx — the
 # preload's imagesizes must select the same candidate the <img> will select,
 # or the browser downloads two different derivatives.
-BANNER_IMAGESIZES = "(max-width: 1024px) 100vw, (max-width: 1536px) 60vw, 900px"
+BANNER_IMAGESIZES = "(max-width: 1024px) calc(100vw - 2rem), (max-width: 1536px) 60vw, 900px"
 
 
 def _script_safe_json(payload) -> str:
@@ -142,7 +145,29 @@ def bootstrap_fragment(request):
         fragment = cache.get(cache_key)
         if fragment is None:
             fragment = _build_fragment(request, include_preload)
-            cache.set(cache_key, fragment, timeout=BOOTSTRAP_FRAGMENT_TTL)
+            # Do not cache a degraded fragment for the full TTL.
+            #
+            # _build_fragment swallows a failure in get_public_settings() and
+            # emits settings:null, and returns no preload when the banner query
+            # or its cache came back empty. Both are recoverable states -- a
+            # cold Redis right after a deploy, a backend still warming up -- but
+            # caching them pinned five minutes of degraded HTML for every
+            # visitor: no hero preload, and every page re-fetching
+            # /features/public-settings/ on the critical path. That is the
+            # signature of an LCP regression nobody can reproduce ten minutes
+            # later, which is exactly how it presented after the 2026-09-09
+            # rebuild.
+            #
+            # A short TTL keeps retrying without hammering the backend; the
+            # healthy fragment still gets the full five minutes.
+            healthy = '"settings":null' not in fragment and (
+                not include_preload or "rel=\"preload\"" in fragment
+            )
+            cache.set(
+                cache_key,
+                fragment,
+                timeout=BOOTSTRAP_FRAGMENT_TTL if healthy else DEGRADED_FRAGMENT_TTL,
+            )
     except Exception:
         # Never fail the index.html SSI subrequest.
         fragment = ""

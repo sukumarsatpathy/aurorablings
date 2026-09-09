@@ -96,7 +96,10 @@
           b = b || banners[0];
           var large = b.image_large || b.image;
           if (!large) return;
-          var sizes = '(max-width: 1024px) 100vw, (max-width: 1536px) 60vw, 900px';
+          /* Same string as BANNER_SIZES (PromoBannerCard.jsx) and BANNER_IMAGESIZES
+             (backend/apps/banners/bootstrap.py). All three must match or the
+             shell, the preload and React's <img> pick different candidates. */
+          var sizes = '(max-width: 1024px) calc(100vw - 2rem), (max-width: 1536px) 60vw, 900px';
           var srcset = [];
           if (b.image_small) srcset.push(b.image_small + ' 480w');
           if (b.image_medium) srcset.push(b.image_medium + ' 768w');

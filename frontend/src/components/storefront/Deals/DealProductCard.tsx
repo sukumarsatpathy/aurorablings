@@ -174,7 +174,12 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
   const notifyActionClass = 'bg-amber-500 text-white hover:bg-amber-600';
 
   const quickImages = useMemo(() => {
-    const fromMedia = (quickViewProduct?.media || []).map((media) => normalizeAssetUrl(media.image)).filter(Boolean);
+    // Derivative first, master last. `media.image` is the 1800px master
+    // (multi-MB on rows whose variants were generated); the modal never shows
+    // more than ~900 CSS px, so image_large is the largest thing worth sending.
+    const fromMedia = (quickViewProduct?.media || [])
+      .map((media) => normalizeAssetUrl(media.image_large || media.image_medium || media.image))
+      .filter(Boolean);
     if (fromMedia.length > 0) return fromMedia;
     return [normalizeAssetUrl(product.primary_image)].filter(Boolean);
   }, [quickViewProduct, product.primary_image]);
@@ -512,8 +517,13 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
     const loadHoverMedia = async () => {
       const extractMediaImages = (payload: unknown): string[] => {
         const extracted = extractProduct(payload);
+        // image_medium (768w) is the right rendition for a card that paints at
+        // ~380 CSS px. Reading `media.image` here pulled the full-size master
+        // for every image of every hovered product -- the single largest
+        // contributor to the homepage's network payload. `|| media.image`
+        // still covers rows whose derivatives were never generated.
         return (extracted?.media || [])
-          .map((media) => normalizeAssetUrl(media.image))
+          .map((media) => normalizeAssetUrl(media.image_medium || media.image_small || media.image))
           .filter(Boolean);
       };
 

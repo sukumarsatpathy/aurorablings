@@ -11,7 +11,15 @@ import styles from './PromoBannerCard.module.css';
 // 1200px on desktop where the widest cell measures ~700px (1.3fr of a ~1250px
 // container). Over-declaring makes the browser select a larger srcSet candidate
 // than it needs, which defeats the point of having derivatives at all.
-const BANNER_SIZES = '(max-width: 1024px) 100vw, (max-width: 1536px) 60vw, 900px';
+// MUST stay in sync with BANNER_IMAGESIZES in backend/apps/banners/bootstrap.py:
+// the SSI preload and this <img> have to select the same candidate, or the
+// browser downloads two derivatives of the same banner.
+//
+// The <=1024px branch is calc(100vw - 2rem), not 100vw: the card sits inside
+// `container mx-auto` (1rem of padding each side), so 100vw overstated the box
+// by ~8% and pushed the browser onto the next candidate up -- Lighthouse saw a
+// 768w file painted into a 380x284 box.
+const BANNER_SIZES = '(max-width: 1024px) calc(100vw - 2rem), (max-width: 1536px) 60vw, 900px';
 
 const clamp = (value, fallback) => {
   const parsed = Number(value);
