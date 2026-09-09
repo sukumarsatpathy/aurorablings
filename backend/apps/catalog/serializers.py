@@ -350,13 +350,13 @@ class ProductListSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Product
         fields = [
-            "id", "name", "slug", "short_description",
+            "id", "name", "slug", "short_description", "stock_id",
             "category_name", "brand_name", "is_featured", "rating", "avg_rating", "review_count",
             "primary_image", "primary_image_srcset",
             "hover_image", "hover_image_srcset",
             "image_count", "price_range", "default_variant",
             "total_stock", "variant_count",
-            "has_active_offer", "is_active", "created_at",
+            "has_active_offer", "is_active", "deleted_at", "created_at",
         ]
 
     def get_has_active_offer(self, obj) -> bool:
@@ -562,7 +562,7 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Product
         fields = [
-            "id", "name", "slug", "description", "short_description",
+            "id", "name", "slug", "description", "short_description", "stock_id",
             "category", "brand", "is_active", "is_featured", "is_digital", "rating", "avg_rating", "review_count",
             "media", "variants", "attributes", "info_items", "price_range",
             "meta_title", "meta_description", "created_at", "updated_at",
@@ -580,15 +580,66 @@ class ProductDetailSerializer(serializers.ModelSerializer):
 #  Product — Write
 # ─────────────────────────────────────────────────────────────
 
+class ProductRestoreSerializer(serializers.Serializer):
+    """Restore, and what the product comes back as. Draft unless told otherwise."""
+
+    is_active = serializers.BooleanField(default=False)
+
+
+class ProductBulkDeleteSerializer(serializers.Serializer):
+    """Bulk soft delete. Same 200-row cap and reasoning as the status change."""
+
+    ids = serializers.ListField(
+        child=serializers.UUIDField(), allow_empty=False, max_length=200,
+    )
+
+
+class ProductBulkStatusSerializer(serializers.Serializer):
+    """
+    Bulk publish / unpublish. The cap is deliberate: the audit log writes one
+    row per product, and a 500-row request is nearly always a mis-click on a
+    select-all checkbox.
+    """
+
+    ids = serializers.ListField(
+        child=serializers.UUIDField(), allow_empty=False, max_length=200,
+    )
+    is_active = serializers.BooleanField()
+
+
 class ProductWriteSerializer(serializers.Serializer):
     name              = serializers.CharField(max_length=255)
     category_id       = serializers.UUIDField()
     brand_id          = serializers.UUIDField(required=False, allow_null=True)
     description       = serializers.CharField(required=False, allow_blank=True, default="")
     short_description = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+    # The counter's stock reference. Optional, but no two products may share one
+    # — a staff member typing a number into the till must land on one piece.
+    stock_id          = serializers.IntegerField(required=False, allow_null=True, min_value=1)
     is_active         = serializers.BooleanField(default=True)
     is_featured       = serializers.BooleanField(default=False)
     is_digital        = serializers.BooleanField(default=False)
     rating            = serializers.DecimalField(max_digits=3, decimal_places=2, required=False, default=0.0)
     meta_title        = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
     meta_description  = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+    def validate_stock_id(self, value):
+        """
+        Uniqueness by hand, because this is a plain Serializer with no model
+        validators behind it. Without this the second product to be given a
+        number fails on the database constraint and the admin sees a 500 rather
+        than "that number is already used by X".
+        """
+        if value in (None, ""):
+            return None
+
+        qs = Product.all_objects.filter(stock_id=value)
+        current = self.context.get("product")
+        if current is not None:
+            qs = qs.exclude(pk=current.pk)
+        clash = qs.first()
+        if clash is not None:
+            raise serializers.ValidationError(
+                f"Stock ID {value} is already used by '{clash.name}'."
+            )
+        return value

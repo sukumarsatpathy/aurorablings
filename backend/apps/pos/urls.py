@@ -5,7 +5,8 @@ from . import views
 app_name = "pos"
 
 urlpatterns = [
-    path("terminals/",                    views.TerminalListView.as_view(),  name="terminals"),
+    path("terminals/",                    views.TerminalListView.as_view(),   name="terminals"),
+    path("terminals/<uuid:terminal_id>/", views.TerminalDetailView.as_view(), name="terminal-detail"),
     path("shifts/current/",               views.CurrentShiftView.as_view(),  name="shift-current"),
     path("shifts/open/",                  views.OpenShiftView.as_view(),     name="shift-open"),
     path("shifts/<uuid:shift_id>/",       views.ShiftDetailView.as_view(),   name="shift-detail"),

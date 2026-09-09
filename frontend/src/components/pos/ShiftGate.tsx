@@ -86,8 +86,8 @@ export function ShiftGate({ terminals, terminalId, onChooseTerminal, onOpenShift
 
         {terminals.length === 0 && (
           <p className="mt-4 text-xs text-muted-foreground">
-            No terminals are set up yet. Add one in Django admin under Point of Sale →
-            POS terminals.
+            No terminals are set up yet. An admin can add one under Settings → POS
+            Terminals.
           </p>
         )}
       </div>

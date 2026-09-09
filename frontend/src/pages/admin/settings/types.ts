@@ -7,6 +7,7 @@ export type SettingsCategoryMenu =
   | 'notification'
   | 'shipping'
   | 'advanced'
+  | 'pos_terminals'
   | 'gtm_settings'
   | 'pixel_settings'
   | 'analytics_settings'

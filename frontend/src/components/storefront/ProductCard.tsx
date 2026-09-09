@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useMemo } from 'react';
 import { Link } from 'react-router-dom';
 import { ShoppingCart, Eye } from 'lucide-react';
 import { Card } from '@/components/ui/Card';
@@ -6,6 +6,7 @@ import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { useCurrency } from '@/hooks/useCurrency';
+import useHoverGallery from '@/hooks/useHoverGallery';
 import cartService from '@/services/api/cart';
 import catalogService from '@/services/api/catalog';
 
@@ -28,36 +29,20 @@ interface ProductCardProps {
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   const { formatCurrency } = useCurrency();
-  const [isHovered, setIsHovered] = useState(false);
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
-
-  const cardImages = useMemo(() => {
-    const seen = new Set<string>();
-    const ordered = [product.image, product.hoverImage, ...(product.additionalImages || [])].filter(
+  const baseImages = useMemo(
+    () => [product.image, product.hoverImage, ...(product.additionalImages || [])].filter(
       (image): image is string => Boolean(image)
-    );
-    const unique = ordered.filter((image) => {
-      if (seen.has(image)) return false;
-      seen.add(image);
-      return true;
-    });
-    return unique.length > 0 ? unique : [product.image];
-  }, [product.additionalImages, product.hoverImage, product.image]);
+    ),
+    [product.additionalImages, product.hoverImage, product.image]
+  );
 
-  useEffect(() => {
-    if (!isHovered || cardImages.length <= 1) {
-      setActiveImageIndex(0);
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setActiveImageIndex((current) => (current + 1) % cardImages.length);
-    }, 850);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [cardImages.length, isHovered]);
+  // Same hover swap as the shop listing: nothing fetched until a pointer
+  // settles, medium renditions rather than the 1800px masters, and inert on
+  // touch devices where there is no hover to begin with.
+  const { images: cardImages, activeIndex: activeImageIndex, hoverProps } = useHoverGallery({
+    productId: product.id ? String(product.id) : null,
+    baseImages,
+  });
 
   const resolveDefaultVariantId = async () => {
     try {
@@ -93,8 +78,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       data-stagger-item
       data-scroll-item
       className="group relative overflow-hidden border-none shadow-none bg-transparent h-full flex flex-col transition-transform duration-300 hover:-translate-y-1"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      {...hoverProps}
     >
       {/* Image Container */}
         <div className="relative aspect-[4/5] overflow-hidden rounded-2xl bg-muted/50">

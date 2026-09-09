@@ -38,6 +38,9 @@ from .serializers import (
     ProductMediaSerializer, DealProductSerializer,
     ProductInfoItemSerializer, ProductInfoItemWriteSerializer, ProductInfoItemReorderSerializer,
     ProductStockNotifyRequestSerializer, ProductStockNotifyRequestWriteSerializer,
+    ProductBulkStatusSerializer,
+    ProductBulkDeleteSerializer,
+    ProductRestoreSerializer,
 )
 
 logger = get_logger(__name__)
@@ -49,6 +52,36 @@ def _is_catalog_staff(user) -> bool:
         and getattr(user, "is_authenticated", False)
         and getattr(user, "role", "") in {"admin", "staff"}
     )
+
+
+def _wants_drafts(request) -> bool:
+    """
+    Drafts are served only when a staff caller *asks* for them.
+
+    Being logged in as an admin is not the ask. The storefront and the admin
+    screens share these endpoints, so keying visibility off the session alone
+    meant that browsing your own shop while signed in showed inactive products
+    on the home page and the listing — visible to the one person least likely
+    to notice, and to nobody who could report it.
+    """
+    if not _is_catalog_staff(request.user):
+        return False
+    raw = request.query_params.get("include_drafts", "")
+    return str(raw).lower() in ("1", "true", "yes")
+
+
+def _wants_deleted(request) -> bool:
+    """
+    Soft-deleted products, for the admin's Deleted view.
+
+    Same rule as drafts, and staff-only for the same reason: a deleted product
+    is not merely unpublished, it is one nobody outside the admin should be able
+    to reach by any route.
+    """
+    if not _is_catalog_staff(request.user):
+        return False
+    raw = request.query_params.get("include_deleted", "")
+    return str(raw).lower() in ("1", "true", "yes")
 
 
 # ─────────────────────────────────────────────────────────────
@@ -168,14 +201,21 @@ class ProductViewSet(BaseViewSet):
     ordering         = ["-created_at"]
 
     def get_permissions(self):
-        if self.action in ("list", "retrieve", "by_slug", "variants", "deals", "info_items", "notify_me"):
+        if self.action in ("list", "retrieve", "by_slug", "variants", "deals", "info_items", "notify_me", "gallery"):
             return [AllowAny()]
         return [IsAuthenticated(), IsStaffOrAdmin()]
 
     # ── List ──────────────────────────────────────────────────
     def list(self, request):
         is_staff = _is_catalog_staff(request.user)
-        qs = selectors.get_product_list(published_only=not is_staff)
+        include_drafts = _wants_drafts(request)
+        include_deleted = _wants_deleted(request)
+        qs = selectors.get_product_list(
+            # The published manager filters deleted rows out on its own, so
+            # asking for deleted products necessarily means the unfiltered one.
+            published_only=not (include_drafts or include_deleted),
+            include_deleted=include_deleted,
+        )
         qs = self.filter_queryset(qs)
         # Staff get the extra stock_summary column; anonymous shoppers do not.
         # Besides saving a WarehouseStock query per row on the storefront's
@@ -196,14 +236,14 @@ class ProductViewSet(BaseViewSet):
 
     # ── Detail ────────────────────────────────────────────────
     def retrieve(self, request, pk=None):
-        product = selectors.get_product_by_id(pk)
+        product = selectors.get_product_by_id(pk, published_only=not _wants_drafts(request))
         if not product:
             raise NotFoundError("Product not found.")
         return self.ok(data=ProductDetailSerializer(product, context={"request": request}).data)
 
     @action(detail=False, methods=["get"], url_path="slug/(?P<slug>[^/.]+)")
     def by_slug(self, request, slug=None):
-        product = selectors.get_product_by_slug(slug)
+        product = selectors.get_product_by_slug(slug, published_only=not _wants_drafts(request))
         if not product:
             raise NotFoundError("Product not found.")
         return self.ok(data=ProductDetailSerializer(product, context={"request": request}).data)
@@ -238,18 +278,25 @@ class ProductViewSet(BaseViewSet):
             "name": product.name,
             "description": product.description,
             "short_description": product.short_description,
+            "stock_id": product.stock_id,
             "is_active": product.is_active,
             "is_featured": product.is_featured,
             "meta_title": product.meta_title,
             "meta_description": product.meta_description,
         }
-        s = ProductWriteSerializer(data=request.data, partial=True)
+        # The product goes in the context so the stock-ID uniqueness check can
+        # exclude the row being edited — otherwise saving a product without
+        # changing its number reports a clash with itself.
+        s = ProductWriteSerializer(
+            data=request.data, partial=True, context={"product": product},
+        )
         s.is_valid(raise_exception=True)
         product = services.update_product(product=product, **s.validated_data)
         new_values = {
             "name": product.name,
             "description": product.description,
             "short_description": product.short_description,
+            "stock_id": product.stock_id,
             "is_active": product.is_active,
             "is_featured": product.is_featured,
             "meta_title": product.meta_title,
@@ -266,6 +313,106 @@ class ProductViewSet(BaseViewSet):
             request=request,
         )
         return self.ok(data=ProductDetailSerializer(product, context={"request": request}).data)
+
+    # ── Bulk status ───────────────────────────────────────────
+    @action(detail=False, methods=["post"], url_path="bulk-status")
+    def bulk_status(self, request):
+        """
+        POST /products/bulk-status/  {"ids": [...], "is_active": true|false}
+
+        Publishing and unpublishing in one call. Soft-deleted products are left
+        alone: reactivating one would put a product the shop believes is gone
+        back on the storefront.
+        """
+        s = ProductBulkStatusSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        ids = s.validated_data["ids"]
+        is_active = s.validated_data["is_active"]
+
+        products = list(
+            Product.all_objects.filter(id__in=ids, deleted_at__isnull=True)
+        )
+        found_ids = {str(p.id) for p in products}
+        skipped = [str(i) for i in ids if str(i) not in found_ids]
+
+        changed = [p for p in products if p.is_active != is_active]
+        if changed:
+            Product.all_objects.filter(id__in=[p.id for p in changed]).update(
+                is_active=is_active
+            )
+
+        for product in changed:
+            log_activity(
+                user=request.user,
+                actor_type=ActorType.ADMIN if request.user.role == "admin" else ActorType.STAFF,
+                action=AuditAction.UPDATE,
+                entity_type="product",
+                entity_id=str(product.id),
+                description=(
+                    f"{'Activated' if is_active else 'Set to draft'} product '{product.name}' "
+                    f"(bulk status change)"
+                ),
+                metadata={
+                    "old_value": {"is_active": product.is_active},
+                    "new_value": {"is_active": is_active},
+                    "bulk": True,
+                },
+                request=request,
+            )
+
+        return self.ok(
+            data={
+                "updated": len(changed),
+                "unchanged": len(products) - len(changed),
+                "skipped": skipped,
+                "is_active": is_active,
+            },
+            message=(
+                f"{len(changed)} product{'' if len(changed) == 1 else 's'} "
+                f"{'activated' if is_active else 'moved to draft'}."
+            ),
+        )
+
+    # ── Bulk delete ───────────────────────────────────────────
+    @action(detail=False, methods=["post"], url_path="bulk-delete")
+    def bulk_delete(self, request):
+        """
+        POST /products/bulk-delete/  {"ids": [...]}
+
+        Soft delete, the same as deleting one at a time: each product is taken
+        off sale and stamped, never removed. Already-deleted ids come back as
+        `skipped` rather than being deleted twice.
+        """
+        s = ProductBulkDeleteSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        ids = s.validated_data["ids"]
+
+        products = list(Product.all_objects.filter(id__in=ids))
+        found = {str(p.id) for p in products}
+        deletable = [p for p in products if p.deleted_at is None]
+        skipped = [str(i) for i in ids if str(i) not in found] + [
+            str(p.id) for p in products if p.deleted_at is not None
+        ]
+
+        for product in deletable:
+            services.soft_delete_product(product=product)
+            log_activity(
+                user=request.user,
+                actor_type=ActorType.ADMIN if request.user.role == "admin" else ActorType.STAFF,
+                action=AuditAction.DELETE,
+                entity_type="product",
+                entity_id=str(product.id),
+                description=f"Deleted product '{product.name}' (bulk delete)",
+                metadata={"name": product.name, "bulk": True},
+                request=request,
+            )
+
+        return self.ok(
+            data={"deleted": len(deletable), "skipped": skipped},
+            message=(
+                f"{len(deletable)} product{'' if len(deletable) == 1 else 's'} deleted."
+            ),
+        )
 
     # ── Soft Delete ───────────────────────────────────────────
     def destroy(self, request, pk=None):
@@ -286,6 +433,46 @@ class ProductViewSet(BaseViewSet):
         )
         return self.ok(message="Product deleted.")
 
+    # ── Restore ───────────────────────────────────────────────
+    @action(detail=True, methods=["post"], url_path="restore")
+    def restore(self, request, pk=None):
+        """
+        POST /products/{id}/restore/  {"is_active": true|false} — undo a soft
+        delete. [staff+]
+
+        Draft unless the caller explicitly asks for it back on the storefront.
+        """
+        product = Product.all_objects.filter(pk=pk).first()
+        if not product:
+            raise NotFoundError("Product not found.")
+        if product.deleted_at is None:
+            return error_response(
+                message="That product is not deleted.",
+                status_code=status.HTTP_409_CONFLICT,
+                request_id=self.request_id,
+            )
+
+        payload = ProductRestoreSerializer(data=request.data or {})
+        payload.is_valid(raise_exception=True)
+        is_active = payload.validated_data["is_active"]
+
+        services.restore_product(product=product, is_active=is_active)
+        state = "active" if is_active else "a draft"
+        log_activity(
+            user=request.user,
+            actor_type=ActorType.ADMIN if request.user.role == "admin" else ActorType.STAFF,
+            action=AuditAction.UPDATE,
+            entity_type="product",
+            entity_id=str(product.id),
+            description=f"Restored product '{product.name}' as {state}",
+            metadata={"name": product.name, "is_active": is_active},
+            request=request,
+        )
+        return self.ok(
+            data=ProductDetailSerializer(product, context={"request": request}).data,
+            message=f"Product restored as {state}.",
+        )
+
     # ── Variants sub-resource ─────────────────────────────────
     @action(detail=True, methods=["get", "post"], url_path="variants")
     def variants(self, request, pk=None):
@@ -305,6 +492,35 @@ class ProductViewSet(BaseViewSet):
         s.is_valid(raise_exception=True)
         variant = services.create_variant(product=product, **s.validated_data)
         return self.created(data=ProductVariantSerializer(variant).data)
+
+    # ── Gallery (public) ──────────────────────────────────────
+    @action(detail=True, methods=["get"], url_path="gallery")
+    def gallery(self, request, pk=None):
+        """
+        GET /products/{id}/gallery/ — just the pictures.
+
+        The storefront's hover swap used to pull the whole product detail to get
+        at `media`: variants, attributes, info items and global attribute
+        configs serialised so a card could show a second photograph, once per
+        hovered card, on a box where Postgres and Django share one core. This
+        returns the media rows and nothing else.
+
+        Published products only — a draft or deleted product has no pictures to
+        show a shopper.
+        """
+        product = (
+            Product.published
+            .filter(pk=pk)
+            .prefetch_related("media")
+            .first()
+        )
+        if not product:
+            raise NotFoundError("Product not found.")
+
+        media = sorted(product.media.all(), key=lambda m: (not m.is_primary, m.sort_order))
+        return self.ok(
+            data=ProductMediaSerializer(media, many=True, context={"request": request}).data
+        )
 
     # ── Media upload ──────────────────────────────────────────
     @action(

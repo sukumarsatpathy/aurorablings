@@ -20,7 +20,8 @@ class ProductFilter(django_filters.FilterSet):
       ?is_featured=true
       ?price_min=100
       ?price_max=999
-      ?search=ring             name / description / sku
+      ?search=ring             name / description / sku (digits also match stock_id)
+      ?stock_id=1042           exact stock reference
       ?attributes=<av_id>,<av_id>   comma-separated attribute value IDs
       ?ordering=price,-created_at
     """
@@ -30,6 +31,7 @@ class ProductFilter(django_filters.FilterSet):
     price_min   = django_filters.NumberFilter(method="filter_price_min")
     price_max   = django_filters.NumberFilter(method="filter_price_max")
     search      = django_filters.CharFilter(method="filter_search")
+    stock_id    = django_filters.NumberFilter(field_name="stock_id")
     attributes  = django_filters.CharFilter(method="filter_attributes")
     has_offer   = django_filters.BooleanFilter(method="filter_has_offer")
     ordering    = django_filters.OrderingFilter(
@@ -43,7 +45,7 @@ class ProductFilter(django_filters.FilterSet):
 
     class Meta:
         model  = Product
-        fields = ["category", "brand", "is_featured", "has_offer"]
+        fields = ["category", "brand", "is_featured", "has_offer", "stock_id"]
 
     def filter_has_offer(self, qs, name, value):
         from django.utils import timezone
@@ -86,11 +88,17 @@ class ProductFilter(django_filters.FilterSet):
         return qs.filter(variants__price__lte=value).distinct()
 
     def filter_search(self, qs, name, value):
-        return qs.filter(
+        match = (
             Q(name__icontains=value) |
             Q(description__icontains=value) |
             Q(variants__sku__icontains=value)
-        ).distinct()
+        )
+        # stock_id is an integer column — `icontains` against it is a database
+        # error, not an empty result, so it only joins the search when the whole
+        # query is digits, and then as an exact match.
+        if str(value).strip().isdigit():
+            match |= Q(stock_id=int(value))
+        return qs.filter(match).distinct()
 
     def filter_attributes(self, qs, name, value):
         """Accept comma-separated UUIDs: ?attributes=<id1>,<id2>"""

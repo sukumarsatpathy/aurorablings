@@ -103,17 +103,17 @@ class AttributeInline(admin.TabularInline):
 @admin.register(Product)
 class ProductAdmin(admin.ModelAdmin):
     list_display   = [
-        "name", "category", "brand", "is_active", "is_featured",
+        "name", "stock_id", "category", "brand", "is_active", "is_featured",
         "variant_count", "notify_waiting_count", "price_display", "created_at",
     ]
     list_filter    = ["is_active", "is_featured", "category", "brand"]
-    search_fields  = ["name", "slug", "variants__sku"]
+    search_fields  = ["name", "slug", "=stock_id", "variants__sku"]
     prepopulated_fields = {"slug": ("name",)}
     inlines        = [ProductMediaInline, ProductInfoItemInline, AttributeInline, ProductVariantInline]
 
     fieldsets = (
         ("Identity", {
-            "fields": ("name", "slug", "category", "brand", "short_description", "description"),
+            "fields": ("name", "slug", "stock_id", "category", "brand", "short_description", "description"),
         }),
         ("Demand Signals", {
             "fields": ("notify_waiting_count",),

@@ -14,6 +14,18 @@ export interface PosTerminal {
   name: string;
   location: string;
   is_active: boolean;
+  /** Present on the management endpoints; the counter never reads these. */
+  created_at?: string;
+  has_open_shift?: boolean;
+  shift_count?: number;
+  order_count?: number;
+}
+
+export interface PosTerminalWrite {
+  code: string;
+  name: string;
+  location?: string;
+  is_active?: boolean;
 }
 
 export interface PosShift {
@@ -53,6 +65,8 @@ export interface ShiftSummary {
 export interface CatalogueRow {
   variant_id: string;
   sku: string;
+  /** The product's counter stock reference. Null until someone assigns one. */
+  stock_id: number | null;
   product_name: string;
   variant_name: string;
   price: string;
@@ -123,6 +137,29 @@ const posService = {
   terminals: async (): Promise<PosTerminal[]> => {
     const { data } = await apiClient.get('/v1/pos/terminals/');
     return data;
+  },
+
+  // ── Terminal management (Settings → POS Terminals, admin only) ──
+  /** Includes deactivated terminals. The server serves those to admins only. */
+  allTerminals: async (): Promise<PosTerminal[]> => {
+    const { data } = await apiClient.get('/v1/pos/terminals/', {
+      params: { include_inactive: true },
+    });
+    return data;
+  },
+
+  createTerminal: async (payload: PosTerminalWrite): Promise<PosTerminal> => {
+    const { data } = await apiClient.post('/v1/pos/terminals/', payload);
+    return data;
+  },
+
+  updateTerminal: async (id: string, payload: Partial<PosTerminalWrite>): Promise<PosTerminal> => {
+    const { data } = await apiClient.patch(`/v1/pos/terminals/${id}/`, payload);
+    return data;
+  },
+
+  deleteTerminal: async (id: string): Promise<void> => {
+    await apiClient.delete(`/v1/pos/terminals/${id}/`);
   },
 
   currentShift: async (terminalId?: string): Promise<PosShift | null> => {

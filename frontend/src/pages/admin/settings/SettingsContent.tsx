@@ -6,6 +6,7 @@ import settingsService from '@/services/api/settings';
 import type { AppSetting } from '@/types/setting';
 import { categoryMenuToSettingCategory } from './helpers';
 import { PaymentSettings } from './PaymentSettings';
+import { POSTerminalsSettings } from './POSTerminalsSettings';
 import type { SettingsCategoryMenu } from './types';
 import GTMCard from '@/components/tracking/GTMCard';
 import TrackingCard from '@/components/tracking/TrackingCard';
@@ -285,6 +286,10 @@ export const SettingsContent: React.FC<Props> = ({
       setUploadPercent(null);
     }
   };
+
+  if (category === 'pos_terminals') {
+    return <POSTerminalsSettings canEdit={canEdit} onToast={onToast} />;
+  }
 
   if (category === 'payment' || category === 'notification' || category === 'shipping') {
     return (

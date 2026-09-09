@@ -34,6 +34,10 @@ export const categoryMenuToSettingCategory = (category: SettingsCategoryMenu): S
     case 'google_ads_settings':
     case 'clarity_settings':
       return 'advanced';
+    // Terminals are their own models, not AppSetting rows; this value is
+    // never read for that tab, but the union needs a branch.
+    case 'pos_terminals':
+      return 'general';
     default:
       return category;
   }

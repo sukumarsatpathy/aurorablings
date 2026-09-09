@@ -10,7 +10,7 @@ export const StatusBadge: React.FC<{ status: string; type?: 'order' | 'inventory
   // Mapping logic for standard ecommerce statuses to our UI variants
   if (s === 'processing' || s === 'pending') return <Badge variant="surface" className="text-[10px]">{status}</Badge>;
   if (s === 'shipped' || s === 'delivered' || s === 'in stock') return <Badge variant="default" className="text-[10px] bg-[#517b4b]">{status}</Badge>;
-  if (s === 'cancelled' || s === 'refunded' || s === 'out of stock') return <Badge variant="destructive" className="text-[10px]">{status}</Badge>;
+  if (s === 'cancelled' || s === 'refunded' || s === 'out of stock' || s === 'deleted') return <Badge variant="destructive" className="text-[10px]">{status}</Badge>;
   if (s === 'low stock') return <Badge variant="outline" className="text-[10px] border-[#c8a97e] text-[#c8a97e]">{status}</Badge>;
   
   return <Badge variant="outline" className="text-[10px]">{status}</Badge>;
@@ -29,14 +29,50 @@ interface DataTableProps<T> {
   columns: Column<T>[];
   onRowClick?: (item: T) => void;
   actions?: (item: T) => React.ReactNode;
+  /**
+   * Row selection. Opt-in: pass `getRowId` and the selection state and a
+   * checkbox column appears. Tables that don't pass it are untouched.
+   */
+  getRowId?: (item: T) => string;
+  selectedIds?: string[];
+  onToggleRow?: (id: string) => void;
+  onToggleAll?: (checked: boolean) => void;
 }
 
-export function DataTable<T>({ data, columns, onRowClick, actions }: DataTableProps<T>) {
+export function DataTable<T>({
+  data,
+  columns,
+  onRowClick,
+  actions,
+  getRowId,
+  selectedIds,
+  onToggleRow,
+  onToggleAll,
+}: DataTableProps<T>) {
+  const selectable = Boolean(getRowId && selectedIds && onToggleRow);
+  const selected = new Set(selectedIds || []);
+  const pageIds = selectable ? data.map((item) => getRowId!(item)) : [];
+  const allOnPageSelected = pageIds.length > 0 && pageIds.every((id) => selected.has(id));
+  const someOnPageSelected = pageIds.some((id) => selected.has(id));
   return (
     <div className="bg-white rounded-[14px] border border-border shadow-sm overflow-hidden">
       <Table>
         <TableHeader className="bg-muted/10">
           <TableRow className="hover:bg-transparent">
+            {selectable && (
+              <TableHead className="w-[44px]">
+                <input
+                  type="checkbox"
+                  aria-label="Select all rows on this page"
+                  className="h-4 w-4 cursor-pointer rounded border-border align-middle"
+                  checked={allOnPageSelected}
+                  ref={(node) => {
+                    if (node) node.indeterminate = !allOnPageSelected && someOnPageSelected;
+                  }}
+                  onChange={(event) => onToggleAll?.(event.target.checked)}
+                />
+              </TableHead>
+            )}
             {columns.map((col, idx) => (
               <TableHead 
                 key={idx} 
@@ -56,7 +92,10 @@ export function DataTable<T>({ data, columns, onRowClick, actions }: DataTablePr
         <TableBody>
           {data.length === 0 ? (
             <TableRow>
-              <TableCell colSpan={columns.length + (actions ? 1 : 0)} className="h-24 text-center text-muted-foreground">
+              <TableCell
+                colSpan={columns.length + (actions ? 1 : 0) + (selectable ? 1 : 0)}
+                className="h-24 text-center text-muted-foreground"
+              >
                 No results found.
               </TableCell>
             </TableRow>
@@ -65,8 +104,23 @@ export function DataTable<T>({ data, columns, onRowClick, actions }: DataTablePr
               <TableRow 
                 key={rowIndex} 
                 onClick={() => onRowClick && onRowClick(item)}
-                className={cn("hover:bg-muted/30 transition-colors", onRowClick && "cursor-pointer")}
+                className={cn(
+                  "hover:bg-muted/30 transition-colors",
+                  onRowClick && "cursor-pointer",
+                  selectable && selected.has(getRowId!(item)) && "bg-primary/5"
+                )}
               >
+                {selectable && (
+                  <TableCell className="py-3" onClick={(event) => event.stopPropagation()}>
+                    <input
+                      type="checkbox"
+                      aria-label="Select row"
+                      className="h-4 w-4 cursor-pointer rounded border-border align-middle"
+                      checked={selected.has(getRowId!(item))}
+                      onChange={() => onToggleRow!(getRowId!(item))}
+                    />
+                  </TableCell>
+                )}
                 {columns.map((col, colIndex) => (
                   <TableCell 
                     key={colIndex} 

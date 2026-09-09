@@ -131,6 +131,18 @@ class Product(SoftDeleteModel):
         related_name="products",
     )
 
+    # ── Stock reference ───────────────────────────────────────
+    # The number the stock book / supplier list uses for this piece. Not the
+    # SKU: staff read it off a tag at the counter and type it into the till, so
+    # it is a plain integer, indexed, and unique when set. Nullable because
+    # nothing has one until someone fills it in — and a unique constraint over
+    # NULLs is fine in Postgres, where every NULL is distinct.
+    # unique=True already builds the index; a second one would be dead weight.
+    stock_id = models.PositiveIntegerField(
+        null=True, blank=True, unique=True,
+        help_text="Stock reference number used at the counter. Optional, but unique when set.",
+    )
+
     # ── Status ────────────────────────────────────────────────
     is_active   = models.BooleanField(default=True, db_index=True)
     is_featured = models.BooleanField(default=False, db_index=True)

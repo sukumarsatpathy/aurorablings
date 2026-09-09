@@ -63,7 +63,7 @@ export function CatalogueGrid({ onAdd, inCart }: Props) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search name or SKU…"
+          placeholder="Search name, SKU or stock ID…"
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
           aria-label="Search catalogue"
         />
@@ -106,7 +106,14 @@ export function CatalogueGrid({ onAdd, inCart }: Props) {
                   </span>
                 )}
               </span>
-              <span className="font-mono text-[10px] text-muted-foreground">{row.sku}</span>
+              <span className="flex items-center gap-1.5 font-mono text-[10px] text-muted-foreground">
+                <span>{row.sku}</span>
+                {row.stock_id != null && (
+                  <span className="rounded bg-muted px-1 py-0.5 font-semibold text-foreground/70">
+                    #{row.stock_id}
+                  </span>
+                )}
+              </span>
               <span className="text-sm font-semibold leading-tight">{row.product_name}</span>
               {row.variant_name && (
                 <span className="text-xs text-muted-foreground">{row.variant_name}</span>

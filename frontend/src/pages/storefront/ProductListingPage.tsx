@@ -17,6 +17,7 @@ import { Button } from '@/components/ui/Button';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { cn } from '@/lib/utils';
 import { DealProductCard } from '@/components/storefront/Deals/DealProductCard';
+import useHoverGallery from '@/hooks/useHoverGallery';
 import catalogService from '@/services/api/catalog';
 import { useCurrency } from '@/hooks/useCurrency';
 import type { DealProduct } from '@/types/product';
@@ -199,95 +200,29 @@ interface ListCardImageProps {
 // Deferred deliberately — `primary_image` already resolves to the medium
 // rendition server-side, so the bulk of the byte saving is live without it.
 const ListCardImage: React.FC<ListCardImageProps> = ({ productId, slug, name, primaryImage, hoverImage }) => {
-  const [isHovered, setIsHovered] = useState(false);
-  const [hoverMediaLoaded, setHoverMediaLoaded] = useState(false);
-  const [additionalImages, setAdditionalImages] = useState<string[]>([]);
-  const [activeImageIndex, setActiveImageIndex] = useState(0);
   const fallback = `https://placehold.co/600x600/f3f4f6/517b4b?text=${encodeURIComponent(name)}`;
 
-  const images = useMemo(() => {
-    const seen = new Set<string>();
-    const ordered = [normalizeAssetUrl(primaryImage), normalizeAssetUrl(hoverImage), ...additionalImages].filter(
-      (image): image is string => Boolean(image)
-    );
-    const unique = ordered.filter((image) => {
-      if (seen.has(image)) return false;
-      seen.add(image);
-      return true;
-    });
-    return unique.length > 0 ? unique : [fallback];
-  }, [additionalImages, fallback, hoverImage, primaryImage]);
+  const baseImages = useMemo(
+    () => [primaryImage, hoverImage].filter((image): image is string => Boolean(image)),
+    [hoverImage, primaryImage]
+  );
 
-  useEffect(() => {
-    if (!isHovered || hoverMediaLoaded) return;
+  // The gallery is fetched on a settled hover and rendered at medium size; see
+  // useHoverGallery for why both of those matter on this server.
+  const { images: galleryImages, activeIndex, hoverProps } = useHoverGallery({
+    productId,
+    baseImages,
+    normalize: normalizeAssetUrl,
+  });
 
-    let active = true;
-    const extractMedia = (payload: any): string[] => {
-      const root = payload?.data && typeof payload.data === 'object' ? payload.data : payload;
-      return (Array.isArray(root?.media) ? root.media : [])
-        .map((item: any) => normalizeAssetUrl(item?.image))
-        .filter(Boolean);
-    };
-
-    const loadHoverMedia = async () => {
-      try {
-        let mediaImages: string[] = [];
-
-        if (slug) {
-          try {
-            const bySlug = await catalogService.getProductBySlug(slug);
-            mediaImages = extractMedia(bySlug);
-          } catch {
-            mediaImages = [];
-          }
-        }
-
-        if (!mediaImages.length && productId) {
-          try {
-            const byId = await catalogService.getProduct(productId);
-            mediaImages = extractMedia(byId);
-          } catch {
-            mediaImages = [];
-          }
-        }
-
-        if (!active) return;
-        setAdditionalImages(mediaImages);
-      } catch {
-        if (!active) return;
-        setAdditionalImages([]);
-      } finally {
-        if (active) setHoverMediaLoaded(true);
-      }
-    };
-
-    void loadHoverMedia();
-    return () => {
-      active = false;
-    };
-  }, [hoverMediaLoaded, isHovered, productId, slug]);
-
-  useEffect(() => {
-    if (!isHovered || images.length <= 1) {
-      setActiveImageIndex(0);
-      return;
-    }
-
-    const intervalId = window.setInterval(() => {
-      setActiveImageIndex((current) => (current + 1) % images.length);
-    }, 850);
-
-    return () => {
-      window.clearInterval(intervalId);
-    };
-  }, [images.length, isHovered]);
+  const images = galleryImages.length > 0 ? galleryImages : [fallback];
+  const activeImageIndex = activeIndex;
 
   return (
     <Link
       to={`/product/${slug}`}
       className="group w-full md:w-32 h-32 rounded-xl overflow-hidden bg-muted/20 shrink-0 relative"
-      onMouseEnter={() => setIsHovered(true)}
-      onMouseLeave={() => setIsHovered(false)}
+      {...hoverProps}
     >
       {images.map((image, index) => (
         <img

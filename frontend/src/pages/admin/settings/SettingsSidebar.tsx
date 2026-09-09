@@ -1,5 +1,5 @@
 import React from 'react';
-import { ShieldCheck, CreditCard, Mail, Truck, Palette, LockKeyhole, Tags, LineChart, Activity, Target } from 'lucide-react';
+import { ShieldCheck, CreditCard, Mail, Truck, Palette, LockKeyhole, Tags, LineChart, Activity, Target, Monitor } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { SettingsCategoryMenu } from './types';
 
@@ -9,6 +9,7 @@ const items: Array<{ key: SettingsCategoryMenu; label: string; icon: React.Eleme
   { key: 'payment', label: 'Payment', icon: CreditCard },
   { key: 'notification', label: 'Notification', icon: Mail },
   { key: 'shipping', label: 'Shipping', icon: Truck },
+  { key: 'pos_terminals', label: 'POS Terminals', icon: Monitor },
   { key: 'advanced', label: 'Security', icon: LockKeyhole },
 ];
 

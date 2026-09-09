@@ -435,7 +435,9 @@ def _get_active_variant(variant_id):
     except ProductVariant.DoesNotExist:
         raise NotFoundError("Product variant not found or inactive.")
 
-    if not variant.product.is_active:
+    # is_active alone is not enough: a soft-deleted product keeps is_active
+    # True and only gains a deleted_at stamp.
+    if not variant.product.is_active or variant.product.deleted_at is not None:
         raise NotFoundError("Product is no longer available.")
     return variant
 

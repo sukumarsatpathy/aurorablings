@@ -1019,6 +1019,10 @@ def _build_temp_cart_from_items(items: list[dict]) -> tuple[Cart, list[CartItem]
             id__in=variant_ids,
             is_active=True,
             product__is_active=True,
+            # A soft-deleted product must not be sellable, at the counter or
+            # anywhere else. Filtering here means such a variant lands in
+            # `missing` and the order is refused rather than quietly placed.
+            product__deleted_at__isnull=True,
         )
     }
     missing = [vid for vid in variant_ids if vid not in variants]

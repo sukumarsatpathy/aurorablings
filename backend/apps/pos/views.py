@@ -14,6 +14,9 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from django.db.models import ProtectedError
+
+from apps.accounts.models import UserRole
 from apps.accounts.permissions import IsStaffOrAdmin
 from apps.orders.models import Order
 from apps.payments.tender_service import TenderError
@@ -30,6 +33,7 @@ from apps.pos.serializers import (
     OpenShiftSerializer,
     POSShiftSerializer,
     POSTerminalSerializer,
+    POSTerminalWriteSerializer,
 )
 
 
@@ -37,12 +41,118 @@ def _bad(message, code=status.HTTP_400_BAD_REQUEST):
     return Response({"detail": str(message)}, status=code)
 
 
+def _is_admin(user) -> bool:
+    """Staff run the counter; only an admin changes what the counters are."""
+    return getattr(user, "role", None) == UserRole.ADMIN
+
+
 class TerminalListView(APIView):
+    """
+    List terminals, and create one.
+
+    The counter calls this with no parameters and must keep getting active
+    terminals only — an inactive till appearing in the shift gate is how a shift
+    gets opened on a counter nobody is standing at. The settings screen asks for
+    everything with ``?include_inactive=true``, which is admin-only, as is
+    creating a terminal.
+    """
+
     permission_classes = [IsAuthenticated, IsStaffOrAdmin]
 
     def get(self, request):
-        terminals = POSTerminal.objects.filter(is_active=True)
+        terminals = POSTerminal.objects.all()
+        include_inactive = str(request.query_params.get("include_inactive", "")).lower() in (
+            "1", "true", "yes",
+        )
+        if not (include_inactive and _is_admin(request.user)):
+            terminals = terminals.filter(is_active=True)
+        terminals = terminals.prefetch_related("shifts", "orders")
         return Response(POSTerminalSerializer(terminals, many=True).data)
+
+    def post(self, request):
+        if not _is_admin(request.user):
+            return _bad("Only an admin can add a terminal.", status.HTTP_403_FORBIDDEN)
+
+        payload = POSTerminalWriteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        terminal = payload.save()
+        return Response(POSTerminalSerializer(terminal).data, status=status.HTTP_201_CREATED)
+
+
+class TerminalDetailView(APIView):
+    """
+    Read, edit, deactivate or delete a single terminal. Writes are admin-only.
+
+    Two refusals worth knowing about, both 409:
+
+    * A terminal with an open shift cannot be deactivated or deleted. There is
+      counted cash in that drawer; it gets closed first.
+    * A terminal that has ever traded cannot be deleted. Shifts ``PROTECT`` it
+      and orders would go ``SET_NULL``, quietly detaching sales from the till
+      that rang them up. Deactivating hides it from the counter and keeps the
+      history intact, which is what deleting was meant to achieve anyway.
+    """
+
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def _get(self, terminal_id):
+        try:
+            return POSTerminal.objects.get(pk=terminal_id)
+        except POSTerminal.DoesNotExist:
+            return None
+
+    def get(self, request, terminal_id):
+        terminal = self._get(terminal_id)
+        if terminal is None:
+            return _bad("Unknown terminal.", status.HTTP_404_NOT_FOUND)
+        return Response(POSTerminalSerializer(terminal).data)
+
+    def patch(self, request, terminal_id):
+        if not _is_admin(request.user):
+            return _bad("Only an admin can edit a terminal.", status.HTTP_403_FORBIDDEN)
+
+        terminal = self._get(terminal_id)
+        if terminal is None:
+            return _bad("Unknown terminal.", status.HTTP_404_NOT_FOUND)
+
+        payload = POSTerminalWriteSerializer(terminal, data=request.data, partial=True)
+        payload.is_valid(raise_exception=True)
+
+        deactivating = payload.validated_data.get("is_active") is False and terminal.is_active
+        if deactivating and terminal.shifts.filter(status=ShiftStatus.OPEN).exists():
+            return _bad(
+                "This terminal has an open shift. Close the shift before deactivating it.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        terminal = payload.save()
+        return Response(POSTerminalSerializer(terminal).data)
+
+    def delete(self, request, terminal_id):
+        if not _is_admin(request.user):
+            return _bad("Only an admin can delete a terminal.", status.HTTP_403_FORBIDDEN)
+
+        terminal = self._get(terminal_id)
+        if terminal is None:
+            return _bad("Unknown terminal.", status.HTTP_404_NOT_FOUND)
+
+        if terminal.shifts.exists() or terminal.orders.exists():
+            return _bad(
+                "This terminal has trading history and cannot be deleted. "
+                "Deactivate it instead — it disappears from the counter and the "
+                "shifts and sales stay attached to it.",
+                status.HTTP_409_CONFLICT,
+            )
+
+        try:
+            terminal.delete()
+        except ProtectedError:
+            return _bad(
+                "This terminal is referenced by other records and cannot be deleted. "
+                "Deactivate it instead.",
+                status.HTTP_409_CONFLICT,
+            )
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CurrentShiftView(APIView):
@@ -517,7 +627,16 @@ class CatalogueSearchView(APIView):
         _active_wh = Q(stock_records__warehouse__is_active=True)
         variants = (
             ProductVariant.objects
-            .filter(is_active=True, product__is_active=True)
+            # deleted_at, not just is_active: soft-deleting a product stamps
+            # deleted_at and leaves is_active True, so a product deleted in the
+            # admin stayed sellable at the counter while being invisible
+            # everywhere else — including to the person trying to work out why
+            # the till was offering it.
+            .filter(
+                is_active=True,
+                product__is_active=True,
+                product__deleted_at__isnull=True,
+            )
             .select_related("product")
             # One image per row, fetched in one extra query rather than one per
             # variant. Ordered so the flagged primary wins; the till only ever
@@ -544,11 +663,22 @@ class CatalogueSearchView(APIView):
             return Response(self._rows(variants.filter(id__in=ids[:100])))
 
         if query:
-            variants = variants.filter(
+            match = (
                 Q(sku__icontains=query)
                 | Q(name__icontains=query)
                 | Q(product__name__icontains=query)
             )
+            # A stock ID is an integer column, so `icontains` on it would ask
+            # Postgres to compare an integer to a pattern and error. Only when
+            # the whole query is digits does it become an exact match — and it
+            # is OR'd in rather than replacing the text search, because "12" is
+            # both a plausible stock number and part of a product name.
+            if query.isdigit():
+                try:
+                    match |= Q(product__stock_id=int(query))
+                except ValueError:  # pragma: no cover - isdigit already guards
+                    pass
+            variants = variants.filter(match)
 
         try:
             limit = min(int(request.query_params.get("limit", 40)), 100)
@@ -582,6 +712,7 @@ class CatalogueSearchView(APIView):
             {
                 "variant_id": str(v.id),
                 "sku": v.sku,
+                "stock_id": v.product.stock_id if v.product_id else None,
                 "product_name": v.product.name if v.product_id else "",
                 "variant_name": v.name or "",
                 "price": str(v.effective_price),

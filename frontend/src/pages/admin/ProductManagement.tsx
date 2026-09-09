@@ -4,7 +4,7 @@ import { DataTable, StatusBadge } from '@/components/admin/AdminTable';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { Plus, Search, MoreHorizontal, Edit, Trash2 } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Edit, Trash2, RotateCcw } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -83,6 +83,8 @@ interface ProductInfoItemRow {
 interface Product {
   id: string;
   name: string;
+  /** Counter stock reference. Empty string when unassigned. */
+  stockId: string;
   description: string;
   category: string;
   categoryId: string;
@@ -99,6 +101,7 @@ interface Product {
 
 interface ProductFormData {
   name: string;
+  stockId: string;
   description: string;
   category: string;
   categoryId: string;
@@ -123,6 +126,7 @@ type VariationFieldErrors = {
 
 type ProductFormErrors = {
   name?: string;
+  stockId?: string;
   categoryId?: string;
   basePrice?: string;
   variations?: string;
@@ -246,6 +250,7 @@ const normalizeAssetUrl = (raw?: string | null): string => {
 const mapDetailToProduct = (raw: CatalogProductDetail): Product => ({
   id: raw.id,
   name: raw.name || '',
+  stockId: raw.stock_id == null ? '' : String(raw.stock_id),
   description: raw.description || '',
   category: raw.category?.name || '',
   categoryId: raw.category?.id || '',
@@ -333,6 +338,13 @@ export const ProductManagement: React.FC = () => {
   const [globalAttributes, setGlobalAttributes] = useState<Array<{ id: string; name: string; options: string[] }>>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [offerFilter, setOfferFilter] = useState<'all' | 'active' | 'none'>('all');
+  const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Draft' | 'Deleted'>('all');
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
+  const [restoreTarget, setRestoreTarget] = useState<Product | null>(null);
+  const [restoreBusy, setRestoreBusy] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
   const [currentPage, setCurrentPage] = useState(1);
   const [rowsPerPage, setRowsPerPage] = useState(20);
   const [loading, setLoading] = useState(true);
@@ -348,6 +360,7 @@ export const ProductManagement: React.FC = () => {
 
   const [formData, setFormData] = useState<ProductFormData>({
     name: '',
+    stockId: '',
     description: '',
     category: '',
     categoryId: '',
@@ -448,7 +461,7 @@ export const ProductManagement: React.FC = () => {
     try {
       setLoading(true);
       const [productsRes, categoriesRes, attributesRes] = await Promise.allSettled([
-        catalogService.listAllProducts(),
+        catalogService.listAllProducts({ includeDrafts: true, includeDeleted: true }),
         catalogService.listCategories(),
         catalogService.listAttributes(),
       ]);
@@ -464,6 +477,7 @@ export const ProductManagement: React.FC = () => {
       const mappedProducts: Product[] = productRows.map((p: any) => ({
         id: String(p.id),
         name: String(p.name || ''),
+        stockId: p.stock_id == null ? '' : String(p.stock_id),
         description: '',
         category: String(p.category_name || ''),
         categoryId: '',
@@ -471,7 +485,7 @@ export const ProductManagement: React.FC = () => {
         imageCount: Number(p.image_count || (p.primary_image ? 1 : 0)),
         variantCount: Number(p.variant_count || (p.default_variant ? 1 : 0)),
         hasActiveOffer: Boolean(p.has_active_offer),
-        status: p.is_active ? 'Active' : 'Draft',
+        status: p.deleted_at ? 'Deleted' : p.is_active ? 'Active' : 'Draft',
         attributes: [],
         infoItems: [],
         variations: [],
@@ -549,6 +563,17 @@ export const ProductManagement: React.FC = () => {
   const columns = [
     { header: 'ID', accessorKey: 'id', className: 'text-xs text-muted-foreground w-20' },
     {
+      header: 'Stock ID',
+      accessorKey: 'stockId',
+      className: 'w-24',
+      cell: (item: Product) =>
+        item.stockId ? (
+          <span className="font-mono text-xs text-foreground">{item.stockId}</span>
+        ) : (
+          <span className="text-[10px] text-muted-foreground">—</span>
+        ),
+    },
+    {
       header: 'Product Name',
       accessorKey: 'name',
       cell: (item: Product) => <div className="font-bold text-foreground">{item.name}</div>,
@@ -594,7 +619,16 @@ export const ProductManagement: React.FC = () => {
   ];
 
   const handleEdit = async (item: Product) => {
-    const res = await catalogService.getProduct(item.id);
+    // Editing a deleted product would silently resurrect parts of it. Restore
+    // it first — that is one click in the row menu — and then edit the draft.
+    if (item.status === 'Deleted') {
+      setBulkNotice({
+        tone: 'error',
+        text: `${item.name} is deleted. Restore it first, then edit it.`,
+      });
+      return;
+    }
+    const res = await catalogService.getProduct(item.id, { includeDrafts: true });
     const detail = mapDetailToProduct(res?.data as CatalogProductDetail);
 
     setEditingProduct(detail);
@@ -604,6 +638,7 @@ export const ProductManagement: React.FC = () => {
     setOriginalInfoItemIds(detail.infoItems.map((i) => i.id));
     setFormData({
       name: detail.name,
+      stockId: detail.stockId || '',
       description: detail.description,
       category: detail.category,
       categoryId: detail.categoryId,
@@ -630,6 +665,7 @@ export const ProductManagement: React.FC = () => {
     setOriginalInfoItemIds([]);
     setFormData({
       name: '',
+      stockId: '',
       description: '',
       category: categories[0]?.name || '',
       categoryId: categories[0]?.id || '',
@@ -1033,12 +1069,15 @@ export const ProductManagement: React.FC = () => {
           name: formData.name,
           category_id: formData.categoryId,
           description: formData.description,
+          // Cleared field means "no stock ID", which is null rather than 0.
+          stock_id: formData.stockId ? Number(formData.stockId) : null,
           is_active: formData.status === 'Active',
         });
       } else {
         const created = await catalogService.createProduct({
           name: formData.name,
           category_id: formData.categoryId,
+          stock_id: formData.stockId ? Number(formData.stockId) : null,
           is_active: formData.status === 'Active',
           short_description: '',
           description: formData.description,
@@ -1051,7 +1090,7 @@ export const ProductManagement: React.FC = () => {
       }
 
       await syncAttributes(productId);
-      const refreshed = await catalogService.getProduct(productId);
+      const refreshed = await catalogService.getProduct(productId, { includeDrafts: true });
       const detailForIds = refreshed?.data as CatalogProductDetail;
       const attributeValueIdMap = buildAttributeValueIdMap(detailForIds);
       await syncVariants(productId, attributeValueIdMap);
@@ -1061,7 +1100,20 @@ export const ProductManagement: React.FC = () => {
       setIsModalOpen(false);
       await loadCatalog();
     } catch (error: any) {
-      const message = error?.response?.data?.message || 'Failed to save product.';
+      const data = error?.response?.data;
+      // A duplicate stock ID comes back as a field error, and it belongs next to
+      // the field rather than in an alert the user has to remember.
+      const stockIdError = Array.isArray(data?.errors?.stock_id)
+        ? String(data.errors.stock_id[0])
+        : Array.isArray(data?.stock_id)
+          ? String(data.stock_id[0])
+          : '';
+      if (stockIdError) {
+        setFormErrors((prev) => ({ ...prev, stockId: stockIdError }));
+        scrollAndFlashError(nameFieldRef.current);
+        return;
+      }
+      const message = data?.message || 'Failed to save product.';
       alert(message);
     } finally {
       setIsSaving(false);
@@ -1312,22 +1364,31 @@ export const ProductManagement: React.FC = () => {
     () =>
       products.filter(
         (p) => {
-          const matchesSearch = p.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                               p.id.toLowerCase().includes(searchTerm.toLowerCase());
+          const term = searchTerm.trim().toLowerCase();
+          const matchesSearch =
+            !term ||
+            p.name.toLowerCase().includes(term) ||
+            p.id.toLowerCase().includes(term) ||
+            (p.stockId ? p.stockId.toLowerCase().includes(term) : false);
           
           if (!matchesSearch) return false;
           
+          // "All Statuses" means everything on the shelf. Deleted products are
+          // off it, and only their own tab shows them — otherwise a list that
+          // grows a deleted row for every mistaken delete stops being useful.
+          if (statusFilter === 'all' ? p.status === 'Deleted' : p.status !== statusFilter) return false;
+
           if (offerFilter === 'active') return p.hasActiveOffer;
           if (offerFilter === 'none') return !p.hasActiveOffer;
           return true;
         }
       ),
-    [products, searchTerm, offerFilter]
+    [products, searchTerm, offerFilter, statusFilter]
   );
 
   useEffect(() => {
     setCurrentPage(1);
-  }, [searchTerm, offerFilter, rowsPerPage]);
+  }, [searchTerm, offerFilter, statusFilter, rowsPerPage]);
 
   const totalPages = Math.max(1, Math.ceil(filteredProducts.length / rowsPerPage));
   const safePage = Math.min(currentPage, totalPages);
@@ -1335,6 +1396,116 @@ export const ProductManagement: React.FC = () => {
     const start = (safePage - 1) * rowsPerPage;
     return filteredProducts.slice(start, start + rowsPerPage);
   }, [filteredProducts, safePage, rowsPerPage]);
+
+  const deletedCount = useMemo(
+    () => products.filter((p) => p.status === 'Deleted').length,
+    [products]
+  );
+
+  const handleRestore = async (item: Product, isActive: boolean) => {
+    try {
+      setRestoreBusy(true);
+      await catalogService.restoreProduct(item.id, isActive);
+      setBulkNotice({
+        tone: 'ok',
+        text: `${item.name} restored as ${isActive ? 'active — it is live on the storefront now' : 'a draft'}.`,
+      });
+      setRestoreTarget(null);
+      await loadCatalog();
+    } catch (error: any) {
+      setBulkNotice({
+        tone: 'error',
+        text: error?.response?.data?.message || 'Could not restore that product.',
+      });
+    } finally {
+      setRestoreBusy(false);
+    }
+  };
+
+  const applyBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      setBulkBusy(true);
+      setBulkNotice(null);
+      const response = await catalogService.bulkDeleteProducts(selectedIds);
+      const deleted = Number(response?.data?.deleted ?? 0);
+      const skipped = Array.isArray(response?.data?.skipped) ? response.data.skipped.length : 0;
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+      setBulkNotice({
+        tone: 'ok',
+        text:
+          `${deleted} product${deleted === 1 ? '' : 's'} deleted` +
+          (skipped ? ` · ${skipped} already deleted` : '') +
+          '. Find them under Deleted.',
+      });
+      await loadCatalog();
+    } catch (error: any) {
+      setBulkNotice({
+        tone: 'error',
+        text: error?.response?.data?.message || 'Could not delete those products.',
+      });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
+
+  const toggleRow = (id: string) =>
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const toggleAllOnPage = (checked: boolean) => {
+    const pageIds = paginatedProducts.map((p) => p.id);
+    setSelectedIds((prev) =>
+      checked
+        ? Array.from(new Set([...prev, ...pageIds]))
+        : prev.filter((id) => !pageIds.includes(id))
+    );
+  };
+
+  const selectedProducts = useMemo(
+    () => products.filter((p) => selectedIds.includes(p.id)),
+    [products, selectedIds]
+  );
+
+  const applyBulkStatus = async (isActive: boolean) => {
+    if (selectedIds.length === 0) return;
+    try {
+      setBulkBusy(true);
+      setBulkNotice(null);
+      const response = await catalogService.bulkUpdateProductStatus(selectedIds, isActive);
+      const updated = Number(response?.data?.updated ?? 0);
+      const unchanged = Number(response?.data?.unchanged ?? 0);
+      // The server refuses to change the status of soft-deleted products.
+      const skipped = Array.isArray(response?.data?.skipped) ? response.data.skipped.length : 0;
+      // Update in place rather than refetching every page of the catalogue.
+      setProducts((prev) =>
+        prev.map((p) =>
+          selectedIds.includes(p.id) && p.status !== 'Deleted'
+            ? { ...p, status: isActive ? 'Active' : 'Draft' }
+            : p
+        )
+      );
+      setSelectedIds([]);
+      setBulkNotice({
+        tone: 'ok',
+        text:
+          `${updated} product${updated === 1 ? '' : 's'} ${isActive ? 'activated' : 'moved to draft'}` +
+          (unchanged ? ` · ${unchanged} already ${isActive ? 'active' : 'draft'}` : '') +
+          (skipped ? ` · ${skipped} skipped (deleted)` : '') +
+          '.',
+      });
+    } catch (error: any) {
+      setBulkNotice({
+        tone: 'error',
+        text:
+          error?.response?.data?.message ||
+          error?.response?.data?.detail ||
+          'Could not change the status of those products.',
+      });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const actions = (item: Product) => (
     <DropdownMenu>
@@ -1347,9 +1518,15 @@ export const ProductManagement: React.FC = () => {
         <DropdownMenuItem onClick={() => handleEdit(item)} className="flex items-center gap-2 cursor-pointer text-xs">
           <Edit size={14} /> Edit Product
         </DropdownMenuItem>
-        <DropdownMenuItem onClick={() => handleDelete(item.id)} className="flex items-center gap-2 cursor-pointer text-xs text-destructive focus:text-destructive">
-          <Trash2 size={14} /> Delete
-        </DropdownMenuItem>
+        {item.status === 'Deleted' ? (
+          <DropdownMenuItem onClick={() => setRestoreTarget(item)} className="flex items-center gap-2 cursor-pointer text-xs">
+            <RotateCcw size={14} /> Restore
+          </DropdownMenuItem>
+        ) : (
+          <DropdownMenuItem onClick={() => handleDelete(item.id)} className="flex items-center gap-2 cursor-pointer text-xs text-destructive focus:text-destructive">
+            <Trash2 size={14} /> Delete
+          </DropdownMenuItem>
+        )}
       </DropdownMenuContent>
     </DropdownMenu>
   );
@@ -1410,6 +1587,28 @@ export const ProductManagement: React.FC = () => {
                   No Offers
                 </button>
               </div>
+
+              <div className="flex items-center gap-2 bg-muted/30 p-1 rounded-lg border border-border/40">
+                {(['all', 'Active', 'Draft', 'Deleted'] as const).map((value) => (
+                  <button
+                    key={value}
+                    onClick={() => setStatusFilter(value)}
+                    className={`px-3 py-1.5 text-xs font-semibold rounded-md transition-all ${
+                      statusFilter === value
+                        ? 'bg-white text-primary shadow-sm'
+                        : 'text-muted-foreground hover:text-foreground'
+                    }`}
+                  >
+                    {value === 'all'
+                      ? 'All Statuses'
+                      : value === 'Active'
+                        ? 'Active'
+                        : value === 'Draft'
+                          ? 'Drafts'
+                          : `Deleted${deletedCount ? ` (${deletedCount})` : ''}`}
+                  </button>
+                ))}
+              </div>
             </div>
           </div>
 
@@ -1419,7 +1618,77 @@ export const ProductManagement: React.FC = () => {
         </div>
       ) : (
         <div className="space-y-3">
-          <DataTable data={paginatedProducts} columns={columns} actions={actions} onRowClick={(item) => handleEdit(item)} />
+          {bulkNotice ? (
+            <div
+              className={`rounded-[14px] border px-3 py-2 text-xs ${
+                bulkNotice.tone === 'ok'
+                  ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+                  : 'border-destructive/30 bg-destructive/5 text-destructive'
+              }`}
+            >
+              {bulkNotice.text}
+            </div>
+          ) : null}
+
+          {selectedIds.length > 0 ? (
+            <div className="flex flex-col gap-2 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+              <div className="text-xs font-semibold text-foreground">
+                {selectedIds.length} selected
+                <span className="ml-2 font-normal text-muted-foreground">
+                  {selectedProducts.filter((p) => p.status === 'Active').length} active ·{' '}
+                  {selectedProducts.filter((p) => p.status === 'Draft').length} draft
+                </span>
+              </div>
+              <div className="flex items-center gap-2">
+                <Button
+                  size="sm"
+                  className="h-8 px-3 text-xs"
+                  disabled={bulkBusy}
+                  onClick={() => applyBulkStatus(true)}
+                >
+                  {bulkBusy ? 'Working...' : 'Set Active'}
+                </Button>
+                <Button
+                  size="sm"
+                  variant="outline"
+                  className="h-8 px-3 text-xs"
+                  disabled={bulkBusy}
+                  onClick={() => applyBulkStatus(false)}
+                >
+                  Set Draft
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-3 text-xs text-destructive hover:text-destructive"
+                  disabled={bulkBusy}
+                  onClick={() => setBulkDeleteOpen(true)}
+                >
+                  Delete
+                </Button>
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  className="h-8 px-3 text-xs"
+                  disabled={bulkBusy}
+                  onClick={() => setSelectedIds([])}
+                >
+                  Clear
+                </Button>
+              </div>
+            </div>
+          ) : null}
+
+          <DataTable
+            data={paginatedProducts}
+            columns={columns}
+            actions={actions}
+            onRowClick={(item) => handleEdit(item)}
+            getRowId={(item) => item.id}
+            selectedIds={selectedIds}
+            onToggleRow={toggleRow}
+            onToggleAll={toggleAllOnPage}
+          />
           <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between rounded-[14px] border border-border bg-white px-3 py-2">
             <div className="text-xs text-muted-foreground">
               Showing {filteredProducts.length === 0 ? 0 : (safePage - 1) * rowsPerPage + 1}
@@ -1467,6 +1736,57 @@ export const ProductManagement: React.FC = () => {
         </div>
       )}
 
+      <Modal
+        open={Boolean(restoreTarget)}
+        onOpenChange={(open) => {
+          if (!open) setRestoreTarget(null);
+        }}
+      >
+        <ModalContent className="max-w-md">
+          <ModalHeader>
+            <ModalTitle>Restore {restoreTarget?.name}</ModalTitle>
+          </ModalHeader>
+          <p className="text-sm text-muted-foreground">
+            Deleting took this product off sale, so choose what it comes back as. Active
+            publishes it to the storefront immediately; draft keeps it hidden until you
+            publish it yourself.
+          </p>
+          <ModalFooter>
+            <Button
+              variant="outline"
+              onClick={() => setRestoreTarget(null)}
+              disabled={restoreBusy}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="outline"
+              onClick={() => restoreTarget && handleRestore(restoreTarget, false)}
+              disabled={restoreBusy}
+            >
+              Restore as draft
+            </Button>
+            <Button
+              onClick={() => restoreTarget && handleRestore(restoreTarget, true)}
+              disabled={restoreBusy}
+            >
+              {restoreBusy ? 'Restoring...' : 'Restore as active'}
+            </Button>
+          </ModalFooter>
+        </ModalContent>
+      </Modal>
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        title={`Delete ${selectedIds.length} product${selectedIds.length === 1 ? '' : 's'}?`}
+        description="They come off the storefront and the counter straight away. Nothing is erased — deleted products stay under the Deleted tab and can be restored."
+        confirmLabel="Delete"
+        variant="destructive"
+        loading={bulkBusy}
+        onConfirm={applyBulkDelete}
+      />
+
       <Modal open={isModalOpen} onOpenChange={setIsModalOpen}>
         <ModalContent className="max-w-5xl max-h-[90vh] overflow-y-auto">
           <ModalHeader>
@@ -1488,6 +1808,28 @@ export const ProductManagement: React.FC = () => {
                     className={formErrors.name ? 'border-destructive focus-visible:ring-destructive/30' : ''}
                   />
                   {formErrors.name ? <p className="text-[11px] text-destructive">{formErrors.name}</p> : null}
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-sm font-medium">Stock ID</label>
+                  <Input
+                    type="number"
+                    min={1}
+                    inputMode="numeric"
+                    value={formData.stockId}
+                    onChange={(e) => {
+                      // Digits only — the field is an integer server-side, and a
+                      // stray letter would come back as a 400 after a long save.
+                      const digits = e.target.value.replace(/[^0-9]/g, '');
+                      setFormData((prev) => ({ ...prev, stockId: digits }));
+                      clearError('stockId');
+                    }}
+                    placeholder="e.g. 1042"
+                    className={formErrors.stockId ? 'border-destructive focus-visible:ring-destructive/30' : ''}
+                  />
+                  <p className="text-[11px] text-muted-foreground">
+                    Optional. The number staff type into the POS to find this piece — unique across products.
+                  </p>
+                  {formErrors.stockId ? <p className="text-[11px] text-destructive">{formErrors.stockId}</p> : null}
                 </div>
                 <div className="grid grid-cols-2 gap-4 items-start">
                   <div ref={categoryFieldRef} className="grid gap-2">

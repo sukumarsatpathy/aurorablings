@@ -1,12 +1,71 @@
+import re
+
 from rest_framework import serializers
 
 from apps.pos.models import POSCashMovement, POSShift, POSTerminal
 
 
 class POSTerminalSerializer(serializers.ModelSerializer):
+    """
+    Read shape. The counter only needs the first five fields; the settings screen
+    needs to know whether a terminal is in use before anyone deactivates or
+    deletes it, so those counts are derived here rather than guessed in the UI.
+    """
+
+    has_open_shift = serializers.SerializerMethodField()
+    shift_count = serializers.SerializerMethodField()
+    order_count = serializers.SerializerMethodField()
+
     class Meta:
         model = POSTerminal
-        fields = ["id", "code", "name", "location", "is_active"]
+        fields = [
+            "id", "code", "name", "location", "is_active", "created_at",
+            "has_open_shift", "shift_count", "order_count",
+        ]
+        read_only_fields = ["id", "created_at"]
+
+    def get_has_open_shift(self, terminal) -> bool:
+        return terminal.shifts.filter(status="open").exists()
+
+    def get_shift_count(self, terminal) -> int:
+        return terminal.shifts.count()
+
+    def get_order_count(self, terminal) -> int:
+        return terminal.orders.count()
+
+
+class POSTerminalWriteSerializer(serializers.ModelSerializer):
+    """
+    Write shape. ``code`` is printed on receipts and used by staff to tell one
+    till from another, so it is normalised to upper case here — otherwise
+    "stall-01" and "STALL-01" are two terminals and the uniqueness constraint
+    never notices.
+    """
+
+    class Meta:
+        model = POSTerminal
+        fields = ["code", "name", "location", "is_active"]
+
+    def validate_code(self, value):
+        code = (value or "").strip().upper()
+        if not code:
+            raise serializers.ValidationError("A code is required.")
+        if not re.fullmatch(r"[A-Z0-9][A-Z0-9._-]*", code):
+            raise serializers.ValidationError(
+                "Use letters, digits, dot, dash or underscore only, e.g. STALL-01."
+            )
+        clash = POSTerminal.objects.filter(code=code)
+        if self.instance is not None:
+            clash = clash.exclude(pk=self.instance.pk)
+        if clash.exists():
+            raise serializers.ValidationError("A terminal with this code already exists.")
+        return code
+
+    def validate_name(self, value):
+        name = (value or "").strip()
+        if not name:
+            raise serializers.ValidationError("A name is required.")
+        return name
 
 
 class POSCashMovementSerializer(serializers.ModelSerializer):

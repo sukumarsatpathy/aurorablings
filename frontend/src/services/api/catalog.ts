@@ -66,6 +66,8 @@ export interface CatalogProductDetail {
   id: string;
   name: string;
   slug: string;
+  /** Counter stock reference. Null until someone assigns one. */
+  stock_id?: number | null;
   description: string;
   short_description: string;
   is_active: boolean;
@@ -108,10 +110,21 @@ const catalogService = {
     return response.data;
   },
 
-  listAllProducts: async () => {
+  /**
+   * Every page of products.
+   *
+   * Drafts (is_active=false) come back only with `{ includeDrafts: true }`, and
+   * only for staff — the storefront calls this too, and a signed-in admin
+   * browsing the shop must see exactly what a shopper sees.
+   */
+  listAllProducts: async (options?: { includeDrafts?: boolean; includeDeleted?: boolean }) => {
     const pageSize = 100;
+    const draftParams = {
+      ...(options?.includeDrafts ? { include_drafts: true } : {}),
+      ...(options?.includeDeleted ? { include_deleted: true } : {}),
+    };
     const first = await apiClient.get('/v1/catalog/products/', {
-      params: { page: 1, page_size: pageSize },
+      params: { page: 1, page_size: pageSize, ...draftParams },
     });
     const firstPayload = first.data;
 
@@ -143,7 +156,7 @@ const catalogService = {
     const totalPages = Math.ceil(count / pageSize);
     for (let page = 2; page <= totalPages; page += 1) {
       const response = await apiClient.get('/v1/catalog/products/', {
-        params: { page, page_size: pageSize },
+        params: { page, page_size: pageSize, ...draftParams },
       });
       allRows.push(...extractRows(response.data));
     }
@@ -156,8 +169,19 @@ const catalogService = {
     return response.data;
   },
 
-  getProduct: async (id: string) => {
-    const response = await apiClient.get(`/v1/catalog/products/${id}/`);
+  /**
+   * Just the pictures, for the card hover swap. Deliberately not getProduct:
+   * that serialises variants, attributes and info items to hand back a URL.
+   */
+  getProductGallery: async (id: string) => {
+    const response = await apiClient.get(`/v1/catalog/products/${id}/gallery/`);
+    return response.data;
+  },
+
+  getProduct: async (id: string, options?: { includeDrafts?: boolean }) => {
+    const response = await apiClient.get(`/v1/catalog/products/${id}/`, {
+      params: options?.includeDrafts ? { include_drafts: true } : undefined,
+    });
     return response.data;
   },
 
@@ -240,6 +264,7 @@ const catalogService = {
     category_id: string;
     description?: string;
     short_description?: string;
+    stock_id?: number | null;
     is_active?: boolean;
   }) => {
     const response = await apiClient.post('/v1/catalog/products/', payload);
@@ -251,6 +276,7 @@ const catalogService = {
     category_id: string;
     description: string;
     short_description: string;
+    stock_id: number | null;
     is_active: boolean;
   }>) => {
     const response = await apiClient.patch(`/v1/catalog/products/${id}/`, payload);
@@ -259,6 +285,29 @@ const catalogService = {
 
   deleteProduct: async (id: string) => {
     const response = await apiClient.delete(`/v1/catalog/products/${id}/`);
+    return response.data;
+  },
+
+  /** Undo a soft delete. `isActive` decides what it comes back as. */
+  restoreProduct: async (id: string, isActive = false) => {
+    const response = await apiClient.post(`/v1/catalog/products/${id}/restore/`, {
+      is_active: isActive,
+    });
+    return response.data;
+  },
+
+  /** Bulk soft delete from the admin product list. */
+  bulkDeleteProducts: async (ids: string[]) => {
+    const response = await apiClient.post('/v1/catalog/products/bulk-delete/', { ids });
+    return response.data;
+  },
+
+  /** Bulk publish / unpublish from the admin product list. */
+  bulkUpdateProductStatus: async (ids: string[], isActive: boolean) => {
+    const response = await apiClient.post('/v1/catalog/products/bulk-status/', {
+      ids,
+      is_active: isActive,
+    });
     return response.data;
   },
 

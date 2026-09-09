@@ -97,6 +97,7 @@ def create_product(
     brand_id=None,
     description: str = "",
     short_description: str = "",
+    stock_id: int | None = None,
     is_active: bool = True,
     is_featured: bool = False,
     is_digital: bool = False,
@@ -126,6 +127,7 @@ def create_product(
         brand=brand,
         description=description,
         short_description=short_description,
+        stock_id=stock_id,
         is_active=is_active,
         is_featured=is_featured,
         is_digital=is_digital,
@@ -157,8 +159,38 @@ def deactivate_product(*, product: Product) -> Product:
 
 
 def soft_delete_product(*, product: Product) -> None:
+    """
+    Soft delete, and take it off sale.
+
+    ``SoftDeleteModel.delete()`` only stamps ``deleted_at`` — it leaves
+    ``is_active`` alone, so a deleted product sat in the database still flagged
+    active. Every guard that read that flag believed it was live, which is how
+    the counter kept offering a product deleted months earlier. Clearing the
+    flag here means the two can no longer disagree.
+    """
+    if product.is_active:
+        product.is_active = False
+        product.save(update_fields=["is_active"])
     product.delete()  # triggers SoftDeleteModel.delete()
     logger.info("product_soft_deleted", product_id=str(product.id))
+
+
+def restore_product(*, product: Product, is_active: bool = False) -> Product:
+    """
+    Undo a soft delete, at the status the caller asks for.
+
+    Deleting takes a product off sale, so restoring it has to say what it comes
+    back as. The default is draft — the safe answer when nobody said — but the
+    admin is asked, because "put it back exactly as it was" and "put it back on
+    the storefront right now" are not the same decision and only one of them is
+    visible to customers.
+    """
+    product.restore()
+    if product.is_active != is_active:
+        product.is_active = is_active
+        product.save(update_fields=["is_active"])
+    logger.info("product_restored", product_id=str(product.id), is_active=is_active)
+    return product
 
 
 # ─────────────────────────────────────────────────────────────
