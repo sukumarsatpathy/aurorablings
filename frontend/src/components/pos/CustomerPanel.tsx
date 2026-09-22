@@ -42,11 +42,18 @@ const TODAY = new Date().toISOString().slice(0, 10);
  * only collects.
  */
 export function CustomerPanel({ value, onChange }: Props) {
-  // Open when there is already a customer on the sale. This panel is unmounted
-  // while the payment screen is up, so stepping back — or resuming a sale after
-  // a reload — used to bring it back collapsed, which reads as "the name is
-  // gone" even though the details were still attached to the order.
-  const [open, setOpen] = useState(() => Boolean(value?.phone || value?.name));
+  // Always start collapsed.
+  //
+  // This panel is unmounted while the payment screen is up, so coming back from
+  // payment remounts it. Opening on a customer being present meant the full
+  // edit form reappeared every time, covering the catalogue and the cart — the
+  // staff member's next action is almost always to keep selling, not to re-edit
+  // a customer they already attached.
+  //
+  // The earlier reason for opening — that a collapsed panel read as "the name
+  // is gone" — is answered by the collapsed summary row below, which shows the
+  // name, the phone, the known/new badge and an Edit button. Nothing is hidden.
+  const [open, setOpen] = useState(false);
   const [lookup, setLookup] = useState<CustomerLookup | null>(null);
   const [looking, setLooking] = useState(false);
   const draft = value ?? EMPTY;

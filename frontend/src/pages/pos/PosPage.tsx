@@ -7,6 +7,7 @@ import { CatalogueGrid } from '@/components/pos/CatalogueGrid';
 import { CloseShiftDialog } from '@/components/pos/CloseShiftDialog';
 import { CustomerPanel, type CounterCustomer } from '@/components/pos/CustomerPanel';
 import { ShiftGate } from '@/components/pos/ShiftGate';
+import { useBranding } from '@/hooks/useBranding';
 import { usePosCart } from '@/hooks/usePosCart';
 import { usePosShift } from '@/hooks/usePosShift';
 import posService, { type PosOrder } from '@/services/api/pos';
@@ -26,6 +27,10 @@ export function PosPage() {
   const { terminals, terminalId, chooseTerminal, shift, loading, error, refresh, openShift } =
     usePosShift();
   const cart = usePosCart();
+  // Same source as the storefront navbar: Settings → Branding → Brand Logo URL.
+  // The name was hard-coded here, so renaming the shop or changing the logo left
+  // the till showing the old one.
+  const branding = useBranding();
 
   const [creating, setCreating] = useState(false);
   const [orderError, setOrderError] = useState('');
@@ -168,9 +173,18 @@ export function PosPage() {
   return (
     <div className="flex h-[calc(100vh-4rem)] flex-col">
       <header className="flex items-center gap-4 border-b border-border bg-card px-4 py-3">
-        <span className="font-semibold">
-          Aurora <span className="text-primary">Blings</span>
-        </span>
+        {/* The configured logo, falling back to the brand name as text. The
+            fallback matters: a counter that renders a broken-image icon because
+            the media file moved is worse than one that just says the name. */}
+        {branding.logoUrl ? (
+          <img
+            src={branding.logoUrl}
+            alt={branding.brandName}
+            className="h-8 w-auto shrink-0 object-contain"
+          />
+        ) : (
+          <span className="shrink-0 font-semibold">{branding.brandName}</span>
+        )}
         <span className="border-l border-border pl-4 font-mono text-[11px] text-muted-foreground">
           {shift.terminal_code} · shift open
         </span>
