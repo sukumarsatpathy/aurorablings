@@ -34,8 +34,9 @@
          classes (ab-shell-*) so Beasties never touches them and they cannot
          collide with hashed CSS-module names. Geometry must track
          PromoBannerGrid.module.css / PromoBannerCard.module.css and the
-         section wrapper in HomePage.tsx (pt-24 pb-12, container mx-auto). */
-      .ab-shell { padding: 6rem 0 3rem; }
+         section wrapper in HomePage.tsx (pt-10 md:pt-14 pb-12, container mx-auto). */
+      .ab-shell { padding: 2.5rem 0 3rem; }
+      @media (min-width: 768px) { .ab-shell { padding-top: 3.5rem; } }
       .ab-shell-container { width: 100%; max-width: 1536px; margin: 0 auto; }
       .ab-shell-grid { padding: 1rem; }
       .ab-shell-card {

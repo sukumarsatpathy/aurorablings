@@ -43,7 +43,7 @@ export const HomePage: React.FC = () => {
   return (
     <div className="w-full bg-transparent">
       {/* New Hero Section: Promotional Banner Grid */}
-      <section ref={heroRef} className="pt-24 pb-12">
+      <section ref={heroRef} className="pt-10 md:pt-14 pb-12">
         <div className="container mx-auto">
           {!loading && <PromoBannerGrid banners={banners} />}
           {loading && (

@@ -290,7 +290,7 @@ export const Navbar: React.FC = () => {
 
         {/* Actions & Mobile Toggle */}
         <div className="flex items-center gap-4 md:gap-6">
-          <Link to="/cart" className="hidden md:inline-flex relative text-slate-600 hover:text-primary transition-colors">
+          <Link to="/cart" className="inline-flex relative text-slate-600 hover:text-primary transition-colors">
             <ShoppingBag size={20} />
             <span className="absolute -top-2 -right-2 bg-primary text-primary-foreground text-[10px] font-bold h-4 min-w-4 px-1 rounded-full flex items-center justify-center">
               {cartCount > 99 ? '99+' : cartCount}
@@ -338,8 +338,6 @@ export const Navbar: React.FC = () => {
                 </Link>
               )
             ))}
-            <hr className="border-slate-100" />
-            <Link to="/cart" onClick={() => setIsMobileMenuOpen(false)} className="text-lg font-medium text-slate-700 hover:text-primary transition-colors">Cart</Link>
           </div>
         </div>
       )}
