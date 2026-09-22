@@ -5,5 +5,7 @@ app_name = "pricing"
 
 urlpatterns = [
     path("coupons/", views.CouponListView.as_view(), name="coupon-list"),
+    # Declared before <uuid:coupon_id>/ so "mine" can never be read as an id.
+    path("coupons/mine/", views.MyCouponsView.as_view(), name="coupon-mine"),
     path("coupons/<uuid:coupon_id>/", views.CouponDetailView.as_view(), name="coupon-detail"),
 ]

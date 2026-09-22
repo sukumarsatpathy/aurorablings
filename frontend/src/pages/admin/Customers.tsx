@@ -216,6 +216,10 @@ export const Customers: React.FC = () => {
       phone: item.phone,
       role: item.role,
       is_active: item.is_active,
+      // '' rather than null: <input type="date"> is controlled here, and null
+      // would flip it to uncontrolled. Converted back to null on save.
+      date_of_birth: item.date_of_birth || '',
+      anniversary_date: item.anniversary_date || '',
     });
     setIsModalOpen(true);
   };
@@ -236,8 +240,18 @@ export const Customers: React.FC = () => {
   const handleSave = async () => {
     try {
       if (editingCustomer) {
-        await customerService.update(editingCustomer.id, formData);
+        await customerService.update(editingCustomer.id, {
+          ...formData,
+          // The API wants a date or null. '' is neither — DRF reads it as a
+          // malformed date rather than as "clear this field".
+          date_of_birth: formData.date_of_birth || null,
+          anniversary_date: formData.anniversary_date || null,
+        });
       } else {
+        // Creation goes through register_user, whose signature has no room for
+        // the occasion dates — which is why those fields are edit-only. Sending
+        // them here would be silently dropped, and a date that disappears
+        // without a word is worse than a field that was never offered.
         await customerService.create(formData);
       }
       setIsModalOpen(false);
@@ -602,6 +616,35 @@ export const Customers: React.FC = () => {
                       className="h-10 border-border/60"
                     />
                   </div>
+
+                  {/* Occasion dates. Edit-only: the create endpoint has nowhere
+                      to put them, and a field that silently discards what you
+                      typed is worse than no field. Both optional, both
+                      clearable — emptying one stops the gift email. */}
+                  {editingCustomer && (
+                    <div className="grid grid-cols-2 gap-4">
+                      <div className="grid gap-2">
+                        <label className="text-xs font-bold uppercase text-muted-foreground">Birthday</label>
+                        <Input
+                          type="date"
+                          max={new Date().toISOString().slice(0, 10)}
+                          value={formData.date_of_birth || ''}
+                          onChange={e => setFormData({...formData, date_of_birth: e.target.value})}
+                          className="h-10 border-border/60"
+                        />
+                      </div>
+                      <div className="grid gap-2">
+                        <label className="text-xs font-bold uppercase text-muted-foreground">Anniversary</label>
+                        <Input
+                          type="date"
+                          max={new Date().toISOString().slice(0, 10)}
+                          value={formData.anniversary_date || ''}
+                          onChange={e => setFormData({...formData, anniversary_date: e.target.value})}
+                          className="h-10 border-border/60"
+                        />
+                      </div>
+                    </div>
+                  )}
 
                   <div className="grid grid-cols-2 gap-4">
                     <div className="grid gap-2">

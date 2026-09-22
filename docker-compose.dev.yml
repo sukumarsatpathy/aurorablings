@@ -81,6 +81,41 @@ services:
       redis:
         condition: service_healthy
 
+  # Scheduler. Previously absent from every compose file, which is why no beat
+  # task had ever run in local development — the "fine on localhost, hot on the
+  # server" gap noted in settings/base.py. The birthday sweep needs it, and so
+  # does anything else you want to observe before it reaches production.
+  #
+  # DatabaseScheduler, matching production: CELERY_BEAT_SCHEDULE is synced into
+  # the database on first run, and removing an entry from settings does NOT
+  # delete the PeriodicTask row it created. Delete stale rows in the admin.
+  #
+  # --pidfile= (empty) because a stale celerybeat.pid in a bind-mounted /app
+  # stops the container from restarting after a hard kill.
+  celery_beat:
+    build:
+      context: ./backend
+    command: >
+      celery -A config beat --loglevel=info --pidfile=
+      --scheduler django_celery_beat.schedulers:DatabaseScheduler
+    restart: unless-stopped
+    env_file:
+      - .env
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-aurora_user}:${POSTGRES_PASSWORD:-admin}@db:5432/${POSTGRES_DB:-aurora_db}
+      REDIS_URL: redis://redis:6379/1
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+    volumes:
+      - ./backend:/app
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+
   frontend:
     image: node:20-alpine
     working_dir: /app

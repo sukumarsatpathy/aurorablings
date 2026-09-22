@@ -1,6 +1,56 @@
+from datetime import date
+
 from rest_framework import serializers
 from django.contrib.auth.password_validation import validate_password
 from .models import User, Address
+
+
+# ─────────────────────────────────────────────────────────────
+#  Occasion dates (birthday / anniversary)
+# ─────────────────────────────────────────────────────────────
+
+# Anyone claiming to be older than this mistyped the year.
+MAX_AGE_YEARS = 120
+# A reward programme aimed at children is not something we want to run by
+# accident, and a birthday field is the one place a child's age enters the
+# system. Under-13s are refused the field rather than silently enrolled.
+MIN_AGE_YEARS = 13
+
+
+class OccasionDateValidationMixin:
+    """
+    Shared validation for ``date_of_birth`` and ``anniversary_date``.
+
+    Mixed into every serializer that can write them — customer profile, admin
+    edit, POS — so the rules cannot drift between the three surfaces. A date
+    that fails here never reaches the database, which matters because the
+    occasion sweep trusts what it reads.
+    """
+
+    def validate_date_of_birth(self, value):
+        if value is None:
+            return value
+        today = date.today()
+        if value > today:
+            raise serializers.ValidationError("Date of birth cannot be in the future.")
+        age = (today - value).days / 365.2425
+        if age > MAX_AGE_YEARS:
+            raise serializers.ValidationError("Please check the year — that date is not plausible.")
+        if age < MIN_AGE_YEARS:
+            raise serializers.ValidationError(
+                f"You must be at least {MIN_AGE_YEARS} to add a birthday."
+            )
+        return value
+
+    def validate_anniversary_date(self, value):
+        if value is None:
+            return value
+        today = date.today()
+        if value > today:
+            raise serializers.ValidationError("Anniversary date cannot be in the future.")
+        if (today - value).days / 365.2425 > MAX_AGE_YEARS:
+            raise serializers.ValidationError("Please check the year — that date is not plausible.")
+        return value
 
 
 # ─────────────────────────────────────────────────────────────
@@ -66,6 +116,7 @@ class UserProfileSerializer(serializers.ModelSerializer):
         fields = [
             "id", "email", "first_name", "last_name",
             "full_name", "phone", "role",
+            "date_of_birth", "anniversary_date",
             "is_email_verified", "date_joined",
         ]
         read_only_fields = ["id", "email", "role", "date_joined", "is_email_verified"]
@@ -74,10 +125,14 @@ class UserProfileSerializer(serializers.ModelSerializer):
         return obj.full_name
 
 
-class UpdateProfileSerializer(serializers.ModelSerializer):
+class UpdateProfileSerializer(OccasionDateValidationMixin, serializers.ModelSerializer):
+    # allow_null so a customer can clear a date they no longer want us to have.
+    date_of_birth = serializers.DateField(required=False, allow_null=True)
+    anniversary_date = serializers.DateField(required=False, allow_null=True)
+
     class Meta:
         model  = User
-        fields = ["first_name", "last_name", "phone"]
+        fields = ["first_name", "last_name", "phone", "date_of_birth", "anniversary_date"]
 
 
 # ─────────────────────────────────────────────────────────────
@@ -125,6 +180,7 @@ class AdminCustomerSerializer(serializers.ModelSerializer):
         model = User
         fields = [
             "id", "email", "first_name", "last_name", "phone",
+            "date_of_birth", "anniversary_date",
             "role", "is_active", "date_joined", "failed_login_attempts",
             "last_failed_login", "locked_until", "is_locked",
             "is_email_verified", "addresses"
@@ -143,7 +199,14 @@ class AdminCustomerCreateSerializer(serializers.Serializer):
     role       = serializers.CharField(max_length=20, required=False, default="customer")
 
 
-class AdminCustomerUpdateSerializer(serializers.ModelSerializer):
+class AdminCustomerUpdateSerializer(OccasionDateValidationMixin, serializers.ModelSerializer):
+    date_of_birth = serializers.DateField(required=False, allow_null=True)
+    anniversary_date = serializers.DateField(required=False, allow_null=True)
+
     class Meta:
         model = User
-        fields = ["first_name", "last_name", "phone", "role", "is_active", "is_email_verified"]
+        fields = [
+            "first_name", "last_name", "phone",
+            "date_of_birth", "anniversary_date",
+            "role", "is_active", "is_email_verified",
+        ]

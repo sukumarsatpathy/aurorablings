@@ -24,6 +24,17 @@ class CouponService:
         now = timezone.now()
         if not coupon.is_active:
             raise ValidationError("Coupon is inactive.")
+
+        # A personal coupon belongs to exactly one customer.
+        #
+        # This check has to come before anything that leaks information about
+        # the coupon, and it deliberately gives the same message whether the
+        # caller is a stranger or anonymous: "this code is not yours" tells
+        # someone who forwarded a birthday code that the code is real.
+        if coupon.assigned_user_id is not None:
+            authenticated = bool(user and getattr(user, "is_authenticated", False))
+            if not authenticated or user.id != coupon.assigned_user_id:
+                raise ValidationError("This coupon is not available on this account.")
         if coupon.start_date > now:
             raise ValidationError("Coupon is not active yet.")
         if coupon.end_date < now:

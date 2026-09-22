@@ -29,10 +29,16 @@ class CouponAdmin(admin.ModelAdmin):
         "end_date",
         "created_at",
     ]
-    list_filter = ["type", "is_active", "start_date", "end_date", "created_at"]
-    search_fields = ["code"]
+    list_filter = ["type", "occasion", "is_active", "start_date", "end_date", "created_at"]
+    search_fields = ["code", "assigned_user__email"]
     ordering = ["-created_at"]
-    readonly_fields = ["id", "created_at", "updated_at"]
+    # The assignment is what makes a coupon personal, and it is set by the
+    # occasion sweep. Editable here it would be a way to hand someone else's
+    # gift away by accident.
+    readonly_fields = [
+        "id", "created_at", "updated_at",
+        "assigned_user", "occasion", "occasion_year",
+    ]
     inlines = [CouponUsageInline]
 
     fieldsets = (
@@ -49,6 +55,13 @@ class CouponAdmin(admin.ModelAdmin):
             },
         ),
         ("Validity", {"fields": ("start_date", "end_date")}),
+        (
+            "Gift assignment",
+            {
+                "fields": ("assigned_user", "occasion", "occasion_year"),
+                "description": "Set automatically by the birthday / anniversary sweep.",
+            },
+        ),
         (
             "Timestamps",
             {"fields": ("created_at", "updated_at"), "classes": ("collapse",)},

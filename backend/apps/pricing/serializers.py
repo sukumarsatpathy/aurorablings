@@ -10,6 +10,7 @@ class CouponSerializer(serializers.ModelSerializer):
     min_order_amount = serializers.DecimalField(source="min_order_value", max_digits=12, decimal_places=2, required=False)
     valid_from = serializers.DateTimeField(source="start_date", required=False)
     valid_to = serializers.DateTimeField(source="end_date", required=False)
+    assigned_user_email = serializers.EmailField(source="assigned_user.email", read_only=True)
 
     class Meta:
         model = Coupon
@@ -29,10 +30,20 @@ class CouponSerializer(serializers.ModelSerializer):
             "valid_from",
             "valid_to",
             "is_active",
+            "assigned_user",
+            "assigned_user_email",
+            "occasion",
+            "occasion_year",
             "created_at",
             "updated_at",
         ]
-        read_only_fields = ["id", "created_at", "updated_at"]
+        # Personal coupons are minted by the occasion sweep, never by hand: an
+        # admin assigning one through this form would bypass the per-user /
+        # per-year uniqueness the sweep relies on.
+        read_only_fields = [
+            "id", "created_at", "updated_at",
+            "assigned_user", "assigned_user_email", "occasion", "occasion_year",
+        ]
 
     def validate_code(self, value: str) -> str:
         return value.strip().upper()

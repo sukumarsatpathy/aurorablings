@@ -2,6 +2,7 @@ import re
 
 from rest_framework import serializers
 
+from apps.accounts.serializers import OccasionDateValidationMixin
 from apps.pos.models import POSCashMovement, POSShift, POSTerminal
 
 
@@ -160,11 +161,23 @@ class POSQuoteSerializer(serializers.Serializer):
     fulfilment_type = serializers.ChoiceField(choices=["carry_away", "ship"], default="carry_away")
 
 
-class POSOrderCreateSerializer(POSQuoteSerializer):
+class POSOrderCreateSerializer(OccasionDateValidationMixin, POSQuoteSerializer):
     shift = serializers.UUIDField()
     contact_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
     contact_phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
     contact_email = serializers.EmailField(required=False, allow_blank=True)
+    # Optional occasion dates taken at the counter, validated by exactly the
+    # rules the storefront and admin use — the till is not a way around the
+    # age floor or the no-future-dates rule.
+    #
+    # The mixin's validators are named for the User fields, so these are too;
+    # the view maps them onto the order's contact_* columns.
+    date_of_birth = serializers.DateField(
+        required=False, allow_null=True, source="contact_date_of_birth",
+    )
+    anniversary_date = serializers.DateField(
+        required=False, allow_null=True, source="contact_anniversary_date",
+    )
     # Separate from the address itself: staff may take an email purely to send
     # the receipt, without the customer wanting a login.
     create_account = serializers.BooleanField(default=True)

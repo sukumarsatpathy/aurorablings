@@ -214,6 +214,23 @@ class Order(models.Model):
                   "existing account is still linked either way — declining means "
                   "no NEW account, not no record.",
     )
+    # Occasion dates captured at the counter, parked on the order until the
+    # post-settlement task knows which customer the sale belongs to.
+    #
+    # They live here rather than being written straight to a User because at the
+    # moment staff type them there may be no account yet — it is created after
+    # the money lands. Copied onto the customer by accounts.customer_linking and
+    # then never read again.
+    contact_date_of_birth = models.DateField(
+        null=True, blank=True,
+        help_text="Optional birthday taken at the counter. Copied to the customer "
+                  "record once the sale is linked to one.",
+    )
+    contact_anniversary_date = models.DateField(
+        null=True, blank=True,
+        help_text="Optional anniversary taken at the counter. Copied to the "
+                  "customer record once the sale is linked to one.",
+    )
 
     # ── Manual discount audit ────────────────────────────────
     # A staff override is the margin leak a POS has to be able to explain later,

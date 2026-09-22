@@ -124,6 +124,10 @@ export function PosPage() {
         // customer at all. Whether they wanted a login is a separate answer,
         // sent separately, and honoured after settlement.
         contact_email: customer?.email || '',
+        // Optional. null rather than '' when unset — DRF reads an empty string
+        // as a malformed date rather than as "no value given".
+        date_of_birth: customer?.dateOfBirth || null,
+        anniversary_date: customer?.anniversaryDate || null,
         create_account: Boolean(customer?.createAccount && customer?.email),
       });
       setOrder(created);

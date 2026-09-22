@@ -13,6 +13,10 @@ class NotificationEvent:
     CONTACT_FORM_SUBMITTED = "contact.form.submitted"
     PRODUCT_NOTIFY_ME = "product.notify_me"
     PRODUCT_RESTOCKED = "product.restocked"
+    # Sent a few days ahead of the date, carrying a coupon that only the
+    # recipient can redeem. Issued by the daily sweep in apps/pricing/tasks.py.
+    CUSTOMER_BIRTHDAY = "customer.birthday"
+    CUSTOMER_ANNIVERSARY = "customer.anniversary"
 
     # Backward-compatible aliases used by existing code paths
     ORDER_PLACED = ORDER_CREATED
@@ -60,6 +64,8 @@ DEFAULT_EVENT_CHANNELS: dict[str, list[str]] = {
     NotificationEvent.CONTACT_FORM_SUBMITTED: [NotificationChannel.EMAIL],
     NotificationEvent.PRODUCT_NOTIFY_ME: [NotificationChannel.EMAIL],
     NotificationEvent.PRODUCT_RESTOCKED: [NotificationChannel.EMAIL],
+    NotificationEvent.CUSTOMER_BIRTHDAY: [NotificationChannel.EMAIL],
+    NotificationEvent.CUSTOMER_ANNIVERSARY: [NotificationChannel.EMAIL],
 }
 
 EVENT_CHOICES = [
@@ -72,6 +78,8 @@ EVENT_CHOICES = [
     (NotificationEvent.CONTACT_FORM_SUBMITTED, NotificationEvent.CONTACT_FORM_SUBMITTED),
     (NotificationEvent.PRODUCT_NOTIFY_ME, NotificationEvent.PRODUCT_NOTIFY_ME),
     (NotificationEvent.PRODUCT_RESTOCKED, NotificationEvent.PRODUCT_RESTOCKED),
+    (NotificationEvent.CUSTOMER_BIRTHDAY, NotificationEvent.CUSTOMER_BIRTHDAY),
+    (NotificationEvent.CUSTOMER_ANNIVERSARY, NotificationEvent.CUSTOMER_ANNIVERSARY),
     (NotificationEvent.ORDER_PAID, NotificationEvent.ORDER_PAID),
     (NotificationEvent.ORDER_PROCESSING, NotificationEvent.ORDER_PROCESSING),
     (NotificationEvent.ORDER_CANCELLED, NotificationEvent.ORDER_CANCELLED),

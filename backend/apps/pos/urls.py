@@ -17,6 +17,8 @@ urlpatterns = [
     path("shifts/<uuid:shift_id>/cash-tender/",   views.CashTenderView.as_view(),   name="cash-tender"),
 
     path("customers/lookup/",             views.CustomerLookupView.as_view(),    name="customer-lookup"),
+    path("customers/<uuid:user_id>/occasions/",
+                                          views.CustomerOccasionsView.as_view(), name="customer-occasions"),
     path("catalogue/",                    views.CatalogueSearchView.as_view(),   name="catalogue"),
     path("quote/",                        views.POSQuoteView.as_view(),          name="quote"),
     path("orders/",                       views.POSOrderCreateView.as_view(),    name="order-create"),

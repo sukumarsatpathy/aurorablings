@@ -123,6 +123,9 @@ export interface CustomerLookup {
     email: string;
     phone: string;
     orders: number;
+    /** ISO yyyy-mm-dd, or null. Returned so staff don't re-ask a regular. */
+    date_of_birth: string | null;
+    anniversary_date: string | null;
   };
 }
 
@@ -130,6 +133,21 @@ const posService = {
   /** Phone is the identity at a counter, so this runs before anything else. */
   lookupCustomer: async (phone: string): Promise<CustomerLookup> => {
     const { data } = await apiClient.get('/v1/pos/customers/lookup/', { params: { phone } });
+    return data;
+  },
+
+  /**
+   * Set an existing customer's occasion dates from the counter.
+   *
+   * Only for someone who already has an account. For a new customer the dates
+   * go on the sale instead — there is nothing to attach them to until the
+   * money lands and the account is created.
+   */
+  setCustomerOccasions: async (
+    userId: string,
+    payload: { date_of_birth?: string | null; anniversary_date?: string | null },
+  ): Promise<{ id: string; date_of_birth: string | null; anniversary_date: string | null }> => {
+    const { data } = await apiClient.patch(`/v1/pos/customers/${userId}/occasions/`, payload);
     return data;
   },
 
@@ -224,6 +242,13 @@ const posService = {
     contact_name?: string;
     contact_phone?: string;
     contact_email?: string;
+    /**
+     * Optional occasion dates taken at the counter. They ride on the order and
+     * are copied onto the customer once the sale is linked to one — which is
+     * only after settlement, since a new account does not exist before then.
+     */
+    date_of_birth?: string | null;
+    anniversary_date?: string | null;
     /** Whether a NEW account may be created. An existing one is linked regardless. */
     create_account?: boolean;
     fulfilment_type?: 'carry_away' | 'ship';

@@ -23,6 +23,7 @@ ALLOWED_EMAIL_TEMPLATES = {
     "emails/notify_me.html",
     "emails/restock_notification.html",
     "emails/account_blocked.html",
+    "emails/occasion_gift.html",
 }
 
 DEFAULT_TEMPLATE_MAP = {
@@ -57,6 +58,14 @@ DEFAULT_TEMPLATE_MAP = {
     NotificationEvent.PRODUCT_RESTOCKED: {
         "subject": "🔥 Back in stock — grab yours before it's gone!",
         "template_file": "emails/restock_notification.html",
+    },
+    NotificationEvent.CUSTOMER_BIRTHDAY: {
+        "subject": "Happy birthday, {{ customer_name }} — a little something from us 🎂",
+        "template_file": "emails/occasion_gift.html",
+    },
+    NotificationEvent.CUSTOMER_ANNIVERSARY: {
+        "subject": "Happy anniversary, {{ customer_name }} — a gift to mark it 💐",
+        "template_file": "emails/occasion_gift.html",
     },
 }
 

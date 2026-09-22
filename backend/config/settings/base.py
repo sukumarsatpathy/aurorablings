@@ -39,7 +39,14 @@ INSTALLED_APPS = [
     'django_filters',
     'health_check',
     'drf_spectacular',
-    
+    # Required by the DatabaseScheduler that docker-compose.prod.yml already
+    # asks celery for (`-B --scheduler django_celery_beat.schedulers:
+    # DatabaseScheduler`). The package was in requirements.txt but the app was
+    # never installed, so that scheduler could not import its own models and
+    # beat failed at startup — which is why no scheduled task has been firing.
+    # Adding it here brings its migrations in; they run under RUN_MIGRATIONS.
+    'django_celery_beat',
+
     # Local apps
     'core',
     'apps.accounts',
@@ -329,6 +336,27 @@ HEALTH_PAYMENT_CHECK_INTERVAL_SECONDS = env.int("HEALTH_PAYMENT_CHECK_INTERVAL_S
 NOTIFICATION_RETRY_INTERVAL_SECONDS = env.int("NOTIFICATION_RETRY_INTERVAL_SECONDS", default=900)
 NOTIFICATION_RETRY_LOGS_INTERVAL_SECONDS = env.int("NOTIFICATION_RETRY_LOGS_INTERVAL_SECONDS", default=1800)
 
+# ── Birthday / anniversary gift coupons ───────────────────────
+#
+# Off by default. Switching this on starts issuing real discounts on its own,
+# so it is an explicit decision per environment rather than something that
+# begins the moment the code deploys. Run the sweep with dry_run=True first.
+#
+# The sweep costs one indexed query per occasion per day. The terms live here
+# so the gift can be re-priced without a deploy; coupons already issued keep
+# the terms they were minted with, which is the correct behaviour — a customer
+# who was told 15% gets 15%.
+OCCASION_GIFTS_ENABLED = env.bool("OCCASION_GIFTS_ENABLED", default=False)
+# How many days ahead of the date the email goes out. Enough time to order and
+# have it arrive; a gift that lands on the morning of is a near-miss.
+OCCASION_GIFT_LEAD_DAYS = env.int("OCCASION_GIFT_LEAD_DAYS", default=3)
+OCCASION_GIFT_PERCENT = env.int("OCCASION_GIFT_PERCENT", default=15)
+# Rupee ceiling on the discount. 0 means uncapped — think before setting that.
+OCCASION_GIFT_MAX_DISCOUNT = env.int("OCCASION_GIFT_MAX_DISCOUNT", default=500)
+OCCASION_GIFT_MIN_ORDER_VALUE = env.int("OCCASION_GIFT_MIN_ORDER_VALUE", default=0)
+# Days after the occasion that the coupon stays live.
+OCCASION_GIFT_VALID_DAYS = env.int("OCCASION_GIFT_VALID_DAYS", default=14)
+
 CELERY_BEAT_SCHEDULE = {
     "retry-pending-notifications": {
         "task":     "notifications.retry_pending",
@@ -360,6 +388,18 @@ CELERY_BEAT_SCHEDULE = {
     "payments-expire-stale-razorpay-orders": {
         "task": "payments.expire_stale_razorpay_orders",
         "schedule": RAZORPAY_STALE_CLEANUP_INTERVAL_SECONDS,
+    },
+    # Birthday / anniversary gifts. CELERY_TIMEZONE is Asia/Kolkata, so this is
+    # 08:00 IST -- late enough that the email is not sitting at the bottom of an
+    # overnight inbox, early enough to be read before the day starts.
+    #
+    # Stays scheduled even when OCCASION_GIFTS_ENABLED is false; the task
+    # returns immediately in that case. Scheduling it unconditionally means the
+    # feature is turned on with an env var and a worker restart rather than a
+    # code change, and the guard lives in one place.
+    "issue-occasion-coupons": {
+        "task": "pricing.issue_occasion_coupons",
+        "schedule": crontab(hour=8, minute=0),
     },
 }
 

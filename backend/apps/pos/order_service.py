@@ -101,6 +101,8 @@ def create_pos_order(
     contact_name: str = "",
     contact_phone: str = "",
     contact_email: str = "",
+    contact_date_of_birth=None,
+    contact_anniversary_date=None,
     create_account: bool = True,
     coupon_code: str = "",
     fulfilment_type: str = FulfilmentType.CARRY_AWAY,
@@ -139,8 +141,14 @@ def create_pos_order(
     # somewhere to go. This flag is the separate question of whether they wanted
     # an account, and it is what the post-settlement task honours.
     order.contact_wants_account = bool(create_account and (contact_email or "").strip())
+    # Parked here until the post-settlement task knows whose sale this is.
+    order.contact_date_of_birth = contact_date_of_birth
+    order.contact_anniversary_date = contact_anniversary_date
 
-    fields = ["contact_name", "contact_phone", "fulfilment_type", "contact_wants_account"]
+    fields = [
+        "contact_name", "contact_phone", "fulfilment_type", "contact_wants_account",
+        "contact_date_of_birth", "contact_anniversary_date",
+    ]
 
     if fulfilment_type == FulfilmentType.CARRY_AWAY:
         # The customer is walking out with it. Leaving this pending would park

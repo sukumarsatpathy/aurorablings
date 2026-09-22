@@ -20,6 +20,9 @@ export interface Customer {
   first_name: string;
   last_name: string;
   phone: string;
+  /** ISO yyyy-mm-dd, or null when not given. Optional everywhere. */
+  date_of_birth: string | null;
+  anniversary_date: string | null;
   role: CustomerRole;
   is_active: boolean;
   date_joined: string;
@@ -44,6 +47,9 @@ export interface CustomerUpdateData {
   first_name?: string;
   last_name?: string;
   phone?: string;
+  /** null clears the date. '' is rejected by the API as a malformed date. */
+  date_of_birth?: string | null;
+  anniversary_date?: string | null;
   role?: CustomerRole;
   is_active?: boolean;
   is_email_verified?: boolean;

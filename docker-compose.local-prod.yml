@@ -152,18 +152,48 @@ services:
       backend:
         condition: service_healthy
 
-  # celery_beat is deliberately omitted, same as docker-compose.dev.yml.
-  # Uncomment if you need the scheduled tasks (health checks, stale-order
-  # expiry, shipping token refresh) to actually fire locally.
+  # Scheduler. No longer optional: the birthday / anniversary sweep is a beat
+  # task, and a local-prod stack that cannot run beat cannot rehearse it.
   #
-  # celery_beat:
-  #   build:
-  #     context: ./backend
-  #   command: ["celery", "-A", "config", "beat", "--loglevel=info", "--pidfile=",
-  #             "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
-  #   env_file: [.env.local-prod]
-  #   environment: *same as celery_worker*
-  #   depends_on: {backend: {condition: service_healthy}}
+  # Production runs beat *inside* the worker (-B) to save a Django process on a
+  # 1 GB box. Here it is a separate container on purpose — its log is then the
+  # only thing in the pane when you are working out why a schedule did not
+  # fire, instead of being interleaved with task output.
+  #
+  # DatabaseScheduler, matching production. CELERY_BEAT_SCHEDULE is synced into
+  # the database on first run and a removed entry does NOT delete the
+  # PeriodicTask row it created; delete stale rows in the admin.
+  celery_beat:
+    build:
+      context: ./backend
+    restart: unless-stopped
+    command: ["celery", "-A", "config", "beat", "--loglevel=info", "--pidfile=",
+              "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"]
+    env_file:
+      - .env.local-prod
+    environment:
+      DATABASE_URL: postgres://${POSTGRES_USER:-aurora_user}:${POSTGRES_PASSWORD:-admin}@db:5432/${POSTGRES_DB:-aurora_db}
+      DJANGO_SETTINGS_MODULE: config.settings.prod
+      DATABASE: postgres
+      SQL_HOST: db
+      SQL_PORT: 5432
+      REDIS_HOST: redis
+      REDIS_PORT: 6379
+      REDIS_URL: redis://redis:6379/1
+      CELERY_BROKER_URL: redis://redis:6379/1
+      CELERY_RESULT_BACKEND: redis://redis:6379/1
+      SECURE_SSL_REDIRECT: "False"
+      # RUN_MIGRATIONS / RUN_COLLECTSTATIC intentionally omitted — the backend
+      # service owns both, and two containers migrating at once is a race.
+    volumes:
+      - ./.localprod/logs:/app/logs
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+      backend:
+        condition: service_healthy
 
   frontend:
     # Build from LOCAL source instead of pulling the CI image. See the note on

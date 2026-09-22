@@ -39,6 +39,22 @@ class User(AbstractBaseUser, PermissionsMixin):
     last_name  = models.CharField(_("last name"),  max_length=150, blank=True)
     phone      = models.CharField(_("phone number"), max_length=20, blank=True)
 
+    # ── Occasions ──────────────────────────────────────────────
+    # Optional, and they stay optional. A customer who will not give a birthday
+    # still buys jewellery, so nothing anywhere may require these.
+    #
+    # Indexed because the daily occasion sweep filters on the month and day of
+    # both columns across the whole customer table; without an index that is a
+    # sequential scan every morning, growing with the customer base.
+    date_of_birth = models.DateField(
+        _("date of birth"), null=True, blank=True, db_index=True,
+        help_text="Used only to send a birthday gift coupon. Optional.",
+    )
+    anniversary_date = models.DateField(
+        _("anniversary"), null=True, blank=True, db_index=True,
+        help_text="Used only to send an anniversary gift coupon. Optional.",
+    )
+
     # ── Role ───────────────────────────────────────────────────
     role = models.CharField(
         _("role"),

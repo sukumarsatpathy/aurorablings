@@ -209,6 +209,7 @@ def link_or_create_customer(
         if phone and not match.user.phone:
             match.user.phone = phone
             match.user.save(update_fields=["phone"])
+        _apply_occasion_dates(user=match.user, order=order)
         logger.info("customer_linked", order_id=str(order.id), user_id=str(match.user.id))
         # Deliberately no welcome email: they already have an account, and being
         # welcomed to a shop you've used for a year reads as a mistake.
@@ -234,9 +235,40 @@ def link_or_create_customer(
 
     order.user = user
     order.save(update_fields=["user"])
+    _apply_occasion_dates(user=user, order=order)
 
     logger.info("customer_created_from_counter", order_id=str(order.id), user_id=str(user.id))
     return CustomerLinkResult(user=user, created=True, reason="account created")
+
+
+def _apply_occasion_dates(*, user: User, order) -> None:
+    """
+    Copy any occasion dates taken at the counter onto the customer.
+
+    Only fills blanks. A date the customer set on their own profile is theirs,
+    and a busy counter typing a rough guess must never overwrite it — the till
+    is the lower-trust source here. Staff who need to *correct* a date do it
+    through the occasions endpoint, which is explicit about overwriting.
+    """
+    updates = {}
+    for order_field, user_field in (
+        ("contact_date_of_birth", "date_of_birth"),
+        ("contact_anniversary_date", "anniversary_date"),
+    ):
+        value = getattr(order, order_field, None)
+        if value and getattr(user, user_field, None) is None:
+            updates[user_field] = value
+
+    if not updates:
+        return
+
+    for field, value in updates.items():
+        setattr(user, field, value)
+    user.save(update_fields=list(updates.keys()))
+    logger.info(
+        "customer_occasion_dates_set",
+        user_id=str(user.id), order_id=str(order.id), fields=list(updates.keys()),
+    )
 
 
 def send_welcome(*, user: User, order=None) -> bool:

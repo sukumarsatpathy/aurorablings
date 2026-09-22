@@ -10,6 +10,11 @@ export interface CounterCustomer {
   /** Set once the server recognises the number — an existing account. */
   existing?: boolean;
   orders?: number;
+  /** ISO yyyy-mm-dd or '' — optional, and never required to complete a sale. */
+  dateOfBirth?: string;
+  anniversaryDate?: string;
+  /** The customer's id, when they already have an account. */
+  id?: string;
 }
 
 interface Props {
@@ -17,7 +22,13 @@ interface Props {
   onChange: (customer: CounterCustomer | null) => void;
 }
 
-const EMPTY: CounterCustomer = { name: '', phone: '', email: '', createAccount: true };
+const EMPTY: CounterCustomer = {
+  name: '', phone: '', email: '', createAccount: true,
+  dateOfBirth: '', anniversaryDate: '',
+};
+
+/** Today as yyyy-mm-dd — nobody's birthday is in the future. */
+const TODAY = new Date().toISOString().slice(0, 10);
 
 /**
  * Who bought it — optional, and skippable in one tap.
@@ -64,14 +75,20 @@ export function CustomerPanel({ value, onChange }: Props) {
           // Prefill from the account, but never overwrite something staff typed.
           onChange({
             ...draft,
+            id: result.customer.id,
             name: draft.name || result.customer.name,
             email: draft.email || result.customer.email,
+            // Dates already on file prefill, so staff can see them rather than
+            // asking a regular their birthday every single visit. Anything
+            // staff already typed still wins.
+            dateOfBirth: draft.dateOfBirth || result.customer.date_of_birth || '',
+            anniversaryDate: draft.anniversaryDate || result.customer.anniversary_date || '',
             existing: true,
             orders: result.customer.orders,
             createAccount: false,
           });
         } else {
-          onChange({ ...draft, existing: false, orders: 0 });
+          onChange({ ...draft, id: undefined, existing: false, orders: 0 });
         }
       } catch {
         if (active) setLookup(null);
@@ -207,6 +224,46 @@ export function CustomerPanel({ value, onChange }: Props) {
         </p>
       )}
 
+      {/* Occasions. Optional, collapsed behind nothing — two small fields that
+          staff can ignore entirely. Never blocks "Attach to sale".
+
+          For a NEW customer these ride on the order and are copied across once
+          the account exists after settlement. For a known customer they are
+          saved directly, because the account is already there to save them to. */}
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Birthday — optional
+          </span>
+          <input
+            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            type="date"
+            max={TODAY}
+            value={draft.dateOfBirth || ''}
+            onChange={(e) => update({ dateOfBirth: e.target.value })}
+          />
+        </label>
+        <label className="block">
+          <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
+            Anniversary — optional
+          </span>
+          <input
+            className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
+            type="date"
+            max={TODAY}
+            value={draft.anniversaryDate || ''}
+            onChange={(e) => update({ anniversaryDate: e.target.value })}
+          />
+        </label>
+      </div>
+
+      {(draft.dateOfBirth || draft.anniversaryDate) && (
+        <p className="rounded-lg bg-muted px-3 py-2 text-[11px] text-muted-foreground">
+          We&apos;ll email a gift coupon a few days before. Please ask before typing a date —
+          it is the customer&apos;s to give.
+        </p>
+      )}
+
       {draft.email && !draft.existing && (
         <label className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 p-3 text-sm">
           <input
@@ -240,7 +297,24 @@ export function CustomerPanel({ value, onChange }: Props) {
           type="button"
           disabled={draft.phone.length !== 10}
           className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
-          onClick={() => setOpen(false)}
+          onClick={() => {
+            // A known customer's dates are saved now, because their account
+            // already exists and the order path only ever *fills blanks* — it
+            // will not correct a date that is already on file, by design.
+            //
+            // Deliberately not awaited and deliberately swallowed: this is a
+            // queue, and a slow or failed write of an optional birthday must
+            // never stand between staff and the next sale.
+            if (draft.existing && draft.id) {
+              void posService
+                .setCustomerOccasions(draft.id, {
+                  date_of_birth: draft.dateOfBirth || null,
+                  anniversary_date: draft.anniversaryDate || null,
+                })
+                .catch(() => undefined);
+            }
+            setOpen(false);
+          }}
         >
           Attach to sale
         </button>

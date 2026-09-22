@@ -9,7 +9,7 @@ trusted device: it says how much cash it took and which order it took it for,
 and the server decides everything else.
 """
 
-from rest_framework import status
+from rest_framework import serializers, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -512,6 +512,8 @@ class POSOrderCreateView(APIView):
                 contact_name=data.get("contact_name", ""),
                 contact_phone=data.get("contact_phone", ""),
                 contact_email=data.get("contact_email", ""),
+                contact_date_of_birth=data.get("contact_date_of_birth"),
+                contact_anniversary_date=data.get("contact_anniversary_date"),
                 create_account=data.get("create_account", True),
                 coupon_code=data.get("coupon_code", ""),
                 fulfilment_type=data["fulfilment_type"],
@@ -768,5 +770,59 @@ class CustomerLookupView(APIView):
                 "email": user.email,
                 "phone": user.phone,
                 "orders": Order.objects.filter(user=user).count(),
+                # Returned so staff can see a date is already on file rather
+                # than asking a regular for their birthday every visit, and so
+                # a wrong one can be corrected at the counter. Dates only —
+                # this stays a greeting aid, not a customer export.
+                "date_of_birth": user.date_of_birth.isoformat() if user.date_of_birth else None,
+                "anniversary_date": (
+                    user.anniversary_date.isoformat() if user.anniversary_date else None
+                ),
             },
+        })
+
+
+class CustomerOccasionsView(APIView):
+    """
+    Set a known customer's birthday / anniversary from the counter.
+
+    Only for a customer who already has an account. For a brand-new one the
+    dates ride along on the sale (``POSOrderCreateSerializer``) and are copied
+    across once the account exists, because at the moment staff type them there
+    is nothing to attach them to.
+
+    Staff-only, and deliberately narrow: two date fields, nothing else. A till
+    that can edit arbitrary customer attributes is a data-integrity problem
+    waiting for a busy Saturday.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def patch(self, request, user_id):
+        from apps.accounts.models import User
+        from apps.accounts.serializers import OccasionDateValidationMixin
+
+        user = User.objects.filter(pk=user_id, role=UserRole.CUSTOMER, is_active=True).first()
+        if user is None:
+            return _bad("No such customer.", status.HTTP_404_NOT_FOUND)
+
+        class _Payload(OccasionDateValidationMixin, serializers.Serializer):
+            date_of_birth = serializers.DateField(required=False, allow_null=True)
+            anniversary_date = serializers.DateField(required=False, allow_null=True)
+
+        payload = _Payload(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        if not data:
+            return _bad("Nothing to update.")
+
+        for field, value in data.items():
+            setattr(user, field, value)
+        user.save(update_fields=list(data.keys()))
+
+        return Response({
+            "id": str(user.id),
+            "date_of_birth": user.date_of_birth.isoformat() if user.date_of_birth else None,
+            "anniversary_date": (
+                user.anniversary_date.isoformat() if user.anniversary_date else None
+            ),
         })
