@@ -75,3 +75,35 @@ class RazorpayQREndpointTests(TestCase):
             )
 
         self.assertEqual(post.call_args.kwargs["json"]["payment_amount"], 43155)
+
+    def test_the_upi_string_is_kept_so_the_counter_can_draw_the_code(self):
+        """
+        ``image_content`` is the upi://pay string the QR encodes. Keeping it lets
+        the server draw the code inline instead of the tablet downloading
+        Razorpay's hosted image after the request — the visible delay at the till.
+        """
+        provider = self.provider()
+        upi = "upi://pay?pa=merchant@icici&am=431.55&cu=INR&tr=qr_9"
+        payload = {"id": "qr_9", "image_url": "https://rzp.io/i/x", "image_content": upi}
+
+        with patch.object(provider, "_load_runtime_config"), \
+                patch("requests.post", return_value=_Response(200, payload)):
+            result = provider.create_qr_code(
+                order_id="o1", amount=Decimal("431.55"), currency="INR",
+                close_by_minutes=15, metadata={},
+            )
+
+        self.assertEqual(result.qr_content, upi)
+
+
+class CounterQrRenderTests(TestCase):
+    def test_a_upi_string_renders_as_an_inline_svg(self):
+        from apps.pos.collection_service import qr_data_uri
+
+        uri = qr_data_uri("upi://pay?pa=merchant@icici&am=1.00&cu=INR")
+        self.assertTrue(uri.startswith("data:image/svg+xml;base64,"))
+
+    def test_nothing_to_draw_returns_empty_so_the_hosted_image_is_used(self):
+        from apps.pos.collection_service import qr_data_uri
+
+        self.assertEqual(qr_data_uri(""), "")

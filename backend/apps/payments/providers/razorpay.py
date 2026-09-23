@@ -401,7 +401,10 @@ class RazorpayProvider(BasePaymentProvider):
                 f"{self.base_url}/payments/qr_codes",
                 json=payload,
                 auth=(self.key_id, self.key_secret),
-                timeout=20,
+                # (connect, read). A customer is standing at the counter; a
+                # Razorpay stall should fail fast into the fallback, not freeze
+                # the till for 20 s.
+                timeout=(4, 8),
             )
             body = resp.json() if resp.content else {}
         except Exception as exc:  # noqa: BLE001
@@ -417,6 +420,7 @@ class RazorpayProvider(BasePaymentProvider):
             success=True,
             provider_ref=str(body.get("id") or ""),
             image_url=str(body.get("image_url") or ""),
+            qr_content=str(body.get("image_content") or ""),
             amount=Decimal(str(body.get("payment_amount") or amount_paise)) / Decimal("100"),
             close_by=body.get("close_by"),
             raw=body,
@@ -433,7 +437,7 @@ class RazorpayProvider(BasePaymentProvider):
             resp = requests.post(
                 f"{self.base_url}/payments/qr_codes/{provider_ref}/close",
                 auth=(self.key_id, self.key_secret),
-                timeout=15,
+                timeout=(3, 5),
             )
             return resp.status_code in (200, 201)
         except Exception:  # noqa: BLE001

@@ -86,6 +86,9 @@ class QRCodeResult:
     success: bool
     provider_ref: str = ""
     image_url: str = ""
+    # The UPI intent string the QR encodes (``upi://pay?...``). When present the
+    # counter draws the code itself instead of downloading Razorpay's image.
+    qr_content: str = ""
     amount: Decimal = Decimal("0")
     close_by: int | None = None
     raw: dict | None = None

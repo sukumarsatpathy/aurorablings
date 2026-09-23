@@ -21,6 +21,7 @@ Two rules shape everything here:
 
 from __future__ import annotations
 
+import time
 from decimal import Decimal
 
 import structlog
@@ -41,10 +42,12 @@ class CollectionError(Exception):
     """Raised when a UPI collection cannot be raised for this order."""
 
 
-@transaction.atomic
 def qr_data_uri(payload: str) -> str:
     """
-    Render a string as a QR PNG, inline.
+    Render a string as a QR SVG, inline.
+
+    SVG rather than PNG: no Pillow round-trip, a few KB instead of Razorpay's
+    branded image, and it stays sharp at any size on the tablet.
 
     Returns "" on any failure rather than raising: a missing image is a counter
     that falls back to the link text, while an exception here would lose a
@@ -57,10 +60,11 @@ def qr_data_uri(payload: str) -> str:
         import io as _io
 
         import qrcode
+        from qrcode.image.svg import SvgPathFillImage
 
         buffer = _io.BytesIO()
-        qrcode.make(payload).save(buffer, format="PNG")
-        return "data:image/png;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
+        qrcode.make(payload, image_factory=SvgPathFillImage, border=2).save(buffer)
+        return "data:image/svg+xml;base64," + base64.b64encode(buffer.getvalue()).decode("ascii")
     except Exception as exc:  # noqa: BLE001 - never fail a sale over an image
         logger.warning("pos_qr_render_failed", error=str(exc))
         return ""
@@ -85,27 +89,32 @@ def create_upi_collection(
     if outstanding <= ZERO:
         raise CollectionError("This order is already fully paid.")
 
-    # A UPI-only counter sale never touches take_cash_tender, so this is where it
-    # gets stamped as POS. Without it the sale is invisible to the part-paid list
-    # and to every POS report.
-    if shift is not None:
-        from apps.pos.services import attach_to_counter
-        attach_to_counter(order=order, shift=shift, staff=staff)
-
     try:
         provider = registry.get(PROVIDER)
     except KeyError as exc:
         raise CollectionError(str(exc)) from exc
 
-    txn = PaymentTransaction.objects.create(
-        order=order,
-        provider=PROVIDER,
-        status=TransactionStatus.CREATED,
-        amount=outstanding,
-        total_amount=outstanding,
-        currency=order.currency or "INR",
-        initiated_by=staff,
-    )
+    # Local writes only. The Razorpay calls below stay outside the transaction on
+    # purpose: holding a DB transaction open across a network call ties up a
+    # connection for seconds, and rolling back after Razorpay has already issued
+    # a QR would leave a live, payable code with no row pointing at it.
+    with transaction.atomic():
+        # A UPI-only counter sale never touches take_cash_tender, so this is
+        # where it gets stamped as POS. Without it the sale is invisible to the
+        # part-paid list and to every POS report.
+        if shift is not None:
+            from apps.pos.services import attach_to_counter
+            attach_to_counter(order=order, shift=shift, staff=staff)
+
+        txn = PaymentTransaction.objects.create(
+            order=order,
+            provider=PROVIDER,
+            status=TransactionStatus.CREATED,
+            amount=outstanding,
+            total_amount=outstanding,
+            currency=order.currency or "INR",
+            initiated_by=staff,
+        )
 
     metadata = {
         "channel": "pos",
@@ -135,11 +144,18 @@ def create_upi_collection(
             "pos_qr_created", order_id=str(order.id), qr_id=result.provider_ref,
             amount=str(outstanding),
         )
+        # Draw the code here from the UPI string Razorpay returned, rather than
+        # sending the tablet off to download rzp.io's image after this request
+        # has already finished — that second round-trip was most of the wait.
+        # Razorpay's hosted image stays as the fallback, and as the link the
+        # counter offers if the drawn code ever fails to load.
+        drawn = qr_data_uri(result.qr_content)
         return {
             "kind": "qr",
             "transaction_id": str(txn.id),
             "qr_id": result.provider_ref,
-            "image_url": result.image_url,
+            "image_url": drawn or result.image_url,
+            "payment_url": result.image_url,
             "amount": str(outstanding),
             "close_by": result.close_by,
         }
@@ -202,10 +218,18 @@ def cancel_collection(*, transaction_id: str) -> bool:
     except KeyError:
         return False
 
-    try:
-        closed = provider.close_qr_code(provider_ref=txn.provider_ref)
-    except NotImplementedError:
-        closed = False
+    # An expired QR is already closed by Razorpay (close_by), so the usual
+    # "Regenerate after the timer ran out" needs no upstream call at all. Only a
+    # QR that could still be paid is worth waiting on Razorpay to close.
+    close_by = (txn.raw_response or {}).get("close_by")
+    already_expired = isinstance(close_by, (int, float)) and close_by <= time.time()
+
+    closed = already_expired
+    if not already_expired:
+        try:
+            closed = provider.close_qr_code(provider_ref=txn.provider_ref)
+        except NotImplementedError:
+            closed = False
 
     if txn.status in (TransactionStatus.CREATED, TransactionStatus.PENDING):
         txn.status = TransactionStatus.CANCELLED
