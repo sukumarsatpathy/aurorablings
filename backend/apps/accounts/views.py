@@ -24,6 +24,8 @@ from .models import Address
 from .serializers import (
     RegisterSerializer,
     LoginSerializer,
+    LoginOTPRequestSerializer,
+    LoginOTPVerifySerializer,
     LogoutSerializer,
     PasswordResetRequestSerializer,
     PasswordResetConfirmSerializer,
@@ -42,6 +44,8 @@ logger = get_logger(__name__)
 _RL_LOGIN = {"key": "ip", "rate": "10/m", "block": False}
 _RL_REGISTER = {"key": "ip", "rate": "8/m", "block": False}
 _RL_FORGOT = {"key": "ip", "rate": "8/m", "block": False}
+_RL_OTP_REQUEST = {"key": "ip", "rate": "6/m", "block": False}
+_RL_OTP_VERIFY = {"key": "ip", "rate": "10/m", "block": False}
 
 
 # ─────────────────────────────────────────────────────────
@@ -121,6 +125,92 @@ class LoginView(APIView):
         result = services.login_user(
             email=s.validated_data["email"],
             password=s.validated_data["password"],
+            ip_address=get_client_ip(request),
+            user_agent=request.META.get("HTTP_USER_AGENT", ""),
+            request=request,
+        )
+
+        return success_response(
+            data={
+                "access":  result["access"],
+                "refresh": result["refresh"],
+                "user":    UserProfileSerializer(result["user"]).data,
+            },
+            message="Login successful.",
+            request_id=getattr(request, "request_id", None),
+        )
+
+
+# ─────────────────────────────────────────────────────────
+#  Login with email OTP
+# ─────────────────────────────────────────────────────────
+
+class LoginOTPRequestView(APIView):
+    """Step 1: email a 6-digit sign-in code (existing accounts only)."""
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_otp_request"
+
+    @method_decorator(ratelimit(**_RL_OTP_REQUEST))
+    def post(self, request):
+        limited_response = _rate_limit_error_if_limited(request, endpoint="auth.login_otp_request")
+        if limited_response is not None:
+            return limited_response
+
+        s = LoginOTPRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        token = s.validated_data.get("turnstile_token", "")
+        if not verify_turnstile_token(token=token, remote_ip=get_client_ip(request), action="auth.login_otp_request"):
+            return _turnstile_failed_response(request)
+
+        try:
+            services.request_login_otp(
+                email=s.validated_data["email"],
+                ip_address=get_client_ip(request),
+            )
+        except services.OTPCooldownError as exc:
+            response = error_response(
+                message=str(exc),
+                error_code="otp_cooldown",
+                errors={"retry_after": exc.retry_after},
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                request_id=getattr(request, "request_id", None),
+            )
+            response["Retry-After"] = str(exc.retry_after)
+            return response
+
+        # Same answer whether or not the account exists — no email enumeration.
+        return success_response(
+            data={
+                "expires_in": services.OTP_EXPIRY_MINUTES * 60,
+                "resend_after": services.OTP_RESEND_COOLDOWN_SECONDS,
+            },
+            message="If an account exists for this email, we have sent a 6-digit sign-in code.",
+            request_id=getattr(request, "request_id", None),
+        )
+
+
+class LoginOTPVerifyView(APIView):
+    """Step 2: exchange the emailed code for JWT tokens."""
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_otp_verify"
+
+    @method_decorator(ratelimit(**_RL_OTP_VERIFY))
+    def post(self, request):
+        limited_response = _rate_limit_error_if_limited(request, endpoint="auth.login_otp_verify")
+        if limited_response is not None:
+            return limited_response
+
+        s = LoginOTPVerifySerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        token = s.validated_data.get("turnstile_token", "")
+        if not verify_turnstile_token(token=token, remote_ip=get_client_ip(request), action="auth.login_otp_verify"):
+            return _turnstile_failed_response(request)
+
+        result = services.verify_login_otp(
+            email=s.validated_data["email"],
+            code=s.validated_data["code"],
             ip_address=get_client_ip(request),
             user_agent=request.META.get("HTTP_USER_AGENT", ""),
             request=request,
@@ -325,6 +415,16 @@ class AddressDetailView(APIView):
 # ─────────────────────────────────────────────────────────
 #  Helpers
 # ─────────────────────────────────────────────────────────
+
+def _turnstile_failed_response(request):
+    return error_response(
+        message="CAPTCHA verification failed.",
+        error_code="turnstile_verification_failed",
+        errors={"turnstile_token": ["Invalid or missing CAPTCHA token."]},
+        status_code=status.HTTP_400_BAD_REQUEST,
+        request_id=getattr(request, "request_id", None),
+    )
+
 
 def _rate_limit_error_if_limited(request, *, endpoint: str):
     if not getattr(request, "limited", False):

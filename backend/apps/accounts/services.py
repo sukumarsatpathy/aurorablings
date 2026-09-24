@@ -12,9 +12,12 @@ Design rules:
 from __future__ import annotations
 
 import hashlib
+import hmac
 import secrets
 from datetime import timedelta
 
+from django.conf import settings
+from django.core.cache import cache
 from django.db import transaction
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
@@ -28,7 +31,7 @@ from core.exceptions import (
 from core.logging import get_logger
 from audit.models import ActorType, AuditAction
 from audit.services.activity_logger import log_activity
-from .models import User, Address, LoginAttempt
+from .models import User, Address, LoginAttempt, EmailOTP
 from .selectors import get_user_by_email, email_exists, get_user_by_reset_token
 
 logger = get_logger(__name__)
@@ -37,6 +40,21 @@ logger = get_logger(__name__)
 MAX_FAILED_ATTEMPTS = 5        # lock after N consecutive failures
 LOCK_DURATION_MINUTES = 30     # how long the lock lasts
 RESET_TOKEN_EXPIRY_HOURS = 2   # password reset link lifetime
+
+# Email OTP sign-in
+OTP_LENGTH = 6
+OTP_EXPIRY_MINUTES = 10          # code lifetime
+OTP_MAX_VERIFY_ATTEMPTS = 5      # wrong guesses before the code is burned
+OTP_RESEND_COOLDOWN_SECONDS = 60 # min gap between two sends to one email
+OTP_MAX_SENDS_PER_HOUR = 5       # per email address
+
+
+class OTPCooldownError(Exception):
+    """Raised when an OTP is requested again too soon for the same email."""
+
+    def __init__(self, retry_after: int):
+        self.retry_after = max(1, int(retry_after))
+        super().__init__(f"Please wait {self.retry_after} seconds before requesting a new code.")
 
 
 def _actor_type_for_user(user: User | None) -> str:
@@ -250,6 +268,184 @@ def logout_user(refresh_token: str, request=None, user=None) -> None:
     except Exception as exc:        # noqa: BLE001
         logger.warning("logout_failed", error=str(exc))
         raise ValidationError("Invalid or expired refresh token.")
+
+
+# ─────────────────────────────────────────────────────────────
+#  Email OTP sign-in
+# ─────────────────────────────────────────────────────────────
+
+def request_login_otp(*, email: str, ip_address: str | None = None) -> None:
+    """
+    Issue a one-time sign-in code and queue the email.
+
+    Existing, active accounts only. For unknown / inactive / locked emails
+    this is a silent no-op so the endpoint cannot be used to discover which
+    addresses are registered. The per-email cooldown is applied to *every*
+    address — registered or not — for the same reason.
+
+    Raises:
+        OTPCooldownError: a code was sent to this email too recently.
+    """
+    email = email.strip().lower()
+    _enforce_otp_send_limits(email)
+
+    user = get_user_by_email(email)
+    if not user:
+        logger.info("login_otp_noop", email=email, reason="user_not_found", ip=ip_address)
+        return
+    if not user.is_active:
+        logger.info("login_otp_noop", email=email, reason="account_inactive", ip=ip_address)
+        return
+    if user.is_locked:
+        logger.info("login_otp_noop", email=email, reason="account_locked", ip=ip_address)
+        return
+
+    code = f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
+
+    with transaction.atomic():
+        # One live code per user: a new request invalidates any earlier one.
+        EmailOTP.objects.filter(user=user, purpose=EmailOTP.PURPOSE_LOGIN).delete()
+        otp = EmailOTP.objects.create(
+            user=user,
+            email=user.email,
+            purpose=EmailOTP.PURPOSE_LOGIN,
+            code_hash=_hash_otp(user.email, code),
+            expires_at=timezone.now() + timedelta(minutes=OTP_EXPIRY_MINUTES),
+            ip_address=ip_address,
+        )
+
+    logger.info("login_otp_issued", user_id=str(user.id), otp_id=str(otp.id), ip=ip_address)
+
+    try:
+        from .tasks import send_login_otp_email
+        send_login_otp_email.delay(
+            user_id=str(user.id),
+            code=code,
+            expiry_minutes=OTP_EXPIRY_MINUTES,
+        )
+    except Exception:
+        logger.exception("login_otp_email_queue_failed", user_id=str(user.id))
+
+
+def verify_login_otp(
+    *,
+    email: str,
+    code: str,
+    ip_address: str | None = None,
+    user_agent: str = "",
+    request=None,
+) -> dict:
+    """
+    Check a sign-in code and return JWT tokens on success.
+
+    Raises:
+        ValidationError: code wrong, expired, or already used.
+        PermissionDeniedError: account locked or deactivated.
+
+    Returns:
+        {"access": "...", "refresh": "...", "user": User}
+    """
+    email = email.strip().lower()
+    code = (code or "").strip()
+    invalid_msg = "Invalid or expired code. Please request a new one."
+
+    def _log_attempt(successful: bool, reason: str = ""):
+        LoginAttempt.objects.create(
+            email=email,
+            ip_address=ip_address,
+            user_agent=user_agent,
+            successful=successful,
+            failure_reason=reason,
+        )
+
+    user = get_user_by_email(email)
+    if not user:
+        _log_attempt(False, "otp_user_not_found")
+        logger.warning("login_otp_failed", email=email, reason="user_not_found", ip=ip_address)
+        raise ValidationError(invalid_msg)
+
+    # Errors are decided inside the lock but raised after it commits —
+    # raising inside atomic() would roll back the attempt counter.
+    failure: str | None = None
+    with transaction.atomic():
+        otp = (
+            EmailOTP.objects
+            .select_for_update()
+            .filter(user=user, purpose=EmailOTP.PURPOSE_LOGIN, consumed_at__isnull=True)
+            .order_by("-created_at")
+            .first()
+        )
+
+        if not otp or not otp.is_usable:
+            failure = "expired_or_missing"
+        elif otp.attempts >= OTP_MAX_VERIFY_ATTEMPTS:
+            otp.consumed_at = timezone.now()
+            otp.save(update_fields=["consumed_at"])
+            failure = "too_many_attempts"
+        elif not hmac.compare_digest(otp.code_hash, _hash_otp(user.email, code)):
+            otp.attempts += 1
+            if otp.attempts >= OTP_MAX_VERIFY_ATTEMPTS:
+                otp.consumed_at = timezone.now()
+                failure = "too_many_attempts"
+            else:
+                failure = "wrong_code"
+            otp.save(update_fields=["attempts", "consumed_at"])
+        else:
+            # Correct — burn it so it can never be replayed.
+            otp.consumed_at = timezone.now()
+            otp.save(update_fields=["consumed_at"])
+
+    if failure:
+        _log_attempt(False, f"otp_{failure}")
+        log_activity(
+            user=user,
+            actor_type=_actor_type_for_user(user),
+            action=AuditAction.LOGIN,
+            entity_type="auth",
+            entity_id=str(user.id),
+            description=f"OTP login failed: {failure.replace('_', ' ')}",
+            metadata={"email": email, "method": "email_otp", "reason": failure, "status": "failed"},
+            request=request,
+        )
+        logger.warning("login_otp_failed", user_id=str(user.id), reason=failure, ip=ip_address)
+        if failure == "wrong_code":
+            remaining = OTP_MAX_VERIFY_ATTEMPTS - otp.attempts
+            raise ValidationError(f"Incorrect code. {remaining} attempt(s) remaining.")
+        if failure == "too_many_attempts":
+            raise ValidationError("Too many incorrect attempts. Please request a new code.")
+        raise ValidationError(invalid_msg)
+
+    if user.is_locked:
+        _log_attempt(False, "account_locked")
+        raise PermissionDeniedError(
+            f"Account locked due to too many failed attempts. "
+            f"Try again after {user.locked_until.strftime('%H:%M UTC')}."
+        )
+    if not user.is_active:
+        _log_attempt(False, "account_inactive")
+        raise PermissionDeniedError("This account has been deactivated.")
+
+    # Receiving the code proves the mailbox belongs to this user.
+    if not user.is_email_verified:
+        user.is_email_verified = True
+        user.save(update_fields=["is_email_verified"])
+
+    _reset_failed_attempts(user)
+    _log_attempt(True)
+    log_activity(
+        user=user,
+        actor_type=_actor_type_for_user(user),
+        action=AuditAction.LOGIN,
+        entity_type="auth",
+        entity_id=str(user.id),
+        description=f"{user.role.title()} logged in with email OTP",
+        metadata={"email": email, "method": "email_otp", "status": "success"},
+        request=request,
+    )
+
+    tokens = _issue_tokens(user)
+    logger.info("login_otp_success", user_id=str(user.id), email=email, ip=ip_address)
+    return {**tokens, "user": user}
 
 
 # ─────────────────────────────────────────────────────────────
@@ -487,6 +683,41 @@ def _issue_tokens(user: User) -> dict:
 def _hash_token(token: str) -> str:
     """SHA-256 hash before storing — tokens are one-way in DB."""
     return hashlib.sha256(token.encode()).hexdigest()
+
+
+def _hash_otp(email: str, code: str) -> str:
+    """Keyed hash so a leaked DB row cannot be brute-forced offline (only 10^6 codes)."""
+    message = f"{email.strip().lower()}:{code}".encode()
+    return hmac.new(settings.SECRET_KEY.encode(), message, hashlib.sha256).hexdigest()
+
+
+def _enforce_otp_send_limits(email: str) -> None:
+    """Per-email resend cooldown + hourly cap, applied to every address."""
+    key_id = hashlib.sha256(email.encode()).hexdigest()
+    cooldown_key = f"auth:otp:cooldown:{key_id}"
+    hourly_key = f"auth:otp:hourly:{key_id}"
+
+    if not cache.add(cooldown_key, 1, timeout=OTP_RESEND_COOLDOWN_SECONDS):
+        ttl = OTP_RESEND_COOLDOWN_SECONDS
+        try:
+            ttl = cache.ttl(cooldown_key) or ttl   # django-redis only
+        except Exception:  # noqa: BLE001
+            pass
+        raise OTPCooldownError(ttl)
+
+    cache.add(hourly_key, 0, timeout=3600)
+    try:
+        sends = cache.incr(hourly_key)
+    except ValueError:
+        cache.set(hourly_key, 1, timeout=3600)
+        sends = 1
+    if sends > OTP_MAX_SENDS_PER_HOUR:
+        ttl = 3600
+        try:
+            ttl = cache.ttl(hourly_key) or ttl
+        except Exception:  # noqa: BLE001
+            pass
+        raise OTPCooldownError(ttl)
 
 
 def _validate_password_strength(password: str) -> None:

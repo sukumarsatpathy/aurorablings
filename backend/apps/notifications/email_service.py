@@ -146,10 +146,22 @@ def send_email(
     recipient: str,
     email_type: str = "generic",
     user=None,
+    redact_keys: tuple[str, ...] = (),
 ) -> bool:
+    """
+    Render and send one email, recording the outcome in EmailLog/NotificationLog.
+
+    ``redact_keys`` names context values that must never be persisted (e.g. an
+    OTP). They are masked in the stored context, and the rendered HTML/text
+    snapshots are dropped because they would contain the secret too.
+    """
     html_content = ""
     text_content = ""
     selected_provider = NotificationProvider.SMTP
+    log_context = dict(context or {})
+    for key in redact_keys:
+        if key in log_context:
+            log_context[key] = "******"
     try:
         html_content = render_to_string(template_name, context=context)
         text_content = strip_tags(html_content)
@@ -191,9 +203,9 @@ def send_email(
             provider=send_result.provider if send_result.provider in dict(NotificationProvider.choices) else NotificationProvider.OTHER,
             status=NotificationLogStatus.SENT,
             template_name=template_name,
-            rendered_context_json=context or {},
-            rendered_html_snapshot=html_content,
-            plain_text_snapshot=text_content,
+            rendered_context_json=log_context,
+            rendered_html_snapshot="" if redact_keys else html_content,
+            plain_text_snapshot="" if redact_keys else text_content,
             attempts_count=1,
             sent_at=timezone.now(),
             created_by=user if getattr(user, "is_authenticated", False) else None,
@@ -223,9 +235,9 @@ def send_email(
             provider=NotificationProvider.BREVO if selected_provider == NotificationProvider.BREVO else NotificationProvider.SMTP,
             status=NotificationLogStatus.FAILED,
             template_name=template_name,
-            rendered_context_json=context or {},
-            rendered_html_snapshot=html_content,
-            plain_text_snapshot=text_content,
+            rendered_context_json=log_context,
+            rendered_html_snapshot="" if redact_keys else html_content,
+            plain_text_snapshot="" if redact_keys else text_content,
             error_message=str(exc),
             attempts_count=1,
             created_by=user if getattr(user, "is_authenticated", False) else None,
@@ -257,4 +269,25 @@ def send_welcome_email(user) -> bool:
         recipient=user.email,
         email_type="welcome",
         user=user,
+    )
+
+
+def send_login_otp_email(user, *, code: str, expiry_minutes: int) -> bool:
+    logo_url = _resolve_public_logo_url()
+    context = {
+        "user_name": user.first_name or "there",
+        "otp_code": code,
+        "expiry_minutes": expiry_minutes,
+        "logo_url": logo_url,
+        "branding_logo_url": logo_url,
+        "year": datetime.now().year,
+    }
+    return send_email(
+        template_name="emails/login_otp.html",
+        subject="Your Aurora Blings sign-in code",
+        context=context,
+        recipient=user.email,
+        email_type="login_otp",
+        user=user,
+        redact_keys=("otp_code",),
     )

@@ -49,6 +49,32 @@ def send_password_reset_email(self, *, user_id: str, token: str):
         raise self.retry(exc=exc)
 
 
+@shared_task(bind=True, max_retries=2, default_retry_delay=10)
+def send_login_otp_email(self, *, user_id: str, code: str, expiry_minutes: int):
+    """
+    Email a one-time sign-in code.
+
+    Retries are short: the code expires in minutes, so a late email is useless.
+    The code is never logged.
+    """
+    from apps.accounts.selectors import get_user_by_id
+    from apps.notifications.email_service import send_login_otp_email as send_otp_now
+
+    user = get_user_by_id(user_id)
+    if not user or not user.email:
+        logger.warning("send_login_otp_noop", user_id=user_id, reason="user_not_found")
+        return
+
+    sent = send_otp_now(user, code=code, expiry_minutes=expiry_minutes)
+    if sent:
+        logger.info("send_login_otp_sent", user_id=user_id)
+        return
+
+    logger.error("send_login_otp_failed", user_id=user_id, attempt=self.request.retries + 1)
+    if self.request.retries < self.max_retries:
+        raise self.retry()
+
+
 @shared_task(bind=True, max_retries=3, default_retry_delay=60)
 def send_welcome_email(self, *, user_id: str):
     """Send a welcome email after successful registration."""

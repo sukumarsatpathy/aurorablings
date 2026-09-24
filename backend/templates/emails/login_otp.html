@@ -1,0 +1,92 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Your sign-in code</title>
+</head>
+
+<body style="margin:0; padding:0; background:#f5f5f5; font-family: Arial, sans-serif;">
+
+<!-- Inbox preview text -->
+<div style="display:none; max-height:0; overflow:hidden; opacity:0;">
+    Your Aurora Blings sign-in code is {{ otp_code }}. It expires in {{ expiry_minutes }} minutes.
+</div>
+
+<table width="100%" cellpadding="0" cellspacing="0" style="background:#f5f5f5; padding:20px 0;">
+    <tr>
+        <td align="center">
+
+            <table width="600" cellpadding="0" cellspacing="0"
+                   style="max-width:600px; width:100%; background:#ffffff; border-radius:12px; overflow:hidden;">
+
+                <!-- LOGO -->
+                <tr>
+                    <td align="center" style="padding:30px 20px 10px;">
+                        {% include "emails/includes/logo.html" %}
+                    </td>
+                </tr>
+
+                <!-- CONTENT -->
+                <tr>
+                    <td style="padding:10px 36px 8px;">
+
+                        <h2 style="margin:10px 0 8px; font-size:24px; color:#181C32;">
+                            Your one-time code
+                        </h2>
+
+                        <p style="margin:0; color:#7E8299; font-size:14px; line-height:1.6;">
+                            Hi {{ user_name }}, please enter the OTP below in your Aurora Blings sign-in window.
+                        </p>
+
+                    </td>
+                </tr>
+
+                <!-- CODE BOX -->
+                <tr>
+                    <td style="padding:18px 36px;">
+                        <table width="100%" cellpadding="0" cellspacing="0"
+                               style="background:#f0f3f0; border:1px solid #dfe7de; border-radius:12px;">
+                            <tr>
+                                <td align="center" style="padding:26px 10px;">
+                                    <span style="font-size:36px; font-weight:700; letter-spacing:8px; color:#517b4b; font-family:Arial, Helvetica, sans-serif;">{{ otp_code }}</span>
+                                </td>
+                            </tr>
+                        </table>
+                        <p style="margin:10px 0 0; text-align:center; font-size:13px; color:#A1A5B7;">
+                            This code expires in {{ expiry_minutes }} minutes and can be used only once.
+                        </p>
+                    </td>
+                </tr>
+
+                <!-- NOTES -->
+                <tr>
+                    <td style="padding:8px 36px 30px;">
+
+                        <p style="margin:0 0 14px; color:#7E8299; font-size:13px; line-height:1.6;">
+                            Note: Aurora Blings representatives will never ask you for your OTP, password
+                            or any other sensitive information. Please do not share this code with anyone.
+                        </p>
+
+                        <p style="margin:0; color:#7E8299; font-size:13px; line-height:1.6;">
+                            If you did not make this request, you can safely ignore this email.
+                        </p>
+
+                    </td>
+                </tr>
+
+                <!-- FOOTER -->
+                <tr>
+                    <td align="center" style="padding:20px; background:#f9f9f9;">
+                        {% include "emails/includes/footer.html" %}
+                    </td>
+                </tr>
+
+            </table>
+
+        </td>
+    </tr>
+</table>
+
+</body>
+</html>

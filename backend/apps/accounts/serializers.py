@@ -76,6 +76,22 @@ class LoginSerializer(serializers.Serializer):
     turnstile_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
 
 
+class LoginOTPRequestSerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    turnstile_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+
+class LoginOTPVerifySerializer(serializers.Serializer):
+    email = serializers.EmailField()
+    code  = serializers.RegexField(
+        regex=r"^\d{6}$",
+        max_length=6,
+        min_length=6,
+        error_messages={"invalid": "Enter the 6-digit code from your email."},
+    )
+    turnstile_token = serializers.CharField(required=False, allow_blank=True, write_only=True)
+
+
 # ─────────────────────────────────────────────────────────────
 #  Token pair output
 # ─────────────────────────────────────────────────────────────

@@ -1,4 +1,4 @@
-import { useEffect, useState } from 'react';
+import { useCallback, useEffect, useState } from 'react';
 import type { FormEvent } from 'react';
 import { useNavigate } from 'react-router-dom';
 import axios from 'axios';
@@ -19,8 +19,21 @@ interface SignInModalProps {
   open: boolean;
   onOpenChange: (open: boolean) => void;
   nextPath?: string;
-  initialMode?: 'login' | 'register' | 'forgot';
+  initialMode?: AuthMode;
 }
+
+type AuthMode = 'login' | 'otp' | 'register' | 'forgot';
+
+const OTP_LENGTH = 6;
+
+const apiErrorMessage = (error: unknown, fallback: string) => {
+  if (axios.isAxiosError(error)) {
+    const data = error.response?.data as { message?: string } | undefined;
+    return data?.message || fallback;
+  }
+  if (error instanceof Error) return error.message;
+  return fallback;
+};
 
 export const SignInModal: React.FC<SignInModalProps> = ({
   open,
@@ -29,7 +42,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({
   initialMode = 'login',
 }) => {
   const navigate = useNavigate();
-  const [mode, setMode] = useState<'login' | 'register' | 'forgot'>(initialMode);
+  const [mode, setMode] = useState<AuthMode>(initialMode);
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [firstName, setFirstName] = useState('');
@@ -40,7 +53,39 @@ export const SignInModal: React.FC<SignInModalProps> = ({
   const [successMessage, setSuccessMessage] = useState('');
   const [turnstileToken, setTurnstileToken] = useState('');
   const [turnstileResetKey, setTurnstileResetKey] = useState(0);
+  const [otpStep, setOtpStep] = useState<'email' | 'code'>('email');
+  const [otpCode, setOtpCode] = useState('');
+  const [resendIn, setResendIn] = useState(0);
   const { turnstileEnabled, turnstileSiteKey } = useTurnstileConfig();
+
+  const resetTurnstile = useCallback(() => {
+    setTurnstileToken('');
+    setTurnstileResetKey((prev) => prev + 1);
+  }, []);
+
+  // Resend countdown
+  useEffect(() => {
+    if (resendIn <= 0) return;
+    const timer = window.setTimeout(() => setResendIn((s) => s - 1), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
+
+  const completeLogin = (payload: { access?: string; refresh?: string; user?: { role?: string } } | undefined) => {
+    const access = payload?.access;
+    if (!access) {
+      throw new Error('Access token missing in login response.');
+    }
+    localStorage.setItem('auth_token', access);
+    if (payload?.refresh) {
+      localStorage.setItem('refresh_token', payload.refresh);
+    }
+    if (payload?.user) {
+      localStorage.setItem('auth_user', JSON.stringify(payload.user));
+    }
+    window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
+    onOpenChange(false);
+    navigate(nextPath || defaultRouteByRole(payload?.user?.role), { replace: true });
+  };
 
   useEffect(() => {
     if (!open) return;
@@ -53,9 +98,74 @@ export const SignInModal: React.FC<SignInModalProps> = ({
 
   useEffect(() => {
     setErrorMessage('');
+    setSuccessMessage('');
+    setOtpStep('email');
+    setOtpCode('');
     setTurnstileToken('');
     setTurnstileResetKey((prev) => prev + 1);
   }, [mode]);
+
+  const sendOtp = async () => {
+    setErrorMessage('');
+    setSuccessMessage('');
+    if (turnstileEnabled && !turnstileToken) {
+      setErrorMessage('Please complete CAPTCHA verification.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await apiClient.post('/v1/auth/login/otp/request/', {
+        email,
+        turnstile_token: turnstileToken,
+      });
+      const data = response.data?.data as { resend_after?: number } | undefined;
+      setSuccessMessage(response.data?.message || `We've sent a ${OTP_LENGTH}-digit code to ${email}.`);
+      setResendIn(data?.resend_after ?? 60);
+      setOtpCode('');
+      setOtpStep('code');
+    } catch (error: unknown) {
+      if (axios.isAxiosError(error) && error.response?.status === 429) {
+        const retry = Number((error.response.data as { errors?: { retry_after?: number } })?.errors?.retry_after);
+        if (retry > 0) setResendIn(retry);
+      }
+      setErrorMessage(apiErrorMessage(error, 'Unable to send the code right now. Please try again.'));
+    } finally {
+      resetTurnstile();
+      setIsSubmitting(false);
+    }
+  };
+
+  const handleOtpRequest = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    await sendOtp();
+  };
+
+  const handleOtpVerify = async (e: FormEvent<HTMLFormElement>) => {
+    e.preventDefault();
+    setErrorMessage('');
+    if (otpCode.length !== OTP_LENGTH) {
+      setErrorMessage(`Enter the ${OTP_LENGTH}-digit code from your email.`);
+      return;
+    }
+    if (turnstileEnabled && !turnstileToken) {
+      setErrorMessage('Please complete CAPTCHA verification.');
+      return;
+    }
+    setIsSubmitting(true);
+    try {
+      const response = await apiClient.post('/v1/auth/login/otp/verify/', {
+        email,
+        code: otpCode,
+        turnstile_token: turnstileToken,
+      });
+      completeLogin(response.data?.data);
+    } catch (error: unknown) {
+      resetTurnstile();
+      setErrorMessage(apiErrorMessage(error, 'Verification failed. Please try again.'));
+    } finally {
+      setIsSubmitting(false);
+    }
+  };
 
   const handleLogin = async (e: FormEvent<HTMLFormElement>) => {
     e.preventDefault();
@@ -68,26 +178,7 @@ export const SignInModal: React.FC<SignInModalProps> = ({
 
     try {
       const response = await apiClient.post('/v1/auth/login/', { email, password, turnstile_token: turnstileToken });
-      const payload = response.data?.data;
-      const access = payload?.access as string | undefined;
-      const refresh = payload?.refresh as string | undefined;
-      const user = payload?.user;
-
-      if (!access) {
-        throw new Error('Access token missing in login response.');
-      }
-
-      localStorage.setItem('auth_token', access);
-      if (refresh) {
-        localStorage.setItem('refresh_token', refresh);
-      }
-      if (user) {
-        localStorage.setItem('auth_user', JSON.stringify(user));
-      }
-      window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
-
-      onOpenChange(false);
-      navigate(nextPath || defaultRouteByRole(user?.role), { replace: true });
+      completeLogin(response.data?.data);
     } catch (error: unknown) {
       if (turnstileEnabled) {
         setTurnstileToken('');
@@ -213,7 +304,11 @@ export const SignInModal: React.FC<SignInModalProps> = ({
         <div className="p-7 sm:p-8">
           <div className="space-y-4">
             <h3 className="text-xl font-bold text-center text-foreground">
-              {mode === 'login' ? 'Sign In' : mode === 'register' ? 'Create Account' : 'Forgot Password'}
+              {mode === 'login' || mode === 'otp'
+                ? 'Sign In'
+                : mode === 'register'
+                  ? 'Create Account'
+                  : 'Forgot Password'}
             </h3>
 
             {mode === 'login' ? (
@@ -259,6 +354,18 @@ export const SignInModal: React.FC<SignInModalProps> = ({
                 >
                   {isSubmitting ? 'Signing in...' : 'Login'}
                 </button>
+                <div className="flex items-center gap-3 text-xs uppercase tracking-wide text-muted-foreground">
+                  <span className="h-px flex-1 bg-border" />
+                  or
+                  <span className="h-px flex-1 bg-border" />
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setMode('otp')}
+                  className="w-full p-3 rounded-xl font-bold border border-primary text-primary"
+                >
+                  Sign in with email code
+                </button>
                 <p className="text-sm text-center text-muted-foreground">
                   New customer?{' '}
                   <button type="button" className="text-primary font-medium" onClick={() => setMode('register')}>
@@ -266,6 +373,112 @@ export const SignInModal: React.FC<SignInModalProps> = ({
                   </button>
                 </p>
               </form>
+            ) : null}
+
+            {mode === 'otp' ? (
+              otpStep === 'email' ? (
+                <form onSubmit={handleOtpRequest} className="space-y-4">
+                  <p className="text-center text-sm text-muted-foreground">
+                    Enter your account email and we&apos;ll send you a {OTP_LENGTH}-digit sign-in code. No password needed.
+                  </p>
+                  <input
+                    type="email"
+                    value={email}
+                    onChange={(e) => setEmail(e.target.value)}
+                    placeholder="Email"
+                    className="w-full p-3 rounded-xl border border-border"
+                    autoComplete="email"
+                    required
+                  />
+                  {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
+                  <TurnstileWidget
+                    enabled={turnstileEnabled}
+                    siteKey={turnstileSiteKey}
+                    resetKey={turnstileResetKey}
+                    onTokenChange={setTurnstileToken}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || resendIn > 0}
+                    className="w-full bg-primary text-primary-foreground p-3 rounded-xl font-bold disabled:opacity-60"
+                  >
+                    {isSubmitting ? 'Sending code...' : resendIn > 0 ? `Send code (${resendIn}s)` : 'Send Code'}
+                  </button>
+                  <p className="text-sm text-center text-muted-foreground">
+                    <button type="button" className="text-primary font-medium" onClick={() => setMode('login')}>
+                      Sign in with password instead
+                    </button>
+                  </p>
+                </form>
+              ) : (
+                <form onSubmit={handleOtpVerify} className="space-y-4">
+                  <p className="text-center text-sm text-muted-foreground">
+                    {successMessage || `We've sent a ${OTP_LENGTH}-digit code to ${email}.`}
+                    <br />
+                    <span className="text-foreground font-medium">{email}</span>{' '}
+                    <button
+                      type="button"
+                      className="text-primary font-medium"
+                      onClick={() => {
+                        setOtpStep('email');
+                        setOtpCode('');
+                        setErrorMessage('');
+                        resetTurnstile();
+                      }}
+                    >
+                      Change
+                    </button>
+                  </p>
+                  <input
+                    type="text"
+                    value={otpCode}
+                    onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, OTP_LENGTH))}
+                    placeholder={'•'.repeat(OTP_LENGTH)}
+                    className="w-full p-3 rounded-xl border border-border text-center text-2xl font-bold tracking-[0.5em]"
+                    inputMode="numeric"
+                    autoComplete="one-time-code"
+                    pattern={`\\d{${OTP_LENGTH}}`}
+                    maxLength={OTP_LENGTH}
+                    aria-label="One-time code"
+                    autoFocus
+                    required
+                  />
+                  {errorMessage ? <p className="text-sm text-red-600">{errorMessage}</p> : null}
+                  <TurnstileWidget
+                    enabled={turnstileEnabled}
+                    siteKey={turnstileSiteKey}
+                    resetKey={turnstileResetKey}
+                    onTokenChange={setTurnstileToken}
+                  />
+                  <button
+                    type="submit"
+                    disabled={isSubmitting || otpCode.length !== OTP_LENGTH}
+                    className="w-full bg-primary text-primary-foreground p-3 rounded-xl font-bold disabled:opacity-60"
+                  >
+                    {isSubmitting ? 'Verifying...' : 'Verify & Sign In'}
+                  </button>
+                  <p className="text-sm text-center text-muted-foreground">
+                    Didn&apos;t get it? Check spam, or{' '}
+                    {resendIn > 0 ? (
+                      <span>resend in {resendIn}s</span>
+                    ) : (
+                      <button
+                        type="button"
+                        className="text-primary font-medium disabled:opacity-60"
+                        disabled={isSubmitting}
+                        onClick={() => void sendOtp()}
+                      >
+                        resend code
+                      </button>
+                    )}
+                  </p>
+                  <p className="text-sm text-center text-muted-foreground">
+                    <button type="button" className="text-primary font-medium" onClick={() => setMode('login')}>
+                      Sign in with password instead
+                    </button>
+                  </p>
+                </form>
+              )
             ) : null}
 
             {mode === 'register' ? (

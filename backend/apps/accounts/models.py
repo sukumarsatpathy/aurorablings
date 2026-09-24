@@ -211,3 +211,49 @@ class LoginAttempt(models.Model):
     def __str__(self):
         status = "✓" if self.successful else "✗"
         return f"[{status}] {self.email} @ {self.attempted_at:%Y-%m-%d %H:%M}"
+
+
+# ─────────────────────────────────────────────────────────────
+#  Email OTP (passwordless sign-in)
+# ─────────────────────────────────────────────────────────────
+
+class EmailOTP(models.Model):
+    """
+    One-time sign-in code sent by email.
+
+    Only a keyed hash of the code is stored — the raw digits exist solely in
+    the outbound email. A user has at most one live row: issuing a new code
+    deletes the previous ones, so the table never grows beyond roughly one row
+    per customer and needs no cleanup job.
+    """
+
+    PURPOSE_LOGIN = "login"
+    PURPOSE_CHOICES = [(PURPOSE_LOGIN, "Login")]
+
+    id          = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    user        = models.ForeignKey(
+        "accounts.User", on_delete=models.CASCADE, related_name="email_otps",
+    )
+    email       = models.EmailField(db_index=True)
+    purpose     = models.CharField(max_length=20, choices=PURPOSE_CHOICES, default=PURPOSE_LOGIN)
+    code_hash   = models.CharField(max_length=64)
+    attempts    = models.PositiveSmallIntegerField(default=0)
+    expires_at  = models.DateTimeField()
+    consumed_at = models.DateTimeField(null=True, blank=True)
+    ip_address  = models.GenericIPAddressField(null=True, blank=True)
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = _("email OTP")
+        verbose_name_plural = _("email OTPs")
+        ordering            = ["-created_at"]
+        indexes = [
+            models.Index(fields=["user", "purpose", "-created_at"], name="accounts_otp_user_purpose_idx"),
+        ]
+
+    def __str__(self):
+        return f"OTP for {self.email} ({self.purpose}) @ {self.created_at:%Y-%m-%d %H:%M}"
+
+    @property
+    def is_usable(self) -> bool:
+        return self.consumed_at is None and timezone.now() < self.expires_at
