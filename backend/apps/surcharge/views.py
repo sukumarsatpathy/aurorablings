@@ -5,6 +5,7 @@ Endpoints:
 
   Public / Customer:
     POST /surcharge/calculate/     → compute surcharges for current cart
+    GET  /surcharge/shipping-summary/?subtotal=… → delivery charge + free-shipping threshold
 
   Admin (staff+):
     GET/POST /surcharge/tax/               → list / create tax rules
@@ -14,6 +15,8 @@ Endpoints:
     GET/POST /surcharge/fees/              → list / create fee rules
     GET/PATCH/DELETE /surcharge/fees/{id}/
 """
+from decimal import Decimal, InvalidOperation
+
 from rest_framework.permissions import IsAuthenticated, AllowAny
 from rest_framework.views import APIView
 from rest_framework.generics import (
@@ -27,7 +30,7 @@ from core.exceptions import NotFoundError
 
 from . import selectors
 from .models import TaxRule, ShippingRule, FeeRule
-from .services import get_surcharges_for_cart
+from .services import get_surcharges_for_cart, get_shipping_summary
 from .serializers import (
     TaxRuleSerializer, ShippingRuleSerializer, FeeRuleSerializer,
     CartSurchargeRequestSerializer, SurchargeResultSerializer,
@@ -88,6 +91,28 @@ class CartSurchargeView(APIView):
 # ─────────────────────────────────────────────────────────────
 #  Tax rules (admin CRUD)
 # ─────────────────────────────────────────────────────────────
+
+class ShippingSummaryView(APIView):
+    """
+    GET ?subtotal=399 → delivery charge for an order of that value, plus the
+    free-shipping threshold if one applies. Public; used on product pages.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        raw = str(request.query_params.get("subtotal", "0") or "0").strip()
+        try:
+            subtotal = Decimal(raw)
+        except (InvalidOperation, ValueError):
+            subtotal = Decimal("0")
+        if not subtotal.is_finite() or subtotal < 0:
+            subtotal = Decimal("0")
+        subtotal = min(subtotal, Decimal("10000000"))
+        return success_response(
+            data=get_shipping_summary(subtotal=subtotal),
+            request_id=getattr(request, "request_id", None),
+        )
+
 
 class TaxRuleListCreateView(ListCreateAPIView):
     serializer_class   = TaxRuleSerializer

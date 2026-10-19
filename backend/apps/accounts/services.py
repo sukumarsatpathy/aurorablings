@@ -18,7 +18,7 @@ from datetime import timedelta
 
 from django.conf import settings
 from django.core.cache import cache
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework_simplejwt.tokens import RefreshToken
 
@@ -31,7 +31,7 @@ from core.exceptions import (
 from core.logging import get_logger
 from audit.models import ActorType, AuditAction
 from audit.services.activity_logger import log_activity
-from .models import User, Address, LoginAttempt, EmailOTP
+from .models import User, Address, LoginAttempt, EmailOTP, UserRole
 from .selectors import get_user_by_email, email_exists, get_user_by_reset_token
 
 logger = get_logger(__name__)
@@ -300,6 +300,53 @@ def request_login_otp(*, email: str, ip_address: str | None = None) -> None:
         logger.info("login_otp_noop", email=email, reason="account_locked", ip=ip_address)
         return
 
+    _issue_login_otp(user=user, ip_address=ip_address)
+
+
+def request_checkout_otp(*, email: str, ip_address: str | None = None) -> None:
+    """
+    Passwordless checkout: email a 6-digit code, creating the account if needed.
+
+    Shoppers confirm their email at checkout instead of choosing a password.
+    An unknown email gets a customer account with an unusable password; the
+    code it receives is a normal login code, verified by `verify_login_otp`.
+    Inactive or locked accounts are a silent no-op, same as `request_login_otp`,
+    and the same per-email send limits apply.
+
+    Raises:
+        OTPCooldownError: a code was sent to this email too recently.
+    """
+    email = email.strip().lower()
+    _enforce_otp_send_limits(email)
+
+    user = get_user_by_email(email)
+    if not user:
+        try:
+            with transaction.atomic():
+                user = User.objects.create_user(
+                    email=email,
+                    password=None,          # unusable — they sign in by code
+                    role=UserRole.CUSTOMER,
+                )
+        except IntegrityError:
+            # Two requests raced to create the same email; use the winner.
+            user = get_user_by_email(email)
+            if not user:
+                raise
+        else:
+            logger.info("user_registered", user_id=str(user.id), email=email, role=user.role, via="checkout_otp")
+    if not user.is_active:
+        logger.info("checkout_otp_noop", email=email, reason="account_inactive", ip=ip_address)
+        return
+    if user.is_locked:
+        logger.info("checkout_otp_noop", email=email, reason="account_locked", ip=ip_address)
+        return
+
+    _issue_login_otp(user=user, ip_address=ip_address)
+
+
+def _issue_login_otp(*, user: User, ip_address: str | None = None) -> None:
+    """Create a fresh login code for `user` (replacing any earlier one) and queue the email."""
     code = f"{secrets.randbelow(10 ** OTP_LENGTH):0{OTP_LENGTH}d}"
 
     with transaction.atomic():

@@ -190,6 +190,55 @@ class LoginOTPRequestView(APIView):
         )
 
 
+class CheckoutOTPRequestView(APIView):
+    """
+    Passwordless checkout: email a 6-digit code, creating the account if needed.
+
+    Same protections as LoginOTPRequestView (IP rate limit, Turnstile,
+    per-email cooldown). The code is verified with LoginOTPVerifyView.
+    """
+    permission_classes = [AllowAny]
+    throttle_scope = "auth_otp_request"
+
+    @method_decorator(ratelimit(**_RL_OTP_REQUEST))
+    def post(self, request):
+        limited_response = _rate_limit_error_if_limited(request, endpoint="auth.checkout_otp_request")
+        if limited_response is not None:
+            return limited_response
+
+        s = LoginOTPRequestSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+
+        token = s.validated_data.get("turnstile_token", "")
+        if not verify_turnstile_token(token=token, remote_ip=get_client_ip(request), action="auth.checkout_otp_request"):
+            return _turnstile_failed_response(request)
+
+        try:
+            services.request_checkout_otp(
+                email=s.validated_data["email"],
+                ip_address=get_client_ip(request),
+            )
+        except services.OTPCooldownError as exc:
+            response = error_response(
+                message=str(exc),
+                error_code="otp_cooldown",
+                errors={"retry_after": exc.retry_after},
+                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
+                request_id=getattr(request, "request_id", None),
+            )
+            response["Retry-After"] = str(exc.retry_after)
+            return response
+
+        return success_response(
+            data={
+                "expires_in": services.OTP_EXPIRY_MINUTES * 60,
+                "resend_after": services.OTP_RESEND_COOLDOWN_SECONDS,
+            },
+            message="We've emailed you a 6-digit code.",
+            request_id=getattr(request, "request_id", None),
+        )
+
+
 class LoginOTPVerifyView(APIView):
     """Step 2: exchange the emailed code for JWT tokens."""
     permission_classes = [AllowAny]

@@ -6,6 +6,7 @@ app_name = "surcharge"
 urlpatterns = [
     # ── Calculation ───────────────────────────────────────────
     path("calculate/", views.CartSurchargeView.as_view(), name="calculate"),
+    path("shipping-summary/", views.ShippingSummaryView.as_view(), name="shipping-summary"),
 
     # ── Tax rules ─────────────────────────────────────────────
     path("tax/",           views.TaxRuleListCreateView.as_view(),  name="tax-list"),

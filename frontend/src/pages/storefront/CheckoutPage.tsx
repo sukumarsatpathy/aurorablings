@@ -14,6 +14,7 @@ import { useAddressAutoFill } from '@/hooks/useAddressAutoFill';
 import { useTurnstileConfig } from '@/hooks/useTurnstileConfig';
 import { TurnstileWidget } from '@/components/security/TurnstileWidget';
 import { AvailableCouponsPanel } from '@/components/storefront/coupons/AvailableCouponsPanel';
+import { FreeShippingProgress } from '@/components/storefront/FreeShippingProgress';
 
 interface CheckoutCartItem {
   id: string;
@@ -25,6 +26,11 @@ interface CheckoutCartItem {
   lineTotal: number;
   thumbnail: string;
 }
+
+/** The `{ message, errors }` body of a failed API call, if there is one. */
+const readApiErrorBody = (error: unknown) =>
+  (error as { response?: { data?: { message?: string; errors?: { retry_after?: number | string } } } } | null)
+    ?.response?.data;
 
 interface AuthUserCache {
   first_name?: string;
@@ -236,25 +242,24 @@ export const CheckoutPage: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<CheckoutPaymentMethod>(FALLBACK_PAYMENT_OPTIONS[0].value);
   const [paymentOptions, setPaymentOptions] = useState<PaymentOption[]>(FALLBACK_PAYMENT_OPTIONS);
   const [shippingCharge, setShippingCharge] = useState(0);
+  const [freeShippingThreshold, setFreeShippingThreshold] = useState(0);
   const [taxAmount, setTaxAmount] = useState(0);
   const [shippingLoading, setShippingLoading] = useState(false);
   const [shippingError, setShippingError] = useState('');
 
   const [authLoading, setAuthLoading] = useState(false);
   const [authError, setAuthError] = useState('');
-  const [authMode, setAuthMode] = useState<'login' | 'create'>('login');
+  // 'otp' = passwordless: confirm email with a 6-digit code (account is created
+  // on the fly for new shoppers). 'login' = existing customers with a password.
+  const [authMode, setAuthMode] = useState<'otp' | 'login'>('otp');
   const [loginForm, setLoginForm] = useState({ email: '', password: '' });
-  const [registerForm, setRegisterForm] = useState({
-    first_name: '',
-    last_name: '',
-    email: '',
-    phone: '',
-    password: '',
-  });
+  const [otpStep, setOtpStep] = useState<'email' | 'code'>('email');
+  const [otpEmail, setOtpEmail] = useState('');
+  const [otpCode, setOtpCode] = useState('');
+  const [otpInfo, setOtpInfo] = useState('');
+  const [resendIn, setResendIn] = useState(0);
   const [loginTurnstileToken, setLoginTurnstileToken] = useState('');
-  const [registerTurnstileToken, setRegisterTurnstileToken] = useState('');
   const [loginTurnstileResetKey, setLoginTurnstileResetKey] = useState(0);
-  const [registerTurnstileResetKey, setRegisterTurnstileResetKey] = useState(0);
   const { turnstileEnabled, turnstileSiteKey } = useTurnstileConfig();
 
   const [placingOrder, setPlacingOrder] = useState(false);
@@ -302,15 +307,21 @@ export const CheckoutPage: React.FC = () => {
     });
   };
 
+  const resetTurnstile = useCallback(() => {
+    setLoginTurnstileToken('');
+    setLoginTurnstileResetKey((prev) => prev + 1);
+  }, []);
+
   useEffect(() => {
-    if (authMode === 'login') {
-      setLoginTurnstileToken('');
-      setLoginTurnstileResetKey((prev) => prev + 1);
-    } else {
-      setRegisterTurnstileToken('');
-      setRegisterTurnstileResetKey((prev) => prev + 1);
-    }
-  }, [authMode]);
+    resetTurnstile();
+    setAuthError('');
+  }, [authMode, otpStep, resetTurnstile]);
+
+  useEffect(() => {
+    if (resendIn <= 0) return undefined;
+    const timer = window.setTimeout(() => setResendIn((prev) => Math.max(0, prev - 1)), 1000);
+    return () => window.clearTimeout(timer);
+  }, [resendIn]);
 
   const loadCart = async () => {
     try {
@@ -606,8 +617,10 @@ export const CheckoutPage: React.FC = () => {
         const data = response?.data || {};
         setShippingCharge(Number(data.shipping_total || 0));
         setTaxAmount(Number(data.tax_total || 0));
+        setFreeShippingThreshold(Number(data.free_shipping_threshold || 0));
       } catch {
         if (cancelled) return;
+        setFreeShippingThreshold(0);
         setShippingCharge(0);
         setTaxAmount(0);
         setShippingError('Unable to fetch live shipping/tax for current address.');
@@ -621,6 +634,34 @@ export const CheckoutPage: React.FC = () => {
       window.clearTimeout(timer);
     };
   }, [items, paymentMethod, shippingAddress.country, shippingAddress.state, shippingAddress.pincode]);
+
+  /** Store tokens, merge the guest cart into the account, and reload checkout data. */
+  const completeAuth = async (payload: { access?: unknown; refresh?: unknown; user?: unknown }) => {
+    const access = String(payload.access || '');
+    const refresh = String(payload.refresh || '');
+    if (!access) {
+      setAuthError('Sign-in failed. Please try again.');
+      return false;
+    }
+
+    const existingGuestSession = cartService.getGuestCartToken();
+
+    localStorage.setItem('auth_token', access);
+    if (refresh) localStorage.setItem('refresh_token', refresh);
+    if (payload.user) localStorage.setItem('auth_user', JSON.stringify(payload.user));
+    window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
+
+    try {
+      await cartService.mergeGuestCart(existingGuestSession);
+    } catch {
+      // do not block checkout auth on merge issue
+    }
+
+    window.dispatchEvent(new CustomEvent('aurora:cart-updated'));
+    await hydrateProfile();
+    await loadCart();
+    return true;
+  };
 
   const handleLogin = async () => {
     try {
@@ -648,132 +689,84 @@ export const CheckoutPage: React.FC = () => {
         password: loginForm.password,
         turnstile_token: loginTurnstileToken,
       });
-      const payload = response?.data?.data || {};
-      const access = String(payload.access || '');
-      const refresh = String(payload.refresh || '');
-      const user = payload.user;
-
-      if (!access) {
-        setAuthError('Login failed. Missing access token.');
-        return;
-      }
-
-      const existingGuestSession = cartService.getGuestCartToken();
-
-      localStorage.setItem('auth_token', access);
-      if (refresh) localStorage.setItem('refresh_token', refresh);
-      if (user) localStorage.setItem('auth_user', JSON.stringify(user));
-      window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
-
-      try {
-        await cartService.mergeGuestCart(existingGuestSession);
-      } catch {
-        // do not block checkout auth on merge issue
-      }
-
-      window.dispatchEvent(new CustomEvent('aurora:cart-updated'));
-      await hydrateProfile();
-      await loadCart();
-      setLoginForm((prev) => ({ ...prev, password: '' }));
-      setLoginTurnstileToken('');
-      setLoginTurnstileResetKey((prev) => prev + 1);
+      const ok = await completeAuth(response?.data?.data || {});
+      if (ok) setLoginForm((prev) => ({ ...prev, password: '' }));
+      resetTurnstile();
     } catch (error: any) {
       setAuthError(error?.response?.data?.message || 'Unable to login. Please try again.');
-      setLoginTurnstileToken('');
-      setLoginTurnstileResetKey((prev) => prev + 1);
+      resetTurnstile();
     } finally {
       setAuthLoading(false);
     }
   };
 
-  const handleCreateAccount = async () => {
+  const sendCheckoutCode = async () => {
+    const email = otpEmail.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)) {
+      setFieldErrors((prev) => ({ ...prev, 'otp.email': 'Please enter a valid email address.' }));
+      focusFieldByKey('otp.email');
+      return;
+    }
+    if (turnstileEnabled && !loginTurnstileToken) {
+      setAuthError('Please complete CAPTCHA verification.');
+      return;
+    }
     try {
       setAuthLoading(true);
       setAuthError('');
-      const validationErrors: Record<string, string> = {};
-      if (!registerForm.first_name.trim()) validationErrors['register.first_name'] = 'First name is required.';
-      if (!registerForm.last_name.trim()) validationErrors['register.last_name'] = 'Last name is required.';
-      if (!registerForm.email.trim()) validationErrors['register.email'] = 'Email is required.';
-      if (registerForm.email.trim() && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(registerForm.email.trim())) {
-        validationErrors['register.email'] = 'Please enter a valid email address.';
-      }
-      if (!registerForm.password.trim()) validationErrors['register.password'] = 'Password is required.';
-      if (Object.keys(validationErrors).length) {
-        setFieldErrors((prev) => ({ ...prev, ...validationErrors }));
-        setAuthError('Please correct highlighted fields.');
-        focusFieldByKey(Object.keys(validationErrors)[0]);
-        return;
-      }
-      if (turnstileEnabled && !registerTurnstileToken) {
-        setAuthError('Please complete CAPTCHA verification.');
-        return;
-      }
-
-      const response = await apiClient.post('/v1/auth/register/', {
-        email: registerForm.email,
-        password: registerForm.password,
-        first_name: registerForm.first_name,
-        last_name: registerForm.last_name,
-        phone: registerForm.phone,
-        turnstile_token: registerTurnstileToken,
+      const response = await apiClient.post('/v1/auth/checkout/otp/request/', {
+        email,
+        turnstile_token: loginTurnstileToken,
       });
-      let payload = response?.data?.data || {};
-      let access = String(payload.access || '');
-      let refresh = String(payload.refresh || '');
-      let user = payload.user;
+      const resendAfter = Number(response?.data?.data?.resend_after || 60);
+      setOtpInfo(`We've sent a 6-digit code to ${email}. It may take a minute to arrive — check spam too.`);
+      setOtpCode('');
+      setResendIn(resendAfter);
+      setOtpStep('code');
+    } catch (error: unknown) {
+      const body = readApiErrorBody(error);
+      const retryAfter = Number(body?.errors?.retry_after || 0);
+      if (retryAfter > 0) setResendIn(retryAfter);
+      setAuthError(body?.message || 'Could not send the code. Please try again.');
+      resetTurnstile();
+    } finally {
+      setAuthLoading(false);
+    }
+  };
 
-      if (!access) {
-        const loginResponse = await apiClient.post('/v1/auth/login/', {
-          email: registerForm.email,
-          password: registerForm.password,
-          turnstile_token: registerTurnstileToken,
-        });
-        payload = loginResponse?.data?.data || {};
-        access = String(payload.access || '');
-        refresh = String(payload.refresh || '');
-        user = payload.user;
+  const verifyCheckoutCode = async () => {
+    if (!/^\d{6}$/.test(otpCode)) {
+      setAuthError('Enter the 6-digit code from your email.');
+      return;
+    }
+    if (turnstileEnabled && !loginTurnstileToken) {
+      setAuthError('Please complete CAPTCHA verification.');
+      return;
+    }
+    try {
+      setAuthLoading(true);
+      setAuthError('');
+      const response = await apiClient.post('/v1/auth/login/otp/verify/', {
+        email: otpEmail.trim(),
+        code: otpCode,
+        turnstile_token: loginTurnstileToken,
+      });
+      const ok = await completeAuth(response?.data?.data || {});
+      if (ok) {
+        setContactEmail((prev) => prev || otpEmail.trim());
+        setOtpCode('');
       }
-
-      if (!access) {
-        setAuthError('Account created, but auto-login failed. Please login manually.');
-        setAuthMode('login');
-        setLoginForm((prev) => ({ ...prev, email: registerForm.email, password: '' }));
-        setRegisterTurnstileToken('');
-        setRegisterTurnstileResetKey((prev) => prev + 1);
-        return;
-      }
-
-      const existingGuestSession = cartService.getGuestCartToken();
-
-      localStorage.setItem('auth_token', access);
-      if (refresh) localStorage.setItem('refresh_token', refresh);
-      if (user) localStorage.setItem('auth_user', JSON.stringify(user));
-      window.dispatchEvent(new CustomEvent('aurora:auth-changed'));
-
-      try {
-        await cartService.mergeGuestCart(existingGuestSession);
-      } catch {
-        // do not block checkout auth on merge issue
-      }
-
-      window.dispatchEvent(new CustomEvent('aurora:cart-updated'));
-      await hydrateProfile();
-      await loadCart();
-      setRegisterTurnstileToken('');
-      setRegisterTurnstileResetKey((prev) => prev + 1);
-    } catch (error: any) {
-      setAuthError(error?.response?.data?.message || 'Unable to create account.');
-      setRegisterTurnstileToken('');
-      setRegisterTurnstileResetKey((prev) => prev + 1);
+    } catch (error: unknown) {
+      setAuthError(readApiErrorBody(error)?.message || 'That code did not work. Please try again.');
+      resetTurnstile();
     } finally {
       setAuthLoading(false);
     }
   };
 
   const placeOrder = async () => {
-    const shouldCreateAccount = !isAuthenticated && authMode === 'create';
-    if (!isAuthenticated && !shouldCreateAccount) {
-      setOrderError('Please login or create an account to continue with prepaid checkout.');
+    if (!isAuthenticated) {
+      setOrderError('Please confirm your email above to continue.');
       return;
     }
 
@@ -818,16 +811,6 @@ export const CheckoutPage: React.FC = () => {
       return;
     }
     setFieldErrors({});
-    if (shouldCreateAccount) {
-      if (!registerForm.first_name.trim() || !registerForm.last_name.trim() || !registerForm.email.trim() || !registerForm.password.trim()) {
-        setOrderError('Please complete the account details to create your account during checkout.');
-        return;
-      }
-      if (turnstileEnabled && !registerTurnstileToken) {
-        setOrderError('Please complete CAPTCHA verification before placing your order.');
-        return;
-      }
-    }
 
     try {
       setPlacingOrder(true);
@@ -848,15 +831,8 @@ export const CheckoutPage: React.FC = () => {
         coupon_code: appliedCouponCode || couponInput.trim(),
         notes: orderNotes.trim(),
         guest_email: normalizedEmail,
-        create_account: shouldCreateAccount,
+        create_account: false,
         save_address: true,
-        account: shouldCreateAccount ? {
-          email: registerForm.email.trim(),
-          password: registerForm.password,
-          first_name: registerForm.first_name.trim(),
-          last_name: registerForm.last_name.trim(),
-          phone: registerForm.phone.trim() || normalizedPhone,
-        } : undefined,
       });
 
       const placedOrder = response?.data || null;
@@ -1104,6 +1080,7 @@ export const CheckoutPage: React.FC = () => {
               )}
 
               <div className="space-y-3 border-t border-border/60 pt-4 text-sm">
+                <FreeShippingProgress subtotal={subtotal} threshold={freeShippingThreshold} />
                 <div className="flex justify-between">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{formatCurrency(subtotal)}</span>
@@ -1195,134 +1172,155 @@ export const CheckoutPage: React.FC = () => {
           <div className="lg:col-span-7 space-y-8">
             {!isAuthenticated ? (
               <section className="space-y-5 rounded-2xl border bg-white p-6">
-                <h2 className="text-xl font-bold">Login or Create Account</h2>
-                <p className="text-sm text-muted-foreground">A secure account is required for prepaid checkout with Razorpay.</p>
+                {authMode === 'otp' ? (
+                  <>
+                    <div>
+                      <h2 className="text-xl font-bold">Confirm your email</h2>
+                      <p className="mt-1 text-sm text-muted-foreground">
+                        {otpStep === 'email'
+                          ? "We'll email you a 6-digit code — no password needed. New here? Your account is set up automatically."
+                          : otpInfo}
+                      </p>
+                    </div>
 
-                <div className="inline-flex rounded-xl border overflow-hidden">
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode('login')}
-                    className={`px-4 py-2 text-sm font-semibold ${authMode === 'login' ? 'bg-primary text-primary-foreground' : 'bg-white'}`}
-                  >
-                    Login
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setAuthMode('create')}
-                    className={`px-4 py-2 text-sm font-semibold ${authMode === 'create' ? 'bg-primary text-primary-foreground' : 'bg-white'}`}
-                  >
-                    Create Account
-                  </button>
-                </div>
+                    {otpStep === 'email' ? (
+                      <form
+                        className="grid grid-cols-1 gap-3"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void sendCheckoutCode();
+                        }}
+                      >
+                        <Input
+                          data-field-key="otp.email"
+                          type="email"
+                          inputMode="email"
+                          autoComplete="email"
+                          placeholder="you@example.com"
+                          className={inputErrorClass('otp.email')}
+                          value={otpEmail}
+                          onChange={(e) => {
+                            setOtpEmail(e.target.value);
+                            clearFieldError('otp.email');
+                          }}
+                        />
+                        {fieldErrors['otp.email'] ? <p className="text-xs text-red-600">{fieldErrors['otp.email']}</p> : null}
+                        <TurnstileWidget
+                          enabled={turnstileEnabled}
+                          siteKey={turnstileSiteKey}
+                          resetKey={loginTurnstileResetKey}
+                          onTokenChange={setLoginTurnstileToken}
+                        />
+                        <Button type="submit" disabled={authLoading || resendIn > 0} className="rounded-xl">
+                          {authLoading ? 'Sending code...' : resendIn > 0 ? `Send code (${resendIn}s)` : 'Send code'}
+                        </Button>
+                      </form>
+                    ) : (
+                      <form
+                        className="grid grid-cols-1 gap-3"
+                        onSubmit={(e) => {
+                          e.preventDefault();
+                          void verifyCheckoutCode();
+                        }}
+                      >
+                        <Input
+                          data-field-key="otp.code"
+                          type="text"
+                          inputMode="numeric"
+                          autoComplete="one-time-code"
+                          maxLength={6}
+                          placeholder="6-digit code"
+                          className="text-center text-lg tracking-[0.5em] placeholder:text-base placeholder:tracking-normal"
+                          value={otpCode}
+                          onChange={(e) => setOtpCode(e.target.value.replace(/\D/g, '').slice(0, 6))}
+                          autoFocus
+                        />
+                        <TurnstileWidget
+                          enabled={turnstileEnabled}
+                          siteKey={turnstileSiteKey}
+                          resetKey={loginTurnstileResetKey}
+                          onTokenChange={setLoginTurnstileToken}
+                        />
+                        <Button type="submit" disabled={authLoading || otpCode.length !== 6} className="rounded-xl">
+                          {authLoading ? 'Checking...' : 'Continue to delivery'}
+                        </Button>
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-sm">
+                          <button
+                            type="button"
+                            className="text-primary underline-offset-4 hover:underline"
+                            onClick={() => {
+                              setOtpStep('email');
+                              setOtpCode('');
+                            }}
+                          >
+                            Use a different email
+                          </button>
+                          <button
+                            type="button"
+                            disabled={resendIn > 0}
+                            className="text-primary underline-offset-4 hover:underline disabled:text-muted-foreground disabled:no-underline"
+                            onClick={() => setOtpStep('email')}
+                          >
+                            {resendIn > 0 ? `Resend code in ${resendIn}s` : 'Resend code'}
+                          </button>
+                        </div>
+                      </form>
+                    )}
 
-                {authMode === 'login' ? (
-                  <div className="grid grid-cols-1 gap-3">
-                    <Input
-                      data-field-key="login.email"
-                      type="email"
-                      placeholder="Email"
-                      className={inputErrorClass('login.email')}
-                      value={loginForm.email}
-                      onChange={(e) => {
-                        setLoginForm((prev) => ({ ...prev, email: e.target.value }));
-                        clearFieldError('login.email');
-                      }}
-                    />
-                    {fieldErrors['login.email'] ? <p className="text-xs text-red-600">{fieldErrors['login.email']}</p> : null}
-                    <Input
-                      data-field-key="login.password"
-                      type="password"
-                      placeholder="Password"
-                      className={inputErrorClass('login.password')}
-                      value={loginForm.password}
-                      onChange={(e) => {
-                        setLoginForm((prev) => ({ ...prev, password: e.target.value }));
-                        clearFieldError('login.password');
-                      }}
-                    />
-                    {fieldErrors['login.password'] ? <p className="text-xs text-red-600">{fieldErrors['login.password']}</p> : null}
-                    <TurnstileWidget
-                      enabled={turnstileEnabled}
-                      siteKey={turnstileSiteKey}
-                      resetKey={loginTurnstileResetKey}
-                      onTokenChange={setLoginTurnstileToken}
-                    />
-                    <Button type="button" disabled={authLoading} onClick={() => void handleLogin()} className="rounded-xl">
-                      {authLoading ? 'Signing in...' : 'Login to Continue'}
-                    </Button>
-                  </div>
+                    <p className="text-xs text-muted-foreground">
+                      Have a password?{' '}
+                      <button type="button" className="font-semibold text-primary underline-offset-4 hover:underline" onClick={() => setAuthMode('login')}>
+                        Log in instead
+                      </button>
+                    </p>
+                  </>
                 ) : (
-                  <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                    <Input
-                      data-field-key="register.first_name"
-                      type="text"
-                      placeholder="First Name"
-                      className={inputErrorClass('register.first_name')}
-                      value={registerForm.first_name}
-                      onChange={(e) => {
-                        setRegisterForm((prev) => ({ ...prev, first_name: e.target.value }));
-                        clearFieldError('register.first_name');
-                      }}
-                    />
-                    {fieldErrors['register.first_name'] ? <p className="text-xs text-red-600 md:col-span-1">{fieldErrors['register.first_name']}</p> : null}
-                    <Input
-                      data-field-key="register.last_name"
-                      type="text"
-                      placeholder="Last Name"
-                      className={inputErrorClass('register.last_name')}
-                      value={registerForm.last_name}
-                      onChange={(e) => {
-                        setRegisterForm((prev) => ({ ...prev, last_name: e.target.value }));
-                        clearFieldError('register.last_name');
-                      }}
-                    />
-                    {fieldErrors['register.last_name'] ? <p className="text-xs text-red-600 md:col-span-1">{fieldErrors['register.last_name']}</p> : null}
-                    <Input
-                      data-field-key="register.email"
-                      type="email"
-                      placeholder="Email"
-                      className={inputErrorClass('register.email')}
-                      value={registerForm.email}
-                      onChange={(e) => {
-                        setRegisterForm((prev) => ({ ...prev, email: e.target.value }));
-                        clearFieldError('register.email');
-                      }}
-                    />
-                    {fieldErrors['register.email'] ? <p className="text-xs text-red-600 md:col-span-1">{fieldErrors['register.email']}</p> : null}
-                    <Input
-                      type="text"
-                      placeholder="Phone"
-                      value={registerForm.phone}
-                      onChange={(e) => setRegisterForm((prev) => ({ ...prev, phone: e.target.value }))}
-                    />
-                    <div className="md:col-span-2">
+                  <>
+                    <h2 className="text-xl font-bold">Log in</h2>
+                    <div className="grid grid-cols-1 gap-3">
                       <Input
-                        data-field-key="register.password"
-                        type="password"
-                        placeholder="Password"
-                        className={inputErrorClass('register.password')}
-                        value={registerForm.password}
+                        data-field-key="login.email"
+                        type="email"
+                        autoComplete="email"
+                        placeholder="Email"
+                        className={inputErrorClass('login.email')}
+                        value={loginForm.email}
                         onChange={(e) => {
-                          setRegisterForm((prev) => ({ ...prev, password: e.target.value }));
-                          clearFieldError('register.password');
+                          setLoginForm((prev) => ({ ...prev, email: e.target.value }));
+                          clearFieldError('login.email');
                         }}
                       />
-                      {fieldErrors['register.password'] ? <p className="mt-1 text-xs text-red-600">{fieldErrors['register.password']}</p> : null}
-                    </div>
-                    <div className="md:col-span-2">
+                      {fieldErrors['login.email'] ? <p className="text-xs text-red-600">{fieldErrors['login.email']}</p> : null}
+                      <Input
+                        data-field-key="login.password"
+                        type="password"
+                        autoComplete="current-password"
+                        placeholder="Password"
+                        className={inputErrorClass('login.password')}
+                        value={loginForm.password}
+                        onChange={(e) => {
+                          setLoginForm((prev) => ({ ...prev, password: e.target.value }));
+                          clearFieldError('login.password');
+                        }}
+                      />
+                      {fieldErrors['login.password'] ? <p className="text-xs text-red-600">{fieldErrors['login.password']}</p> : null}
                       <TurnstileWidget
                         enabled={turnstileEnabled}
                         siteKey={turnstileSiteKey}
-                        resetKey={registerTurnstileResetKey}
-                        onTokenChange={setRegisterTurnstileToken}
+                        resetKey={loginTurnstileResetKey}
+                        onTokenChange={setLoginTurnstileToken}
                       />
-                    </div>
-                    <div className="md:col-span-2">
-                      <Button type="button" disabled={authLoading} onClick={() => void handleCreateAccount()} className="rounded-xl w-full">
-                        {authLoading ? 'Creating account...' : 'Create Account & Continue'}
+                      <Button type="button" disabled={authLoading} onClick={() => void handleLogin()} className="rounded-xl">
+                        {authLoading ? 'Signing in...' : 'Login to Continue'}
                       </Button>
                     </div>
-                  </div>
+                    <p className="text-xs text-muted-foreground">
+                      No password?{' '}
+                      <button type="button" className="font-semibold text-primary underline-offset-4 hover:underline" onClick={() => setAuthMode('otp')}>
+                        Get a code by email
+                      </button>
+                    </p>
+                  </>
                 )}
 
                 {authError ? <p className="text-sm text-red-600">{authError}</p> : null}
@@ -1677,6 +1675,7 @@ export const CheckoutPage: React.FC = () => {
               )}
 
               <div className="pt-4 border-t space-y-4">
+                <FreeShippingProgress subtotal={subtotal} threshold={freeShippingThreshold} />
                 <div className="flex justify-between text-sm">
                   <span className="text-muted-foreground">Subtotal</span>
                   <span className="font-medium">{formatCurrency(subtotal)}</span>

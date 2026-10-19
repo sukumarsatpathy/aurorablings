@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronRight, Minus, Plus, ShoppingCart, Star } from 'lucide-react';
+import { ChevronRight, Minus, Plus, ShoppingCart, Star, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
@@ -8,6 +8,7 @@ import catalogService, { type CatalogProductDetail } from '@/services/api/catalo
 import notifyService, { type NotifySubscriptionPayload } from '@/services/api/notify';
 import cartService from '@/services/api/cart';
 import { useCurrency } from '@/hooks/useCurrency';
+import { useShippingSummary } from '@/hooks/useShippingSummary';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { useStagger } from '@/animations/useStagger';
 import { applySeo, stripHtml, truncateText } from '@/lib/seo';
@@ -202,6 +203,7 @@ export const ProductDetailPage: React.FC = () => {
 
   const selectedPrice = Number((selectedVariant as any)?.effective_price || selectedVariant?.price || 0);
   const originalPrice = Number((selectedVariant as any)?.display_compare_at_price || (selectedVariant as any)?.compare_at_price || 0);
+  const shippingSummary = useShippingSummary(selectedPrice * quantity);
   const discountPercent = originalPrice > selectedPrice ? Math.round(((originalPrice - selectedPrice) / originalPrice) * 100) : 0;
   const ratingValue = Number((product as any)?.avg_rating || product?.rating || 0);
   const ratingCount = Number((product as any)?.review_count || 0);
@@ -477,6 +479,20 @@ export const ProductDetailPage: React.FC = () => {
                     {isInStock ? 'In Stock' : 'Out of Stock'}
                   </span>
                 </div>
+                {shippingSummary ? (
+                  <p className="flex items-center gap-2 pt-2 text-sm text-muted-foreground">
+                    <Truck size={16} className="shrink-0 text-primary" aria-hidden="true" />
+                    {shippingSummary.shippingTotal <= 0 ? (
+                      <span><strong className="text-primary">Free delivery</strong> on this order</span>
+                    ) : shippingSummary.freeShippingThreshold > 0 ? (
+                      <span>
+                        {formatCurrency(shippingSummary.shippingTotal)} delivery · <strong className="text-primary">Free above {formatCurrency(shippingSummary.freeShippingThreshold)}</strong>
+                      </span>
+                    ) : (
+                      <span>{formatCurrency(shippingSummary.shippingTotal)} delivery</span>
+                    )}
+                  </p>
+                ) : null}
               </div>
               <ul className="space-y-2 text-sm text-black pt-2">
                 {featureRows.map((line, idx) => (

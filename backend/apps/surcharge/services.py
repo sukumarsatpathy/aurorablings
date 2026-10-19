@@ -175,6 +175,7 @@ class SurchargeResult:
             "fee_total":      str(self.fee_total),
             "discount_total": str(self.discount_total),
             "grand_total":    str(self.grand_total),
+            "free_shipping_threshold": _str_or_none(free_shipping_threshold_from(self.breakdown)),
             "breakdown": [
                 {
                     "name":       li.name,
@@ -344,11 +345,51 @@ def _apply_shipping_rules(ctx: SurchargeContext) -> list[SurchargeLineItem]:
                 "carrier":         rule.carrier,
                 "estimated_days":  f"{rule.estimated_days_min}–{rule.estimated_days_max}",
                 "is_additive":     rule.is_additive,
+                "free_shipping_threshold": (
+                    str(rule.free_threshold_amount)
+                    if rule.method == ShippingMethod.FREE_THRESHOLD else None
+                ),
             },
         ))
     if lines:
         return lines
     return _fallback_shipping_from_standard_setting(ctx)
+
+
+def free_shipping_threshold_from(lines: list[SurchargeLineItem]) -> Decimal | None:
+    """
+    The order value at which shipping becomes free, if the applied shipping
+    rule has one (a FREE_THRESHOLD rule or the `shipping.standard` fallback).
+    Used by the storefront for "Add ₹X more for free delivery".
+    """
+    for line in lines:
+        if line.rule_type != "shipping":
+            continue
+        threshold = _to_decimal((line.metadata or {}).get("free_shipping_threshold"), default=ZERO)
+        if threshold > ZERO:
+            return _round(threshold)
+    return None
+
+
+def get_shipping_summary(*, subtotal: Decimal = ZERO) -> dict:
+    """
+    Delivery charge for an order of `subtotal`, before any address is known.
+
+    Lets the product page show "₹100 delivery · Free above ₹799" without a cart.
+    Address-dependent rules (state / pincode conditions) can still change the
+    final charge at checkout.
+    """
+    ctx = SurchargeContext(subtotal=_round(max(subtotal, ZERO)))
+    lines = _apply_shipping_rules(ctx)
+    return {
+        "subtotal": str(ctx.subtotal),
+        "shipping_total": str(_round(_sum(l.amount for l in lines))),
+        "free_shipping_threshold": _str_or_none(free_shipping_threshold_from(lines)),
+    }
+
+
+def _str_or_none(value: Decimal | None) -> str | None:
+    return str(value) if value is not None else None
 
 
 def _fallback_shipping_from_standard_setting(ctx: SurchargeContext) -> list[SurchargeLineItem]:

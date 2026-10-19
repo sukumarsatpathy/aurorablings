@@ -9,6 +9,7 @@ import { useStagger } from '@/animations/useStagger';
 import cartService, { type CartCouponSummary } from '@/services/api/cart';
 import { useAddressAutoFill } from '@/hooks/useAddressAutoFill';
 import { AvailableCouponsPanel } from '@/components/storefront/coupons/AvailableCouponsPanel';
+import { FreeShippingProgress } from '@/components/storefront/FreeShippingProgress';
 
 interface CartItem {
   id: string;
@@ -62,6 +63,7 @@ export const CartPage: React.FC = () => {
   });
   const [stateLocked, setStateLocked] = useState(false);
   const [shippingCharge, setShippingCharge] = useState(0);
+  const [freeShippingThreshold, setFreeShippingThreshold] = useState(0);
   const [taxAmount, setTaxAmount] = useState(0);
   const [shippingLoading, setShippingLoading] = useState(false);
   const [shippingError, setShippingError] = useState('');
@@ -178,9 +180,11 @@ export const CartPage: React.FC = () => {
         if (!isCancelled) {
           setShippingCharge(Number(data.shipping_total || 0));
           setTaxAmount(Number(data.tax_total || 0));
+          setFreeShippingThreshold(Number(data.free_shipping_threshold || 0));
         }
       } catch {
         if (!isCancelled) {
+          setFreeShippingThreshold(0);
           setShippingCharge(0);
           setTaxAmount(0);
           setShippingError('Live shipping unavailable for current address/cart.');
@@ -318,14 +322,14 @@ export const CartPage: React.FC = () => {
   }
 
   return (
-    <div ref={rootRef} className="pt-32 pb-24 bg-transparent">
+    <div ref={rootRef} className="pt-32 pb-32 md:pb-24 bg-transparent">
       <div className="container mx-auto px-4">
         <div className="mb-8">
           <h1 className="text-4xl font-bold tracking-tight text-foreground">Cart</h1>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-12 gap-6">
-          <aside className="lg:col-span-4">
+          <aside className="order-2 lg:col-span-4 lg:sticky lg:top-28 lg:self-start">
             <div className="rounded-3xl border border-border bg-white/85 backdrop-blur-sm p-5 md:p-6 space-y-5">
               <h2 className="text-xl font-bold text-foreground">Summary</h2>
 
@@ -475,10 +479,17 @@ export const CartPage: React.FC = () => {
                   <span className="text-xl font-bold text-primary">{formatCurrency(total)}</span>
                 </div>
               </div>
+
+              <Link to="/checkout" className="hidden md:block">
+                <Button className="h-12 w-full rounded-xl bg-primary text-primary-foreground hover:bg-primary/90">
+                  Check Out <ArrowRight size={16} />
+                </Button>
+              </Link>
             </div>
           </aside>
 
-          <section className="lg:col-span-8">
+          <section className="order-1 lg:col-span-8 space-y-4">
+            <FreeShippingProgress subtotal={subtotal} threshold={freeShippingThreshold} />
             <div ref={listRef} className="rounded-3xl border border-border bg-white/85 backdrop-blur-sm overflow-hidden">
               <div className="md:hidden divide-y divide-border/70">
                 {items.map((item) => (
@@ -607,14 +618,6 @@ export const CartPage: React.FC = () => {
                   </tbody>
                 </table>
               </div>
-            </div>
-
-            <div className="mt-5 hidden md:block">
-              <Link to="/checkout">
-                <Button className="h-11 rounded-xl px-6 bg-primary text-primary-foreground hover:bg-primary/90">
-                  Check Out <ArrowRight size={16} />
-                </Button>
-              </Link>
             </div>
           </section>
         </div>
