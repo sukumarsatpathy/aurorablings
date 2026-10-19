@@ -182,8 +182,8 @@ export function LuxuryFooter() {
                   </li>
                   <li className="flex items-center justify-center gap-3 md:justify-start">
                     <Mail size={17} className="shrink-0 text-[#517b4b] dark:text-[#9fbd99]" />
-                    <a href="mailto:connect@aurora.blings.com" className="footer-hover-target transition-colors duration-300 hover:text-[#517b4b] dark:hover:text-[#9fbd99]">
-                      connect@aurora.blings.com
+                    <a href="mailto:connect@aurorablings.com" className="footer-hover-target transition-colors duration-300 hover:text-[#517b4b] dark:hover:text-[#9fbd99]">
+                      connect@aurorablings.com
                     </a>
                   </li>
                 </ul>

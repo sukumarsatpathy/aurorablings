@@ -27,6 +27,10 @@ function YoutubeIcon() {
   );
 }
 
+// Set to the real Facebook page URL to show the icon; empty hides it
+// (a "#" link looked broken to visitors).
+const FACEBOOK_URL = '';
+
 const socials = [
   {
     label: 'Instagram',
@@ -34,15 +38,11 @@ const socials = [
     Icon: InstagramIcon,
   },
   {
-    label: 'Facebook',
-    href: '#',
-    Icon: FacebookIcon,
-  },
-  {
     label: 'YouTube',
     href: 'https://www.youtube.com/@aurora_blings',
     Icon: YoutubeIcon,
   },
+  ...(FACEBOOK_URL ? [{ label: 'Facebook', href: FACEBOOK_URL, Icon: FacebookIcon }] : []),
 ];
 
 export function SocialIcons({ centered = false }) {

@@ -111,9 +111,9 @@ export const HomePage: React.FC = () => {
                 decoding="async"
               />
             </div>
-            <h4 className="text-3xl font-semibold text-foreground">24x7 Support</h4>
+            <h4 className="text-3xl font-semibold text-foreground">Friendly Support</h4>
             <p className="mt-2 text-base text-muted-foreground">
-              Need help? Our support team is available anytime to assist you instantly.
+              Questions about a piece or your order? Reach us on WhatsApp, phone or email.
             </p>
           </div>
 

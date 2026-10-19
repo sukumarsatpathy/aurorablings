@@ -281,7 +281,7 @@ export const ProductDetailPage: React.FC = () => {
     const descriptionSource =
       stripHtml(product.short_description || '') ||
       stripHtml(product.description || '') ||
-      'Premium quality product.';
+      `${product.name || 'Imitation jewellery'} from Aurora Blings.`;
     const primaryMedia = (product.media || []).find((item) => item.is_primary) || product.media?.[0];
     const primaryImage = normalizeAssetUrl(primaryMedia?.image) || images[0];
     const shareUrl = `${window.location.origin}/product/${product.slug || product.id}`;
@@ -433,6 +433,7 @@ export const ProductDetailPage: React.FC = () => {
                 <Badge variant="surface" className="rounded-full">{product.category?.name || 'Category'}</Badge>
               </div>
               <h1 className="text-3xl md:text-4xl font-bold tracking-tight text-black">{product.name}</h1>
+              {ratingCount > 0 ? (
               <div className="flex items-center gap-2">
                 {Array.from({ length: 5 }).map((_, idx) => {
                   const filled = idx < Math.round(ratingValue);
@@ -446,9 +447,12 @@ export const ProductDetailPage: React.FC = () => {
                   );
                 })}
                 <span className="text-black/50">|</span>
-                <span className="text-sm text-primary">{ratingCount} Ratings</span>
+                <span className="text-sm text-primary">{ratingCount} {ratingCount === 1 ? 'Rating' : 'Ratings'}</span>
               </div>
-              <p className="text-black leading-relaxed">{product.short_description || 'Premium quality product.'}</p>
+              ) : null}
+              {product.short_description ? (
+                <p className="text-black leading-relaxed">{product.short_description}</p>
+              ) : null}
               <div className="space-y-1">
                 <div className="flex items-end gap-2">
                   <span className="text-4xl font-bold text-black">{formatCurrency(selectedPrice)}</span>

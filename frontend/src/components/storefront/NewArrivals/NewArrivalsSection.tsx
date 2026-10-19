@@ -247,7 +247,7 @@ export const NewArrivalsSection: React.FC = () => {
               New <span className="text-[#517b4b]">Arrivals</span>
             </h2>
             <p className="text-muted-foreground mt-2">
-              Shop online for new arrivals and get free shipping!
+              Fresh picks, just added. Free shipping on orders above ₹799.
             </p>
           </div>
           <div className="flex flex-wrap gap-2">

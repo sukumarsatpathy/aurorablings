@@ -50,8 +50,11 @@ const CategoryShowcase: React.FC = () => {
                 const raw = await catalogService.listAllCategories({ latest: true });
 
                 // Map API categories to UI format
+                // Shoppable categories first; "Coming Soon" / empty ones after (stable sort).
+                const isComingSoon = (c: (typeof raw)[number]) => !!c.is_coming_soon || !(c.product_count || 0);
                 const mapped: Category[] = raw
                     .filter(c => c.is_active)
+                    .sort((a, b) => Number(isComingSoon(a)) - Number(isComingSoon(b)))
                     .map((c, idx) => ({
                         id: c.id,
                         title: c.name,

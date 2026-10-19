@@ -299,6 +299,9 @@ export function ProductReviewsSection({
   }, [summary?.rating_breakdown, summary?.total_reviews]);
 
   const reviews = reviewsPayload?.data || [];
+  // With zero reviews, the full summary (0.0, five empty bars, sort, pagination)
+  // reads as negative social proof — show one compact line instead.
+  const hasNoReviews = !summaryLoading && !summaryError && (summary?.total_reviews || 0) === 0;
 
   return (
     <section className="mt-16 space-y-8">
@@ -322,6 +325,12 @@ export function ProductReviewsSection({
         ) : null}
       </div>
 
+      {hasNoReviews ? (
+        <div className="rounded-2xl border border-dashed border-border bg-muted/20 px-6 py-5 text-sm text-muted-foreground">
+          No reviews yet — bought this piece? We'd love to hear what you think.
+        </div>
+      ) : (
+      <>
       <div className="grid grid-cols-1 gap-6 rounded-2xl border border-border bg-white p-6 shadow-sm lg:grid-cols-3">
         {summaryLoading ? (
           <>
@@ -406,6 +415,8 @@ export function ProductReviewsSection({
           </Button>
         </div>
       ) : null}
+      </>
+      )}
 
       {canWriteReview ? (
         <ReviewFormModal

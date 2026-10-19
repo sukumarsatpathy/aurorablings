@@ -68,17 +68,8 @@ interface CategoryListItem {
 }
 
 type ViewMode = 'blog' | 'list';
-type SortMode = 'random' | 'low-high' | 'high-low';
+type SortMode = 'newest' | 'low-high' | 'high-low';
 type StorefrontDealProduct = DealProduct & { created_at?: string };
-
-const shuffleArray = <T,>(items: T[]): T[] => {
-  const next = [...items];
-  for (let index = next.length - 1; index > 0; index -= 1) {
-    const swapIndex = Math.floor(Math.random() * (index + 1));
-    [next[index], next[swapIndex]] = [next[swapIndex], next[index]];
-  }
-  return next;
-};
 
 const extractRows = (payload: unknown): ProductListItem[] => {
   if (Array.isArray(payload)) return payload as ProductListItem[];
@@ -245,7 +236,7 @@ export const ProductListingPage: React.FC = () => {
   const [products, setProducts] = useState<ProductListItem[]>([]);
   const [catalogCategories, setCatalogCategories] = useState<CategoryListItem[]>([]);
   const [viewMode, setViewMode] = useState<ViewMode>('blog');
-  const [sortMode, setSortMode] = useState<SortMode>('random');
+  const [sortMode, setSortMode] = useState<SortMode>('newest');
   const [selectedCategory, setSelectedCategory] = useState('All');
   const [currentPage, setCurrentPage] = useState(1);
   const { formatCurrency } = useCurrency();
@@ -381,7 +372,6 @@ export const ProductListingPage: React.FC = () => {
     });
   }, [products]);
 
-  const randomizedAllProducts = useMemo(() => shuffleArray(mappedProducts), [mappedProducts]);
 
   const categoryCounts = useMemo(() => {
     const counts = new Map<string, number>();
@@ -395,16 +385,17 @@ export const ProductListingPage: React.FC = () => {
   const categoryCards = useMemo(() => {
     const allCard = { key: 'all', name: 'All', slug: 'all', image: '', count: mappedProducts.length };
     if (catalogCategories.length > 0) {
-      return [
-        allCard,
-        ...catalogCategories.map((item) => ({
-          key: item.id,
-          name: String(item.name || '').trim() || 'Category',
-          slug: String(item.slug || item.name || '').trim(),
-          image: normalizeAssetUrl(item.image),
-          count: categoryCounts.get(normalize(String(item.name || ''))) || 0,
-        })),
-      ];
+      const cards = catalogCategories.map((item) => ({
+        key: item.id,
+        name: String(item.name || '').trim() || 'Category',
+        slug: String(item.slug || item.name || '').trim(),
+        image: normalizeAssetUrl(item.image),
+        count: categoryCounts.get(normalize(String(item.name || ''))) || 0,
+      }));
+      // Stocked categories first, "Coming Soon" (empty) ones after; stable otherwise.
+      const stocked = cards.filter((card) => card.count > 0);
+      const empty = cards.filter((card) => card.count === 0);
+      return [allCard, ...stocked, ...empty];
     }
     const fallback = categories
       .filter((item) => item !== 'All')
@@ -421,14 +412,10 @@ export const ProductListingPage: React.FC = () => {
   const filteredAndSorted = useMemo(() => {
     const filtered =
       selectedCategory === 'All'
-        ? randomizedAllProducts
+        ? mappedProducts
         : mappedProducts.filter((p) => normalize(p.category_name) === normalize(selectedCategory));
 
-    if (sortMode === 'random') {
-      if (selectedCategory === 'All') {
-        return filtered;
-      }
-
+    if (sortMode === 'newest') {
       return [...filtered].sort((a, b) => {
         const aCreatedAt = a.created_at ? new Date(a.created_at).getTime() : 0;
         const bCreatedAt = b.created_at ? new Date(b.created_at).getTime() : 0;
@@ -441,7 +428,7 @@ export const ProductListingPage: React.FC = () => {
       const bPrice = toNumber(b.variants?.[0]?.effective_price || b.default_variant?.price || b.price_range?.min);
       return sortMode === 'low-high' ? aPrice - bPrice : bPrice - aPrice;
     });
-  }, [mappedProducts, randomizedAllProducts, selectedCategory, sortMode]);
+  }, [mappedProducts, selectedCategory, sortMode]);
 
   useEffect(() => {
     setCurrentPage(1);
@@ -452,6 +439,8 @@ export const ProductListingPage: React.FC = () => {
   const safePage = Math.min(currentPage, totalPages);
   const visible = filteredAndSorted.slice((safePage - 1) * pageSize, safePage * pageSize);
   const pageWindow = buildPageWindow(safePage, totalPages);
+
+  const firstStockedCategory = categoryCards.find((card) => card.key !== 'all' && card.count > 0);
 
   const handleCategoryClick = (category: string) => {
     setSelectedCategory(category);
@@ -506,7 +495,7 @@ export const ProductListingPage: React.FC = () => {
                 onChange={(e) => setSortMode(e.target.value as SortMode)}
                 className="h-9 rounded-full border border-border bg-white px-3 text-xs font-semibold"
               >
-                <option value="random">Newest</option>
+                <option value="newest">Newest</option>
                 <option value="low-high">Low to High</option>
                 <option value="high-low">High to Low</option>
               </select>
@@ -609,7 +598,7 @@ export const ProductListingPage: React.FC = () => {
               onChange={(e) => setSortMode(e.target.value as SortMode)}
               className="h-10 rounded-xl border border-border bg-white/80 backdrop-blur-sm px-3 text-sm"
             >
-              <option value="random">Random Order</option>
+              <option value="newest">Newest</option>
               <option value="low-high">Price Low to High</option>
               <option value="high-low">Price High to Low</option>
             </select>
@@ -617,8 +606,26 @@ export const ProductListingPage: React.FC = () => {
         </div>
 
         {visible.length === 0 ? (
-          <div className="rounded-2xl border border-border bg-white/70 backdrop-blur-sm p-10 text-center text-muted-foreground">
-            No products found for this category.
+          <div className="rounded-2xl border border-border bg-white/70 backdrop-blur-sm px-6 py-12 text-center">
+            <p className="text-xs font-semibold uppercase tracking-[0.2em] text-primary">Coming soon</p>
+            <h2 className="mt-2 text-2xl font-semibold text-foreground">
+              {selectedCategory === 'All' ? 'New pieces are on their way' : `Our ${selectedCategory} collection is on its way`}
+            </h2>
+            <p className="mx-auto mt-2 max-w-md text-sm text-muted-foreground">
+              We're curating this collection right now. Follow us on Instagram for the first look at new drops.
+            </p>
+            <div className="mt-6 flex flex-wrap items-center justify-center gap-3">
+              {firstStockedCategory ? (
+                <Button type="button" onClick={() => handleCategoryClick(firstStockedCategory.name)}>
+                  Shop {firstStockedCategory.name}
+                </Button>
+              ) : null}
+              <Button asChild variant="outline">
+                <a href="https://www.instagram.com/aurora_blings" target="_blank" rel="noopener noreferrer">
+                  Follow on Instagram
+                </a>
+              </Button>
+            </div>
           </div>
         ) : viewMode === 'blog' ? (
           <div className="grid grid-cols-2 gap-x-3 gap-y-5 md:grid-cols-3 md:gap-x-5 md:gap-y-10 xl:grid-cols-5">
