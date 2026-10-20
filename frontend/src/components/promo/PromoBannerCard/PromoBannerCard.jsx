@@ -72,6 +72,7 @@ const PromoBannerCard = ({ banner, size = 'default', className = '', priority = 
         styles.card,
         size === 'tall' ? styles.cardTall : '',
         size === 'short' ? styles.cardShort : '',
+        bannerSrc ? '' : styles.cardNoImage,
         className,
         'promo-card',
         // Marks the LCP candidate so the grid's entrance animation can skip it.
@@ -162,7 +163,7 @@ const PromoBannerCard = ({ banner, size = 'default', className = '', priority = 
         {!!banner.cta_label && (
           <CtaButton
             label={banner.cta_label}
-            to={banner.cta_url || '#'}
+            to={banner.cta_url || '/products/'}
             className={styles.cta}
             style={{
               left: `${clamp(banner.cta_x, 8)}%`,

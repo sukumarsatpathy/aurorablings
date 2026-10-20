@@ -26,8 +26,9 @@ const CARD_GAP = 24;
 
 const getVisibleCount = () => {
     if (typeof window === 'undefined') return 4;
-    if (window.innerWidth < 640) return 1;
-    if (window.innerWidth < 1024) return 2;
+    // Two per view on phones: one card at a time left a mostly empty white box.
+    if (window.innerWidth < 640) return 2;
+    if (window.innerWidth < 1024) return 3;
     return 4;
 };
 
@@ -79,13 +80,13 @@ const CategoryShowcase: React.FC = () => {
         if (!titleRef.current || categories.length === 0) return;
 
         const ctx = gsap.context(() => {
+            // Short and subtle: long, delayed reveals read as empty space while scrolling.
             gsap.fromTo(titleRef.current,
-                { y: 50, opacity: 0 },
+                { y: 16, opacity: 0 },
                 {
                     y: 0,
                     opacity: 1,
-                    duration: 1,
-                    delay: 0.6,
+                    duration: 0.5,
                     ease: "power2.out",
                     scrollTrigger: {
                         trigger: titleRef.current,
@@ -100,14 +101,12 @@ const CategoryShowcase: React.FC = () => {
                 .filter(c => c !== null);
             if (validCards.length > 0) {
                 gsap.fromTo(validCards,
-                    { rotateY: -90, opacity: 0, scale: 0.8 },
+                    { y: 16, opacity: 0 },
                     {
-                        rotateY: 0,
+                        y: 0,
                         opacity: 1,
-                        scale: 1,
-                        duration: 1,
-                        delay: 0.2,
-                        stagger: 0.1,
+                        duration: 0.45,
+                        stagger: 0.06,
                         ease: "power2.out",
                         scrollTrigger: {
                             trigger: trackRef.current,
@@ -214,9 +213,9 @@ const CategoryShowcase: React.FC = () => {
                         <div>
                             <h2
                                 ref={titleRef}
-                                className="text-6xl sm:text-7xl lg:text-8xl font-extrabold leading-[1.1] category-stroke-text select-none"
+                                className="text-5xl sm:text-6xl lg:text-7xl font-extrabold leading-[1.05] tracking-tight text-gray-950 select-none"
                             >
-                                Explore<br />Categories
+                                Explore<br /><span className="text-[#517b4b]">Categories</span>
                             </h2>
                         </div>
 

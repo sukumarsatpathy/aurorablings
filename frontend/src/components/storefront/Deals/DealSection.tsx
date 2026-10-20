@@ -20,9 +20,10 @@ export const DealSection: React.FC = () => {
   const headerRef = useRef<HTMLDivElement>(null);
   const sliderRef = useRef<HTMLDivElement>(null);
 
-  useScrollReveal(sectionRef, { type: 'fade-up', duration: 1, threshold: 0.1, once: true });
-  useScrollReveal(headerRef, { type: 'fade-up', duration: 0.9, threshold: 0.08, once: true });
-  useScrollReveal(sliderRef, { type: 'scale', duration: 0.95, threshold: 0.12, once: true, stagger: 0.08 });
+  // One layer of animation per element: the section itself is not faded, only
+  // its header and slider (nested fades multiplied into a long blank stretch).
+  useScrollReveal(headerRef, { type: 'fade-up', duration: 0.5, threshold: 0.08, once: true });
+  useScrollReveal(sliderRef, { type: 'fade-up', duration: 0.55, threshold: 0.1, once: true, stagger: 0.06 });
 
   useEffect(() => {
     const fetchDeals = async () => {

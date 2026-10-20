@@ -309,6 +309,68 @@
   }
 }
 
+.cookie-copy-short {
+  display: none;
+}
+
+/*
+ * Phones: a slim bar instead of a card covering half the first screen.
+ * Short copy, no heading, and all three choices on one row (Accept and
+ * Reject stay equally prominent; Settings becomes a text button).
+ */
+@media (max-width: 640px) {
+  .cookie-consent-banner {
+    bottom: 0;
+    width: 100vw;
+    max-width: 100vw;
+    padding: 0.7rem 0.85rem calc(0.7rem + env(safe-area-inset-bottom));
+    gap: 0.55rem;
+    border-radius: 16px 16px 0 0;
+    border-bottom: 0;
+  }
+
+  .cookie-consent-content h2,
+  .cookie-copy-full {
+    display: none;
+  }
+
+  .cookie-copy-short {
+    display: inline;
+  }
+
+  .cookie-consent-content p {
+    margin: 0;
+    font-size: 0.8rem;
+    line-height: 1.4;
+  }
+
+  .cookie-consent-actions {
+    grid-template-columns: auto minmax(0, 1fr) minmax(0, 1fr);
+    gap: 0.5rem;
+  }
+
+  .cookie-consent-actions .cookie-btn {
+    min-height: 40px;
+    padding: 0.5rem 0.6rem;
+    font-size: 0.8rem;
+  }
+
+  .cookie-consent-actions .cookie-btn-outline {
+    grid-column: auto;
+    order: -1;
+    border: 0;
+    background: transparent;
+    text-decoration: underline;
+    text-underline-offset: 3px;
+    padding-left: 0.2rem;
+    padding-right: 0.2rem;
+  }
+
+  .cookie-consent-actions .cookie-btn-primary {
+    order: 2;
+  }
+}
+
 @keyframes cookie-consent-enter {
   from {
     opacity: 0;

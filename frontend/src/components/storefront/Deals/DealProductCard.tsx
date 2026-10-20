@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
-import { ShoppingCart, Eye, Star, Minus, Plus, BellRing } from 'lucide-react';
+import { ShoppingCart, Eye, Star, Minus, Plus } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Modal, ModalContent, ModalHeader, ModalTitle } from '@/components/ui/Modal';
@@ -608,29 +608,9 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
           </Link>
 
           <div className={`absolute right-4 bottom-4 hidden md:flex flex-col gap-2 transition-opacity duration-300 ${isHovered ? 'opacity-100' : 'opacity-0'}`}>
-            <Button size="icon" variant="ghost" onClick={openQuickView} className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5">
+            <Button size="icon" variant="ghost" onClick={openQuickView} aria-label={`Quick view ${product.name}`} className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5">
               <Eye size={18} />
             </Button>
-            {cardInStock ? (
-              <Button
-                size="icon"
-                variant="ghost"
-                onClick={() => void handleCardAddToCart()}
-                className="w-10 h-10 rounded-full bg-white text-[#517b4b] shadow-sm hover:bg-[#517b4b] hover:text-white transition-all ring-1 ring-black/5"
-              >
-                <ShoppingCart size={18} />
-              </Button>
-            ) : (
-              <Button
-                size="icon"
-                asChild
-                className={`w-10 h-10 rounded-full shadow-sm transition-all ring-1 ring-black/5 ${notifyActionClass}`}
-              >
-                <Link to={`/product/${product.slug}`} aria-label={`Notify me for ${product.name}`}>
-                  <BellRing size={18} />
-                </Link>
-              </Button>
-            )}
           </div>
         </div>
 
@@ -662,7 +642,8 @@ export const DealProductCard: React.FC<DealProductCardProps> = ({ product }) => 
                 </Badge>
               ) : null}
             </div>
-            <div className="grid grid-cols-1 gap-2 md:hidden">
+            {/* Add to Bag on every screen size — on desktop it used to hide behind a hover icon. */}
+            <div className="grid grid-cols-1 gap-2">
               {hasMultipleVariants || !cardInStock ? (
                 <Button
                   asChild

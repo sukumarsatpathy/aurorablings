@@ -92,3 +92,55 @@
     font-size: 0.9rem;
   }
 }
+
+/*
+ * Phones: the admin-set x/y positions are percentages of a wide card, so on a
+ * narrow card the subtitle and CTA collide ("Tarnish-Free, Made For Daily Wear"
+ * ran into "SHOP NOW"). Below 640px the text stacks at the bottom-left instead,
+ * over a soft fade, and the CTA becomes a solid pill so it stays readable over
+ * any photo. `!important` is needed to beat the inline left/top.
+ */
+@media (max-width: 640px) {
+  .contentOverlay {
+    display: flex;
+    flex-direction: column;
+    justify-content: flex-end;
+    align-items: flex-start;
+    gap: 4px;
+    padding: 14px 16px 16px;
+    background: linear-gradient(to top, rgba(255, 255, 255, 0.82) 0%, rgba(255, 255, 255, 0.35) 38%, rgba(255, 255, 255, 0) 62%);
+  }
+
+  .badgeBold,
+  .badgeText,
+  .title,
+  .subtitle,
+  .cta {
+    position: static !important;
+    left: auto !important;
+    top: auto !important;
+    max-width: 100%;
+  }
+
+  .title {
+    font-size: 1.35rem;
+  }
+
+  /* Colour-only cards (no photo): keep the text centred, no fade needed. */
+  .cardNoImage .contentOverlay {
+    justify-content: center;
+    background: none;
+  }
+
+  .cta {
+    margin-top: 6px !important;
+    padding: 7px 14px;
+    border-bottom: none !important;
+    border-radius: 999px;
+    background: rgba(255, 255, 255, 0.95);
+    color: #1a1a1a !important;
+    font-size: 0.75rem;
+    box-shadow: 0 4px 14px rgba(0, 0, 0, 0.12);
+    text-shadow: none;
+  }
+}

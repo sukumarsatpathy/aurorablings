@@ -31,14 +31,11 @@ export const HomePage: React.FC = () => {
   // LCP is measured on actual paint, so this was directly inflating it.
   //
   // Below-the-fold sections keep their reveals: they cost nothing there.
-  useScrollReveal(categoryRef, {
-    type: 'fade-up',
-    threshold: 0.01,
-    once: true,
-  });
-  useScrollReveal(dualBannerRef, { type: 'fade-up', duration: 1.15, threshold: 0.2, once: true });
-  useScrollReveal(dealRef, { type: 'scale', delay: 0.2, duration: 1.15, threshold: 0.14, once: true });
-  useScrollReveal(newArrivalsRef, { type: 'fade-up', duration: 1.05, threshold: 0.14, once: true });
+  //
+  // Categories, deals and the dual banners animate their own contents, so they
+  // get no section-level reveal here: stacking two fades (section + contents)
+  // is what left whole sections blank or ghosted while scrolling.
+  useScrollReveal(newArrivalsRef, { type: 'fade-up', duration: 0.6, threshold: 0.1, once: true });
 
   return (
     <div className="w-full bg-transparent">

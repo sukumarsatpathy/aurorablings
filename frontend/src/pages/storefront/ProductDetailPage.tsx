@@ -572,8 +572,8 @@ export const ProductDetailPage: React.FC = () => {
                       onClick={() => setSelectedVariantId(option.id)}
                       className={`h-11 px-6 rounded-xl border text-lg transition-colors ${
                         selectedVariantId === option.id
-                          ? 'bg-[#6c7fd8] text-white border-[#6c7fd8]'
-                          : 'bg-white/70 backdrop-blur-sm text-[#4e5d78] border-border hover:border-[#6c7fd8]/50'
+                          ? 'bg-[#517b4b] text-white border-[#517b4b]'
+                          : 'bg-white/70 backdrop-blur-sm text-[#4e5d78] border-border hover:border-[#517b4b]/50'
                       }`}
                     >
                       {option.label}

@@ -77,12 +77,12 @@ const DualPromoBanner = () => {
     const ctx = gsap.context(() => {
       gsap.fromTo(
         cardsRef.current,
-        { y: 50, opacity: 0 },
+        { y: 16, opacity: 0 },
         {
           y: 0,
           opacity: 1,
-          duration: 1,
-          stagger: 0.2,
+          duration: 0.5,
+          stagger: 0.1,
           ease: 'power2.out',
           scrollTrigger: {
             trigger: sectionRef.current,
@@ -144,8 +144,8 @@ const DualPromoBanner = () => {
               <h5>{banner.title}</h5>
               {banner.subtitle && <p className="text-sm font-medium">{banner.subtitle}</p>}
               <Link
-                to={banner.cta_url || '#'}
-                className="mt-4 inline-block px-6 py-2 bg-[#6c7fd8] text-white rounded-lg font-semibold hover:bg-[#5a6bc2] transition-colors"
+                to={banner.cta_url || '/products/'}
+                className="mt-4 inline-block px-6 py-2 bg-[#517b4b] text-white rounded-lg font-semibold hover:bg-[#426a3d] transition-colors"
               >
                 {banner.cta_label || 'Shop Now'}
               </Link>

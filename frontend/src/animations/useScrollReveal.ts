@@ -40,6 +40,15 @@ export const useScrollReveal = <T extends HTMLElement>(
     initGsap();
 
     const element = ref.current;
+
+    // Already on screen when the page renders (e.g. a short page, or a reload
+    // half-way down): show it as-is. Hiding visible content just to fade it
+    // back in reads as a flash of blank page.
+    const rect = element.getBoundingClientRect();
+    if (rect.top < window.innerHeight * 0.9 && rect.bottom > 0) {
+      return;
+    }
+
     const ctx = gsap.context(() => {
       // Define initial state based on type
       let initialVars: gsap.TweenVars = { autoAlpha: 0 };
@@ -53,11 +62,11 @@ export const useScrollReveal = <T extends HTMLElement>(
 
       switch (type) {
         case 'fade-up':
-          initialVars.y = 50;
+          initialVars.y = 24;
           activeVars.y = 0;
           break;
         case 'fade-down':
-          initialVars.y = -50;
+          initialVars.y = -24;
           activeVars.y = 0;
           break;
         case 'fade-left':
