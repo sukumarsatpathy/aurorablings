@@ -21,6 +21,8 @@ logger = get_logger(__name__)
 
 
 PINCODE_REGEX = re.compile(r"^\d{6}$")
+# Retry a failed India Post lookup after a minute rather than a day.
+FAILED_LOOKUP_TTL_SECONDS = 60
 INDIA_POST_PINCODE_URL = "https://api.postalpincode.in/pincode/{pincode}"
 NOMINATIM_REVERSE_URL = "https://nominatim.openstreetmap.org/reverse"
 
@@ -41,7 +43,8 @@ def _clean(value: Any) -> str:
 
 class AddressService:
     def _timeout_seconds(self) -> float:
-        return float(feature_services.get_setting("address.lookup.timeout_seconds", default=3) or 3)
+        # api.postalpincode.in regularly takes 3–5 s; 3 s timed out too often.
+        return float(feature_services.get_setting("address.lookup.timeout_seconds", default=6) or 6)
 
     def _pincode_cache_ttl(self) -> int:
         value = feature_services.get_setting("address.lookup.pincode_cache_ttl_seconds", default=DEFAULT_TTL_SECONDS)
@@ -61,18 +64,33 @@ class AddressService:
         )
 
     def get_from_pincode(self, pincode: str) -> dict[str, Any]:
+        payload, _status = self.lookup_pincode(pincode)
+        return payload
+
+    def lookup_pincode(self, pincode: str) -> tuple[dict[str, Any], str]:
+        """
+        (payload, status) where status is:
+          "ok"        — India Post knows the pincode
+          "not_found" — India Post answered, and has no such pincode
+          "error"     — India Post didn't answer (timeout, blocked, outage)
+
+        Only real answers are cached for the full TTL. A failed call used to be
+        cached for a day as an empty result, so one blip — or the server being
+        unable to reach India Post — made every pincode look invalid for 24h.
+        """
         normalized = str(pincode or "").strip()
         if not PINCODE_REGEX.match(normalized):
             raise ValidationError("Pincode must be exactly 6 digits.")
 
         key = pincode_cache_key(normalized)
         cached = cache_get(key)
-        if isinstance(cached, dict):
-            return cached
+        if isinstance(cached, dict) and isinstance(cached.get("payload"), dict):
+            return cached["payload"], str(cached.get("status") or "ok")
 
-        payload = self._fetch_india_post(normalized)
-        cache_set(key, payload, timeout=self._pincode_cache_ttl())
-        return payload
+        payload, status = self._fetch_india_post(normalized)
+        timeout = FAILED_LOOKUP_TTL_SECONDS if status == "error" else self._pincode_cache_ttl()
+        cache_set(key, {"payload": payload, "status": status}, timeout=timeout)
+        return payload, status
 
     def get_from_coordinates(self, lat: float, lng: float) -> dict[str, Any]:
         lat_value = float(lat)
@@ -91,7 +109,7 @@ class AddressService:
         cache_set(key, payload, timeout=self._geo_cache_ttl())
         return payload
 
-    def _fetch_india_post(self, pincode: str) -> dict[str, Any]:
+    def _fetch_india_post(self, pincode: str) -> tuple[dict[str, Any], str]:
         # TODO(address): Add Shiprocket serviceability check hook for checkout pre-validation.
         # TODO(address): Add internal pincode DB fallback when external providers degrade.
         # TODO(address): Add fraud heuristics for low-confidence or mismatched address patterns.
@@ -103,18 +121,24 @@ class AddressService:
             data = response.json()
         except (requests.RequestException, ValueError) as exc:
             logger.warning("pincode_lookup_failed", pincode=pincode, error=str(exc))
-            return _empty_response()
+            return _empty_response(), "error"
 
         if not isinstance(data, list) or not data:
-            return _empty_response()
+            logger.warning("pincode_lookup_unexpected_body", pincode=pincode)
+            return _empty_response(), "error"
 
         row = data[0] if isinstance(data[0], dict) else {}
-        if str(row.get("Status", "")).lower() != "success":
-            return _empty_response()
+        status = str(row.get("Status", "")).lower()
+        if status == "error":
+            # India Post's answer for a pincode it doesn't have ("No records found").
+            return _empty_response(), "not_found"
+        if status != "success":
+            logger.warning("pincode_lookup_unexpected_status", pincode=pincode, status=status)
+            return _empty_response(), "error"
 
         post_offices = row.get("PostOffice")
         if not isinstance(post_offices, list) or not post_offices:
-            return _empty_response()
+            return _empty_response(), "not_found"
 
         first = post_offices[0] if isinstance(post_offices[0], dict) else {}
         # Prefer "Region" for city-style values (e.g., Bhubaneswar) and
@@ -150,7 +174,7 @@ class AddressService:
             "area": areas[0] if areas else "",
             "areas": areas,
             "pincode": _clean(first.get("Pincode")) or _clean(pincode),
-        }
+        }, "ok"
 
     def _fetch_reverse(self, lat: float, lng: float) -> dict[str, Any]:
         params = {

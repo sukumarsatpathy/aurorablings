@@ -32,6 +32,7 @@ logger = get_logger(__name__)
 
 PINCODE_RE = re.compile(r"^[1-9]\d{5}$")
 CACHE_TTL_SECONDS = 6 * 3600
+FAILED_LOOKUP_CACHE_SECONDS = 120
 DEFAULT_MIN_DAYS = 4
 DEFAULT_MAX_DAYS = 7
 LIVE_ESTIMATE_SPREAD_DAYS = 2   # couriers quote one number; show a short range
@@ -65,17 +66,20 @@ def _configured_range() -> tuple[int, int]:
 
 
 def _place(pincode: str) -> dict[str, str]:
-    """City/state from the India Post lookup the address form already uses."""
+    """
+    City/state from the India Post lookup the address form already uses.
+    status: "ok" / "not_found" / "error" — only "not_found" means a bad pincode.
+    """
     try:
         from apps.address.services.address_service import AddressService
 
-        found = AddressService().get_from_pincode(pincode) or {}
+        found, status = AddressService().lookup_pincode(pincode)
     except Exception:  # noqa: BLE001 - a missing city must never break the estimate
-        return {"city": "", "state": "", "lookup_ok": False}
+        return {"city": "", "state": "", "status": "error"}
     return {
-        "city": str(found.get("city") or ""),
-        "state": str(found.get("state") or ""),
-        "lookup_ok": True,
+        "city": str((found or {}).get("city") or ""),
+        "state": str((found or {}).get("state") or ""),
+        "status": status,
     }
 
 
@@ -121,14 +125,16 @@ def _compute(pincode: str) -> dict[str, Any]:
                     "source": "shiprocket",
                     "city": place["city"] or live.get("city", ""), "state": place["state"] or live.get("state", "")}
 
-    # India Post doesn't know this pincode: almost certainly a typo.
-    if place["lookup_ok"] and not place["city"] and not place["state"]:
+    # India Post answered and doesn't know this pincode: almost certainly a typo.
+    # (If India Post just didn't answer, fall through to the normal estimate.)
+    if place["status"] == "not_found":
         return {"serviceable": False, "min_days": None, "max_days": None, "source": "lookup",
                 "city": "", "state": "", "reason": "unknown_pincode"}
 
     low, high = _configured_range()
     return {"serviceable": None, "min_days": low + dispatch, "max_days": high + dispatch,
-            "source": "configured", "city": place["city"], "state": place["state"]}
+            "source": "configured", "city": place["city"], "state": place["state"],
+            "lookup_failed": place["status"] == "error"}
 
 
 def estimate_delivery(pincode: str, *, today: date | None = None) -> dict[str, Any]:
@@ -141,11 +147,13 @@ def estimate_delivery(pincode: str, *, today: date | None = None) -> dict[str, A
     if not PINCODE_RE.match(pincode):
         raise ValueError("Enter a valid 6-digit pincode.")
 
-    key = f"shipping:delivery_estimate:v1:{pincode}"
+    key = f"shipping:delivery_estimate:v2:{pincode}"
     data = cache.get(key)
     if not isinstance(data, dict):
         data = _compute(pincode)
-        cache.set(key, data, timeout=CACHE_TTL_SECONDS)
+        # A lookup that failed is retried soon instead of being remembered for hours.
+        ttl = FAILED_LOOKUP_CACHE_SECONDS if data.pop("lookup_failed", False) else CACHE_TTL_SECONDS
+        cache.set(key, data, timeout=ttl)
 
     today = today or timezone.localdate()
     result = {"pincode": pincode, **data}

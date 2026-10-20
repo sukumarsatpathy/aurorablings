@@ -106,6 +106,40 @@ class AddressApiTests(TestCase):
         self.assertEqual(response.data["data"]["area"], "")
 
     @mock.patch("apps.address.services.address_service.requests.get")
+    def test_failed_lookup_is_not_cached_for_a_day(self, mock_get):
+        """A timeout used to be cached for 24h as an empty answer: every pincode looked invalid."""
+        ok = mock.Mock(status_code=200)
+        ok.raise_for_status.return_value = None
+        ok.json.return_value = [{"Status": "Success", "PostOffice": [{"Name": "Berhampur", "District": "Ganjam", "State": "Odisha"}]}]
+        mock_get.side_effect = [requests.Timeout("timeout"), ok]
+
+        payload, status = self.service.lookup_pincode("760010")
+        self.assertEqual(status, "error")
+        self.assertEqual(payload["city"], "")
+
+        cache.clear()  # the failure is only kept for a minute; simulate it expiring
+        payload, status = self.service.lookup_pincode("760010")
+        self.assertEqual(status, "ok")
+        self.assertEqual(payload["city"], "Ganjam")
+
+    @mock.patch("apps.address.services.address_service.requests.get")
+    def test_failed_lookup_cache_ttl_is_short(self, mock_get):
+        from apps.address.services import address_service
+
+        mock_get.side_effect = requests.Timeout("timeout")
+        with mock.patch.object(address_service, "cache_set") as cache_set:
+            self.service.lookup_pincode("760010")
+        self.assertEqual(cache_set.call_args.kwargs["timeout"], address_service.FAILED_LOOKUP_TTL_SECONDS)
+
+    @mock.patch("apps.address.services.address_service.requests.get")
+    def test_unknown_pincode_is_not_found(self, mock_get):
+        mock_get.return_value.status_code = 200
+        mock_get.return_value.raise_for_status.return_value = None
+        mock_get.return_value.json.return_value = [{"Message": "No records found", "Status": "Error", "PostOffice": None}]
+        _payload, status = self.service.lookup_pincode("999999")
+        self.assertEqual(status, "not_found")
+
+    @mock.patch("apps.address.services.address_service.requests.get")
     def test_reverse_geocoding_lookup(self, mock_get):
         mock_get.return_value.status_code = 200
         mock_get.return_value.raise_for_status.return_value = None

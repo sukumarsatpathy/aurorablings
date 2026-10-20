@@ -3,7 +3,7 @@ from __future__ import annotations
 from django.core.cache import cache
 
 
-PINCODE_CACHE_PREFIX = "address:pincode"
+PINCODE_CACHE_PREFIX = "address:pincode:v2"  # v2: {payload, status}; drops cached failures
 GEO_CACHE_PREFIX = "address:geo"
 DEFAULT_TTL_SECONDS = 86400
 

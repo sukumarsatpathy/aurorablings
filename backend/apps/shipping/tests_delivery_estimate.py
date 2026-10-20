@@ -27,7 +27,7 @@ class DeliveryEstimateTests(TestCase):
     def setUp(self):
         cache.clear()
         self.lookup = mock.patch(
-            "apps.address.services.address_service.AddressService.get_from_pincode", return_value=PURI,
+            "apps.address.services.address_service.AddressService.lookup_pincode", return_value=(PURI, "ok"),
         )
         self.lookup.start()
         self.addCleanup(self.lookup.stop)
@@ -69,12 +69,26 @@ class DeliveryEstimateTests(TestCase):
     @mock.patch("apps.shipping.services.get_active_provider_name", return_value="")
     def test_unknown_pincode_is_not_serviceable(self, _p):
         with mock.patch(
-            "apps.address.services.address_service.AddressService.get_from_pincode",
-            return_value={"city": "", "state": "", "area": "", "areas": [], "pincode": ""},
+            "apps.address.services.address_service.AddressService.lookup_pincode",
+            return_value=({"city": "", "state": "", "area": "", "areas": [], "pincode": ""}, "not_found"),
         ), mock.patch.object(de.feature_services, "get_setting", _settings({})):
             result = de.estimate_delivery("999999", today=TODAY)
         self.assertFalse(result["serviceable"])
         self.assertIsNone(result["earliest_date"])
+
+    @mock.patch("apps.shipping.services.get_active_provider_name", return_value="")
+    def test_lookup_outage_still_gives_dates_and_is_retried_soon(self, _p):
+        """India Post not answering must not make a real pincode look invalid."""
+        empty = {"city": "", "state": "", "area": "", "areas": [], "pincode": ""}
+        with mock.patch(
+            "apps.address.services.address_service.AddressService.lookup_pincode", return_value=(empty, "error"),
+        ), mock.patch.object(de.feature_services, "get_setting", _settings({})), \
+                mock.patch.object(de.cache, "set", wraps=de.cache.set) as cache_set:
+            result = de.estimate_delivery("760010", today=TODAY)
+        self.assertIsNone(result["serviceable"])
+        self.assertEqual(result["earliest_date"], "2026-10-24")
+        self.assertNotIn("lookup_failed", result)
+        self.assertEqual(cache_set.call_args.kwargs["timeout"], de.FAILED_LOOKUP_CACHE_SECONDS)
 
     @mock.patch("apps.shipping.services.get_active_provider_name", return_value="shiprocket")
     def test_shiprocket_days_win(self, _p):
