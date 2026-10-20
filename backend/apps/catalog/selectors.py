@@ -156,7 +156,18 @@ def get_product_by_slug(slug: str, *, published_only: bool = True) -> Product | 
             .get(slug=slug)
         )
     except Product.DoesNotExist:
+        pass
+
+    # A renamed product: follow its old address to the current one.
+    from .models import ProductSlugRedirect
+
+    redirect = ProductSlugRedirect.objects.filter(old_slug=slug).only("product_id").first()
+    if redirect is None:
         return None
+    product = get_product_by_id(redirect.product_id, published_only=published_only)
+    if product is not None and product.slug == slug:
+        return None  # stale row pointing at itself; never loop
+    return product
 
 
 def get_product_list(

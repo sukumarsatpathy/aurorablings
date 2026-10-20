@@ -86,6 +86,7 @@ import apiClient from './services/api/client';
 import { SessionTimeoutManager } from './components/auth/SessionTimeoutManager';
 import { useBranding } from './hooks/useBranding';
 import { CookieConsentRoot } from './privacy/CookieConsentRoot';
+import { pageSeoFor } from '@/lib/pageSeo';
 import { applySeo } from './lib/seo';
 import ClarityTracker from './components/tracking/ClarityTracker';
 import { useTrackingSettings } from './hooks/useTrackingSettings';
@@ -355,9 +356,10 @@ function AppContent() {
       ? `${branding.brandName} | ${branding.tagline}`
       : `${branding.brandName} brings stylish, premium accessories and standout picks for every occasion.`;
 
+    const page = pageSeoFor(location.pathname);
     applySeo({
-      title: branding.tabTitle,
-      description: genericDescription,
+      title: page?.title || branding.tabTitle,
+      description: page?.description || genericDescription,
       image: branding.logoUrl || branding.faviconUrl,
       imageAlt: branding.brandName,
       url: `${window.location.origin}${location.pathname}${location.search}`,

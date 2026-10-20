@@ -146,6 +146,11 @@ export const ProductDetailPage: React.FC = () => {
           throw new Error('Product not found.');
         }
         setProduct(resolved);
+        // Opened by an old address (the product was renamed): show the current
+        // one in the address bar so it's what gets shared and bookmarked.
+        if (resolved.slug && productKey !== resolved.slug && productKey !== resolved.id) {
+          navigate(`/product/${resolved.slug}${window.location.search}`, { replace: true });
+        }
       } catch (err: any) {
         setError(err?.message || 'Failed to load product.');
       } finally {
@@ -154,7 +159,7 @@ export const ProductDetailPage: React.FC = () => {
     };
 
     load();
-  }, [id]);
+  }, [id, navigate]);
 
   const images = useMemo(() => {
     const media = (product?.media || []).map((m) => normalizeAssetUrl(m.image)).filter(Boolean);

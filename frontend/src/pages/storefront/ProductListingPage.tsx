@@ -22,6 +22,8 @@ import catalogService from '@/services/api/catalog';
 import { useCurrency } from '@/hooks/useCurrency';
 import type { DealProduct } from '@/types/product';
 import { useSectionTransition } from '@/animations/useSectionTransition';
+import { applySeo } from '@/lib/seo';
+import { pageSeoFor } from '@/lib/pageSeo';
 
 interface ProductListItem {
   id: string;
@@ -439,6 +441,22 @@ export const ProductListingPage: React.FC = () => {
   const safePage = Math.min(currentPage, totalPages);
   const visible = filteredAndSorted.slice((safePage - 1) * pageSize, safePage * pageSize);
   const pageWindow = buildPageWindow(safePage, totalPages);
+
+  // "Shop Bangles | Aurora Blings" when a category is picked, so the tab and
+  // search result say what's on the page.
+  useEffect(() => {
+    const base = pageSeoFor('/products/');
+    if (!base) return;
+    const isAll = selectedCategory === 'All';
+    applySeo({
+      title: isAll ? base.title : `Shop ${selectedCategory} | Aurora Blings`,
+      description: isAll
+        ? base.description
+        : `Shop ${selectedCategory.toLowerCase()} from Aurora Blings — imitation jewellery, free delivery on orders above ₹799.`,
+      url: `${window.location.origin}${window.location.pathname}${window.location.search}`,
+      siteName: 'Aurora Blings',
+    });
+  }, [selectedCategory]);
 
   const firstStockedCategory = categoryCards.find((card) => card.key !== 'all' && card.count > 0);
 

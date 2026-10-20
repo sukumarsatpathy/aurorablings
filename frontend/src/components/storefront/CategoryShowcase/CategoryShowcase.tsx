@@ -245,7 +245,14 @@ const CategoryShowcase: React.FC = () => {
                                                 transformStyle: 'preserve-3d'
                                             }}
                                         >
-                                            <Link to={cat.href} className="block group">
+                                            {/* The loop repeats every card once; the copies are visual only,
+                                                so screen readers and keyboard users meet each category once. */}
+                                            <Link
+                                                to={cat.href}
+                                                className="block group"
+                                                tabIndex={idx >= categories.length ? -1 : undefined}
+                                                aria-hidden={idx >= categories.length ? true : undefined}
+                                            >
                                                 <div
                                                     className={`flex flex-col items-center justify-center w-[250px] max-w-full h-[180px] mx-auto p-6 rounded-[20px] text-center cursor-pointer transition-all duration-300 hover:-translate-y-1.5 ${cat.color === 'pink' ? 'bg-category-pink' : 'bg-category-green'
                                                         }`}

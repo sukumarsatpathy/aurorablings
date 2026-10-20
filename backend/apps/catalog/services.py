@@ -151,6 +151,37 @@ def update_product(*, product: Product, **fields) -> Product:
     return product
 
 
+@transaction.atomic
+def rename_product_slug(*, product: Product, new_slug: str) -> Product:
+    """
+    Give a product a new web address and keep the old one working.
+
+    The old slug is recorded as a ProductSlugRedirect, so /product/<old-slug>
+    keeps opening the product (the storefront then switches the URL to the new
+    one). Renaming back to an earlier slug simply drops that redirect.
+    """
+    from .models import ProductSlugRedirect
+
+    new_slug = slugify(new_slug or "")
+    if not new_slug:
+        raise ValidationError("Enter a web address made of letters, numbers and hyphens.")
+    old_slug = product.slug
+    if new_slug == old_slug:
+        return product
+    if Product.all_objects.filter(slug=new_slug).exclude(pk=product.pk).exists():
+        raise ConflictError(f"Another product already uses '{new_slug}'.")
+    taken = ProductSlugRedirect.objects.filter(old_slug=new_slug).exclude(product=product).first()
+    if taken:
+        raise ConflictError(f"'{new_slug}' is an old address of another product.")
+
+    ProductSlugRedirect.objects.filter(old_slug=new_slug, product=product).delete()
+    product.slug = new_slug
+    product.save(update_fields=["slug", "updated_at"])
+    ProductSlugRedirect.objects.update_or_create(old_slug=old_slug, defaults={"product": product})
+    logger.info("product_slug_renamed", product_id=str(product.id), old_slug=old_slug, new_slug=new_slug)
+    return product
+
+
 def deactivate_product(*, product: Product) -> Product:
     product.is_active = False
     product.save(update_fields=["is_active"])

@@ -700,3 +700,21 @@ class VariantAttributeValue(models.Model):
 
     def __str__(self):
         return f"{self.variant.sku} — {self.attribute_value}"
+
+
+class ProductSlugRedirect(BaseModel):
+    """
+    An address a product used to live at. When a product's slug is renamed,
+    the old one is kept here so shared links, search results and bookmarks
+    still land on the product (see selectors.get_product_by_slug).
+    """
+
+    old_slug = models.SlugField(max_length=280, unique=True, db_index=True)
+    product = models.ForeignKey(Product, on_delete=models.CASCADE, related_name="slug_redirects")
+
+    class Meta:
+        verbose_name = _("product slug redirect")
+        verbose_name_plural = _("product slug redirects")
+
+    def __str__(self):
+        return f"{self.old_slug} → {self.product.slug}"

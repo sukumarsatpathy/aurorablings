@@ -39,6 +39,9 @@ export const HomePage: React.FC = () => {
 
   return (
     <div className="w-full bg-transparent">
+      {/* The banners carry their headline as artwork, so the page's one <h1> is
+          for search engines and screen readers. */}
+      <h1 className="sr-only">Aurora Blings — imitation jewellery and bangles, curated in Puri</h1>
       {/* New Hero Section: Promotional Banner Grid */}
       <section ref={heroRef} className="pt-10 md:pt-14 pb-12">
         <div className="container mx-auto">
