@@ -474,6 +474,10 @@ PRIVACY_STORE_IP_ADDRESS = env.bool("PRIVACY_STORE_IP_ADDRESS", default=False)
 # ── Shipping: NimbusPost ─────────────────────────────────────
 NIMBUSPOST_BASE_URL = env("NIMBUSPOST_BASE_URL", default="https://api.nimbuspost.com/v1")
 NIMBUSPOST_API_KEY = env("NIMBUSPOST_API_KEY", default="")
+# NimbusPost's API signs in with the account's email + password and returns a
+# short-lived token. Kept in the environment, not the admin-readable AppSetting.
+NIMBUSPOST_EMAIL = env("NIMBUSPOST_EMAIL", default="")
+NIMBUSPOST_PASSWORD = env("NIMBUSPOST_PASSWORD", default="")
 NIMBUSPOST_WEBHOOK_SECRET = env("NIMBUSPOST_WEBHOOK_SECRET", default="")
 NIMBUSPOST_TIMEOUT_SECONDS = env.int("NIMBUSPOST_TIMEOUT_SECONDS", default=20)
 

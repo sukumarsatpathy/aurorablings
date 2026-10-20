@@ -5,8 +5,9 @@ shipping.delivery_estimate
 anything is in the cart.
 
 Where the numbers come from, in order:
-  1. Shiprocket courier serviceability, when Shiprocket is the active
-     provider and has a pickup pincode (also says if the pincode is served).
+  1. The courier service's live check — NimbusPost (when its login is
+     configured) or Shiprocket — from our pickup pincode to this one. It says
+     whether the pincode is served; transit days are used when it returns them.
   2. `local_pincodes` in the `shipping.delivery_estimate` setting — e.g. the
      shop's own town, delivered by hand.
   3. The configured range: `shipping.delivery_estimate` min/max days, else the
@@ -83,29 +84,64 @@ def _place(pincode: str) -> dict[str, str]:
     }
 
 
-def _live_days(pincode: str) -> dict[str, Any] | None:
-    """Shiprocket's answer, or None when it isn't configured or didn't answer."""
+def _estimate_provider() -> str:
+    """
+    Which courier service answers "can you deliver here, and how fast?":
+    `provider` in the shipping.delivery_estimate setting if set, else NimbusPost
+    when its login is configured, else Shiprocket when it's the active provider.
+    """
     from . import services
+    from .providers.nimbuspost import NimbusPostProvider
 
-    if services.get_active_provider_name() != "shiprocket":
+    chosen = str(_config().get("provider") or "").strip().lower()
+    if chosen in {"nimbuspost", "shiprocket", "none"}:
+        return "" if chosen == "none" else chosen
+    if NimbusPostProvider().is_configured():
+        return "nimbuspost"
+    if services.get_active_provider_name() == "shiprocket":
+        return "shiprocket"
+    return ""
+
+
+def _live_days(pincode: str) -> dict[str, Any] | None:
+    """
+    The courier service's answer — {"serviceable", "days", "city", "state", "source"} —
+    or None when no service is configured or it didn't answer.
+    """
+    provider = _estimate_provider()
+    if not provider:
         return None
     try:
-        from .providers.shiprocket import ShiprocketProvider
+        if provider == "nimbuspost":
+            from .providers.nimbuspost import NimbusPostProvider
 
-        result = ShiprocketProvider().delivery_days_for_pincode(pincode)
+            result = NimbusPostProvider().check_serviceability(destination=pincode, timeout=8)
+        else:
+            from .providers.shiprocket import ShiprocketProvider
+
+            result = ShiprocketProvider().delivery_days_for_pincode(pincode)
     except Exception as exc:  # noqa: BLE001
-        logger.warning("delivery_estimate_live_failed", pincode=pincode, error=str(exc))
+        logger.warning("delivery_estimate_live_failed", provider=provider, pincode=pincode, error=str(exc))
         return None
     if not result.success:
-        logger.info("delivery_estimate_live_unavailable", pincode=pincode, code=result.error_code)
+        logger.info("delivery_estimate_live_unavailable", provider=provider, pincode=pincode, code=result.error_code)
         return None
-    return result.data
+    data = result.data or {}
+    return {
+        "serviceable": bool(data.get("serviceable")),
+        "days": data.get("days"),
+        "city": str(data.get("city") or ""),
+        "state": str(data.get("state") or ""),
+        "source": provider,
+    }
 
 
 def _compute(pincode: str) -> dict[str, Any]:
     cfg = _config()
     dispatch = _int(cfg.get("dispatch_days"), 1)
     place = _place(pincode)
+    city = lambda live: place["city"] or (live or {}).get("city", "")  # noqa: E731
+    state = lambda live: place["state"] or (live or {}).get("state", "")  # noqa: E731
 
     local = {str(p).strip() for p in (cfg.get("local_pincodes") or [])}
     if pincode in local:
@@ -116,14 +152,18 @@ def _compute(pincode: str) -> dict[str, Any]:
 
     live = _live_days(pincode)
     if live is not None:
-        if not live.get("serviceable"):
-            return {"serviceable": False, "min_days": None, "max_days": None, "source": "shiprocket",
-                    "city": place["city"] or live.get("city", ""), "state": place["state"] or live.get("state", "")}
+        if not live["serviceable"]:
+            return {"serviceable": False, "min_days": None, "max_days": None, "source": live["source"],
+                    "city": city(live), "state": state(live)}
         if live.get("days"):
             low = int(live["days"]) + dispatch
             return {"serviceable": True, "min_days": low, "max_days": low + LIVE_ESTIMATE_SPREAD_DAYS,
-                    "source": "shiprocket",
-                    "city": place["city"] or live.get("city", ""), "state": place["state"] or live.get("state", "")}
+                    "source": live["source"], "city": city(live), "state": state(live)}
+        # The courier service confirms delivery but gives no transit time
+        # (NimbusPost's documented API doesn't): its yes/no plus our range.
+        low, high = _configured_range()
+        return {"serviceable": True, "min_days": low + dispatch, "max_days": high + dispatch,
+                "source": live["source"], "city": city(live), "state": state(live)}
 
     # India Post answered and doesn't know this pincode: almost certainly a typo.
     # (If India Post just didn't answer, fall through to the normal estimate.)
@@ -134,7 +174,8 @@ def _compute(pincode: str) -> dict[str, Any]:
     low, high = _configured_range()
     return {"serviceable": None, "min_days": low + dispatch, "max_days": high + dispatch,
             "source": "configured", "city": place["city"], "state": place["state"],
-            "lookup_failed": place["status"] == "error"}
+            # Retry soon if India Post or a configured courier service didn't answer.
+            "lookup_failed": place["status"] == "error" or bool(_estimate_provider())}
 
 
 def estimate_delivery(pincode: str, *, today: date | None = None) -> dict[str, Any]:

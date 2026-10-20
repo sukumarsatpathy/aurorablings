@@ -196,6 +196,8 @@ RAZORPAY_WEBHOOK_SECRET=
 
 # Shipping
 NIMBUSPOST_API_KEY=
+NIMBUSPOST_EMAIL=
+NIMBUSPOST_PASSWORD=
 NIMBUSPOST_WEBHOOK_SECRET=
 
 # ─── Optional ───────────────────────────────────────────────────────────
