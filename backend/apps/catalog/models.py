@@ -116,6 +116,9 @@ class Product(SoftDeleteModel):
     slug        = models.SlugField(max_length=280, unique=True, db_index=True)
     description = models.TextField(blank=True)
     short_description = models.CharField(max_length=500, blank=True)
+    # One short clip (e.g. a reel of the piece being worn), shown last in the
+    # product-page gallery. Validated in services.set_product_video.
+    video = models.FileField(upload_to="products/videos/%Y/%m/", blank=True, null=True)
 
     # ── Relations ─────────────────────────────────────────────
     category = models.ForeignKey(

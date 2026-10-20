@@ -24,6 +24,7 @@ ALLOWED_EMAIL_TEMPLATES = {
     "emails/restock_notification.html",
     "emails/account_blocked.html",
     "emails/occasion_gift.html",
+    "emails/review_request.html",
 }
 
 DEFAULT_TEMPLATE_MAP = {
@@ -38,6 +39,10 @@ DEFAULT_TEMPLATE_MAP = {
     NotificationEvent.ORDER_DELIVERED: {
         "subject": "Your order {{ order_number }} is delivered",
         "template_file": "emails/order_delivered.html",
+    },
+    NotificationEvent.ORDER_REVIEW_REQUEST: {
+        "subject": "How are you liking your Aurora Blings order? 💚",
+        "template_file": "emails/review_request.html",
     },
     NotificationEvent.USER_FORGOT_PASSWORD: {
         "subject": "Reset your Aurora Blings password",

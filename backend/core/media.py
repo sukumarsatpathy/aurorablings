@@ -159,3 +159,49 @@ def media_value_to_storage_path(value: str) -> str | None:
     if path.startswith(media_url):
         return Path(path[len(media_url):]).as_posix().lstrip("/")
     return None
+
+
+# ─────────────────────────────────────────────────────────────
+#  Video
+# ─────────────────────────────────────────────────────────────
+
+#: nginx (deploy/nginx/aurorablings.conf.template) caps request bodies at 10 MB;
+#: stay under it so the server, not nginx, explains a too-large upload.
+MAX_VIDEO_UPLOAD_BYTES = 9 * 1024 * 1024
+
+
+def _detect_video_extension(uploaded_file) -> str | None:
+    """MP4/MOV ('ftyp' box at offset 4) or WebM (EBML magic). Reads 12 bytes."""
+    try:
+        position = uploaded_file.tell()
+    except Exception:  # noqa: BLE001
+        position = 0
+    try:
+        uploaded_file.seek(0)
+        head = uploaded_file.read(12)
+    finally:
+        try:
+            uploaded_file.seek(position)
+        except Exception:  # noqa: BLE001
+            pass
+    if len(head) >= 8 and head[4:8] == b"ftyp":
+        return ".mp4"
+    if head[:4] == b"\x1a\x45\xdf\xa3":
+        return ".webm"
+    return None
+
+
+def validate_video_file(uploaded_file, *, max_size_bytes: int = MAX_VIDEO_UPLOAD_BYTES):
+    """Accept MP4 or WebM by content (not by name), give it a safe random name."""
+    if uploaded_file is None:
+        raise ValidationError("Video file is required.")
+    size = int(getattr(uploaded_file, "size", 0) or 0)
+    if size <= 0:
+        raise ValidationError("Uploaded video is empty.")
+    if size > max_size_bytes:
+        raise ValidationError(f"Video must be {max_size_bytes / (1024 * 1024):.0f} MB or smaller.")
+    extension = _detect_video_extension(uploaded_file)
+    if not extension:
+        raise ValidationError("Only MP4 and WebM videos are allowed.")
+    uploaded_file.name = f"{uuid.uuid4().hex}{extension}"
+    return uploaded_file

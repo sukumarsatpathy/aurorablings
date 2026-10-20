@@ -134,3 +134,22 @@ class ReviewVote(BaseModel):
 
     def __str__(self) -> str:
         return f"Vote {self.vote_type} by {self.user_id}"
+
+
+class ReviewReminder(BaseModel):
+    """
+    One row per order we have asked for reviews, so the daily sweep never
+    asks twice. `products_count` is 0 when there was nothing left to ask
+    about (everything already reviewed) — the order is still marked done.
+    """
+
+    order = models.OneToOneField("orders.Order", on_delete=models.CASCADE, related_name="review_reminder")
+    sent_at = models.DateTimeField()
+    products_count = models.PositiveSmallIntegerField(default=0)
+
+    class Meta:
+        verbose_name = "review reminder"
+        verbose_name_plural = "review reminders"
+
+    def __str__(self) -> str:
+        return f"Review reminder for {self.order_id}"

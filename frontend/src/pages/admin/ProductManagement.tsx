@@ -71,6 +71,16 @@ interface ProductMedia {
   persisted?: boolean;
 }
 
+/** The product's one video clip: what's saved, plus any pending change. */
+interface ProductVideoState {
+  url: string;
+  file?: File;
+  remove?: boolean;
+}
+
+/** Keep in step with core.media.MAX_VIDEO_UPLOAD_BYTES (nginx caps uploads at 10 MB). */
+const MAX_VIDEO_BYTES = 9 * 1024 * 1024;
+
 interface ProductInfoItemRow {
   id: string;
   title: string;
@@ -97,6 +107,8 @@ interface Product {
   infoItems: ProductInfoItemRow[];
   variations: ProductVariation[];
   media: ProductMedia[];
+  /** Only loaded with the product detail, not in the list rows. */
+  video?: ProductVideoState;
 }
 
 interface ProductFormData {
@@ -111,6 +123,7 @@ interface ProductFormData {
   infoItems: ProductInfoItemRow[];
   variations: ProductVariation[];
   media: ProductMedia[];
+  video: ProductVideoState;
 }
 
 interface CategoryOption {
@@ -292,6 +305,7 @@ const mapDetailToProduct = (raw: CatalogProductDetail): Product => ({
     sortOrder: Number(m.sort_order || 0),
     persisted: true,
   })),
+  video: { url: raw.video ? normalizeAssetUrl(raw.video) : '' },
 });
 
 const SortableInfoItemRow: React.FC<{
@@ -370,6 +384,7 @@ export const ProductManagement: React.FC = () => {
     infoItems: [],
     variations: [],
     media: [],
+    video: { url: '' },
   });
 
   const [isCreatingAttr, setIsCreatingAttr] = useState(false);
@@ -385,6 +400,32 @@ export const ProductManagement: React.FC = () => {
   const [deleteProductError, setDeleteProductError] = useState<string | null>(null);
   const [formErrors, setFormErrors] = useState<ProductFormErrors>({});
   const mediaInputRef = useRef<HTMLInputElement | null>(null);
+  const videoInputRef = useRef<HTMLInputElement | null>(null);
+  const [videoError, setVideoError] = useState('');
+  // Preview a newly picked clip before it is uploaded on Save.
+  const pendingVideoUrl = useMemo(
+    () => (formData.video.file ? URL.createObjectURL(formData.video.file) : ''),
+    [formData.video.file],
+  );
+  useEffect(() => () => {
+    if (pendingVideoUrl) URL.revokeObjectURL(pendingVideoUrl);
+  }, [pendingVideoUrl]);
+
+  const handleVideoSelect = (files: FileList | null) => {
+    const file = files?.[0];
+    if (videoInputRef.current) videoInputRef.current.value = '';
+    if (!file) return;
+    if (!['video/mp4', 'video/webm'].includes(file.type)) {
+      setVideoError('Use an MP4 or WebM video.');
+      return;
+    }
+    if (file.size > MAX_VIDEO_BYTES) {
+      setVideoError(`That video is ${(file.size / (1024 * 1024)).toFixed(1)} MB — the limit is 9 MB. Trim it to 5–15 seconds or export at 720p.`);
+      return;
+    }
+    setVideoError('');
+    setFormData((prev) => ({ ...prev, video: { ...prev.video, file, remove: false } }));
+  };
   const nameFieldRef = useRef<HTMLDivElement | null>(null);
   const categoryFieldRef = useRef<HTMLDivElement | null>(null);
   const categoryDropdownRef = useRef<HTMLDivElement | null>(null);
@@ -648,7 +689,9 @@ export const ProductManagement: React.FC = () => {
       infoItems: [...detail.infoItems],
       variations: [...detail.variations],
       media: [...detail.media],
+      video: detail.video ? { ...detail.video } : { url: '' },
     });
+    setVideoError('');
     setCategorySearch(detail.category || '');
     setIsCreatingAttr(false);
     setIsCreatingCategory(false);
@@ -675,7 +718,9 @@ export const ProductManagement: React.FC = () => {
       infoItems: [],
       variations: [],
       media: [],
+      video: { url: '' },
     });
+    setVideoError('');
     setCategorySearch(categories[0]?.name || '');
     setIsCreatingAttr(false);
     setIsCreatingCategory(false);
@@ -961,6 +1006,22 @@ export const ProductManagement: React.FC = () => {
     }
   };
 
+  const syncVideo = async (productId: string) => {
+    const { file, remove, url } = formData.video;
+    if (file) {
+      setUploadStatus({ message: 'Uploading video...', percent: 0 });
+      try {
+        await catalogService.uploadProductVideo(productId, file, (percent) => {
+          setUploadStatus({ message: 'Uploading video...', percent });
+        });
+      } finally {
+        setUploadStatus(null);
+      }
+    } else if (remove && url) {
+      await catalogService.deleteProductVideo(productId);
+    }
+  };
+
   const syncInfoItems = async (productId: string) => {
     const keptPersistedIds = new Set<string>();
     const tempToPersistedId = new Map<string, string>();
@@ -1095,6 +1156,7 @@ export const ProductManagement: React.FC = () => {
       const attributeValueIdMap = buildAttributeValueIdMap(detailForIds);
       await syncVariants(productId, attributeValueIdMap);
       await syncMedia(productId);
+      await syncVideo(productId);
       await syncInfoItems(productId);
 
       setIsModalOpen(false);
@@ -2042,6 +2104,54 @@ export const ProductManagement: React.FC = () => {
                     </div>
                   ) : null}
                 </div>
+              </div>
+
+              <div className="space-y-3 rounded-xl border border-border/80 bg-white p-4">
+                <div className="flex items-center justify-between border-b pb-2">
+                  <h3 className="font-bold text-sm text-foreground">Product Video</h3>
+                  <span className="text-[11px] text-muted-foreground">Optional · MP4/WebM · up to 9 MB</span>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  A 5–15 second clip of the piece being worn (your Instagram reel works well). It plays muted on the product page, after the photos.
+                </p>
+                <input
+                  ref={videoInputRef}
+                  type="file"
+                  accept="video/mp4,video/webm"
+                  onChange={(e) => handleVideoSelect(e.target.files)}
+                  className="hidden"
+                />
+                {(() => {
+                  const previewUrl = pendingVideoUrl || (!formData.video.remove ? formData.video.url : '');
+                  return previewUrl ? (
+                    <div className="space-y-2">
+                      <video src={previewUrl} className="h-40 w-full rounded-md border border-border/60 bg-black object-contain" controls muted playsInline />
+                      <div className="flex items-center gap-2">
+                        <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-[10px]" onClick={() => videoInputRef.current?.click()}>
+                          Replace
+                        </Button>
+                        <Button
+                          type="button"
+                          variant="ghost"
+                          size="sm"
+                          className="h-7 px-2 text-[10px] text-destructive"
+                          onClick={() => setFormData((prev) => ({ ...prev, video: { url: prev.video.url, file: undefined, remove: true } }))}
+                        >
+                          Remove
+                        </Button>
+                        {formData.video.file ? <span className="text-[11px] text-muted-foreground">Uploads when you save</span> : null}
+                      </div>
+                    </div>
+                  ) : (
+                    <Button type="button" variant="outline" size="sm" className="h-8 text-xs" onClick={() => videoInputRef.current?.click()}>
+                      <Plus size={14} className="mr-1" /> Add video
+                    </Button>
+                  );
+                })()}
+                {formData.video.remove && formData.video.url ? (
+                  <p className="text-[11px] text-amber-700">The video will be removed when you save.</p>
+                ) : null}
+                {videoError ? <p className="text-xs text-red-600">{videoError}</p> : null}
               </div>
 
               <div className="space-y-4 rounded-xl border border-border/80 bg-white p-4">

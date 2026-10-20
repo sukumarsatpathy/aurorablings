@@ -16,5 +16,6 @@ urlpatterns = [
     path("shipments/<uuid:shipment_id>/cancel/", views.ShipmentCancelView.as_view(), name="shipment-cancel"),
     path("shipments/<uuid:shipment_id>/local-status/", views.LocalDeliveryStatusUpdateView.as_view(), name="shipment-local-status"),
     path("tracking-update/", views.TrackingWebhookView.as_view(), name="tracking-update"),
+    path("delivery-estimate/", views.DeliveryEstimateView.as_view(), name="delivery-estimate"),
     path("webhooks/nimbuspost/", views.NimbusPostWebhookView.as_view(), name="nimbuspost-webhook"),
 ]

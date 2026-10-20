@@ -5,6 +5,9 @@ class NotificationEvent:
     ORDER_CREATED = "order.created"
     ORDER_SHIPPED = "order.shipped"
     ORDER_DELIVERED = "order.delivered"
+    # A few days after delivery: "How are you liking it?" with review links.
+    # Sent by the daily sweep in apps/reviews/reminders.py.
+    ORDER_REVIEW_REQUEST = "order.review_request"
     USER_FORGOT_PASSWORD = "user.forgot_password"
     USER_BLOCKED = "user.blocked"
     # Sent once, after a counter or guest-checkout sale creates an account.
@@ -58,6 +61,7 @@ DEFAULT_EVENT_CHANNELS: dict[str, list[str]] = {
     NotificationEvent.ORDER_CREATED: [NotificationChannel.EMAIL],
     NotificationEvent.ORDER_SHIPPED: [NotificationChannel.EMAIL],
     NotificationEvent.ORDER_DELIVERED: [NotificationChannel.EMAIL],
+    NotificationEvent.ORDER_REVIEW_REQUEST: [NotificationChannel.EMAIL],
     NotificationEvent.USER_FORGOT_PASSWORD: [NotificationChannel.EMAIL],
     NotificationEvent.USER_BLOCKED: [NotificationChannel.EMAIL],
     NotificationEvent.USER_WELCOME: [NotificationChannel.EMAIL],
@@ -72,6 +76,7 @@ EVENT_CHOICES = [
     (NotificationEvent.ORDER_CREATED, NotificationEvent.ORDER_CREATED),
     (NotificationEvent.ORDER_SHIPPED, NotificationEvent.ORDER_SHIPPED),
     (NotificationEvent.ORDER_DELIVERED, NotificationEvent.ORDER_DELIVERED),
+    (NotificationEvent.ORDER_REVIEW_REQUEST, NotificationEvent.ORDER_REVIEW_REQUEST),
     (NotificationEvent.USER_FORGOT_PASSWORD, NotificationEvent.USER_FORGOT_PASSWORD),
     (NotificationEvent.USER_BLOCKED, NotificationEvent.USER_BLOCKED),
     (NotificationEvent.USER_WELCOME, NotificationEvent.USER_WELCOME),

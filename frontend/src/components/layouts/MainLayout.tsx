@@ -6,6 +6,7 @@ import { Footer } from '@/components/storefront/Footer';
 import { PremiumCursor } from '@/components/storefront/PremiumCursor';
 import { BackgroundDecoration } from '@/components/storefront/BackgroundDecoration';
 import { SignInModal } from '@/components/storefront/SignInModal';
+import { WhatsAppButton } from '@/components/storefront/WhatsAppButton';
 import { gsap, shouldAnimate } from '@/animations/gsapConfig';
 import { useLenis } from '@/hooks/useLenis';
 import { useScrollToTop } from '@/hooks/useScrollToTop';
@@ -106,6 +107,7 @@ export const MainLayout: React.FC<LayoutProps> = ({ children }) => {
         initialMode={authMode}
       />
       <Footer />
+      <WhatsAppButton />
     </div>
   );
 };

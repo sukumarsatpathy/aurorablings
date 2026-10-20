@@ -558,18 +558,22 @@ class ProductDetailSerializer(serializers.ModelSerializer):
     attributes = AttributeSerializer(many=True, read_only=True)
     info_items = serializers.SerializerMethodField()
     price_range = serializers.SerializerMethodField()
+    video = serializers.SerializerMethodField()
 
     class Meta:
         model  = Product
         fields = [
             "id", "name", "slug", "description", "short_description", "stock_id",
             "category", "brand", "is_active", "is_featured", "is_digital", "rating", "avg_rating", "review_count",
-            "media", "variants", "attributes", "info_items", "price_range",
+            "media", "video", "variants", "attributes", "info_items", "price_range",
             "meta_title", "meta_description", "created_at", "updated_at",
         ]
 
     def get_price_range(self, obj) -> dict:
         return obj.price_range
+
+    def get_video(self, obj) -> str | None:
+        return build_media_url(obj.video, request=self.context.get("request")) if obj.video else None
 
     def get_info_items(self, obj):
         qs = obj.info_items.filter(is_active=True).order_by("sort_order", "created_at")

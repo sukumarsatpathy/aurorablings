@@ -219,6 +219,9 @@ REST_FRAMEWORK = {
         'review_submit': '20/hour',
         'review_write': '20/hour',
         'review_vote': '60/hour',
+        # Product-page pincode check. Each new pincode can cost a courier API
+        # call, so this is tighter than browsing; answers are cached per pincode.
+        'delivery_estimate': '60/hour',
     },
 }
 
@@ -258,6 +261,9 @@ CELERY_ACCEPT_CONTENT = ['json']
 CELERY_TASK_SERIALIZER = 'json'
 CELERY_RESULT_SERIALIZER = 'json'
 CELERY_TIMEZONE = TIME_ZONE
+# How often embedded beat (`worker -B`) wakes to check the schedule. Set here
+# because `celery worker` has no --max-interval flag (see docker-compose.prod.yml).
+CELERY_BEAT_MAX_LOOP_INTERVAL = 60
 # Razorpay credentials.
 #
 # RazorpayProvider._load_runtime_config() reads these as its base and lets an
@@ -359,6 +365,11 @@ OCCASION_GIFT_MIN_ORDER_VALUE = env.int("OCCASION_GIFT_MIN_ORDER_VALUE", default
 # Days after the occasion that the coupon stays live.
 OCCASION_GIFT_VALID_DAYS = env.int("OCCASION_GIFT_VALID_DAYS", default=14)
 
+# Review requests: emailed this many days after delivery (time to wear the
+# piece), only for orders delivered within the window.
+REVIEW_REMINDER_DELAY_DAYS = env.int("REVIEW_REMINDER_DELAY_DAYS", default=4)
+REVIEW_REMINDER_WINDOW_DAYS = env.int("REVIEW_REMINDER_WINDOW_DAYS", default=30)
+
 CELERY_BEAT_SCHEDULE = {
     "retry-pending-notifications": {
         "task":     "notifications.retry_pending",
@@ -402,6 +413,11 @@ CELERY_BEAT_SCHEDULE = {
     "issue-occasion-coupons": {
         "task": "pricing.issue_occasion_coupons",
         "schedule": crontab(hour=8, minute=0),
+    },
+    # 11:00 IST — mid-morning, when people check personal email.
+    "review-reminders": {
+        "task": "reviews.send_post_delivery_review_reminders",
+        "schedule": crontab(hour=11, minute=0),
     },
 }
 

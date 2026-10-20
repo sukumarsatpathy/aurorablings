@@ -111,6 +111,7 @@ class ShiprocketProvider(BaseShippingProvider):
         params: dict[str, Any] | None = None,
         payload: dict[str, Any] | None = None,
         retry_on_auth: bool = True,
+        timeout: float = 25,
     ) -> ProviderResponse:
         auth_result = self.authenticate()
         if not auth_result.success:
@@ -130,7 +131,7 @@ class ShiprocketProvider(BaseShippingProvider):
                 headers=headers,
                 params=params,
                 json=payload,
-                timeout=25,
+                timeout=timeout,
             )
             if response.status_code == 401 and retry_on_auth:
                 self.refresh_token()
@@ -140,6 +141,7 @@ class ShiprocketProvider(BaseShippingProvider):
                     params=params,
                     payload=payload,
                     retry_on_auth=False,
+                    timeout=timeout,
                 )
             response.raise_for_status()
             data = response.json() if response.content else {}
@@ -150,7 +152,13 @@ class ShiprocketProvider(BaseShippingProvider):
                 method=method,
                 error=str(exc),
             )
-            return ProviderResponse(success=False, error_code="provider_temporary_failure", error_message=str(exc))
+            status_code = getattr(getattr(exc, "response", None), "status_code", None)
+            return ProviderResponse(
+                success=False,
+                error_code="provider_temporary_failure",
+                error_message=str(exc),
+                data={"status_code": status_code} if status_code else {},
+            )
         except ValueError:
             data = {}
 
@@ -347,6 +355,59 @@ class ShiprocketProvider(BaseShippingProvider):
         if not result.success:
             return result
         return ProviderResponse(success=True, data={"raw": result.data or {}})
+
+    def delivery_days_for_pincode(self, pincode: str, *, timeout: float = 6) -> ProviderResponse:
+        """
+        Courier serviceability from the pickup pincode to `pincode`, for the
+        storefront's "Delivery by …" line. Short timeout: a shopper is waiting.
+
+        data = {"serviceable": bool, "days": int | None, "city": str, "state": str}
+        """
+        pickup = str(self._settings().get("pickup_pincode") or "").strip()
+        if not pickup:
+            return ProviderResponse(success=False, error_code="config_error", error_message="Pickup pincode not set.")
+        params = {
+            "pickup_postcode": pickup,
+            "delivery_postcode": pincode,
+            "weight": str((self._provider_settings().get("default_package") or {}).get("weight_kg") or 0.3),
+            "cod": 0,
+        }
+        result = self._request(
+            method="GET", path="/v1/external/courier/serviceability/", params=params, timeout=timeout,
+        )
+        if not result.success:
+            # Shiprocket answers 404 for a pincode no courier serves.
+            if (result.data or {}).get("status_code") == 404:
+                return ProviderResponse(success=True, data={"serviceable": False, "days": None, "city": "", "state": ""})
+            return result
+
+        body = result.data or {}
+        inner = body.get("data") if isinstance(body.get("data"), dict) else {}
+        couriers = [c for c in (inner.get("available_courier_companies") or []) if isinstance(c, dict)]
+        if str(body.get("status", "")) == "404" or not couriers:
+            return ProviderResponse(success=True, data={"serviceable": False, "days": None, "city": "", "state": ""})
+
+        recommended_id = str(inner.get("recommended_courier_company_id") or "")
+        chosen = next((c for c in couriers if str(c.get("courier_company_id")) == recommended_id), None)
+
+        def _days(courier: dict[str, Any]) -> int | None:
+            try:
+                value = int(float(str(courier.get("estimated_delivery_days") or "").strip()))
+            except ValueError:
+                return None
+            return value if value > 0 else None
+
+        days = _days(chosen) if chosen else None
+        if days is None:
+            known = [d for d in (_days(c) for c in couriers) if d is not None]
+            days = min(known) if known else None
+        first = chosen or couriers[0]
+        return ProviderResponse(success=True, data={
+            "serviceable": True,
+            "days": days,
+            "city": str(first.get("city") or ""),
+            "state": str(first.get("state") or ""),
+        })
 
     def normalize_status(self, payload: dict[str, Any]) -> str:
         provider_status = str(

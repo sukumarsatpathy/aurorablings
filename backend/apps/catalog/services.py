@@ -16,7 +16,7 @@ from django.utils.text import slugify
 
 from core.exceptions import ValidationError, NotFoundError, ConflictError
 from core.logging import get_logger
-from core.media import delete_file_if_exists, validate_image_file
+from core.media import delete_file_if_exists, validate_image_file, validate_video_file
 
 from .models import (
     Category, Brand, Product, ProductMedia,
@@ -215,6 +215,27 @@ def add_product_media(
     )
     logger.info("media_added", product_id=str(product.id), media_id=str(media.id))
     return media
+
+
+def set_product_video(*, product: Product, video) -> Product:
+    """Attach (or replace) the product's video. The old file is deleted."""
+    video = validate_video_file(video)
+    old_name = product.video.name if product.video else ""
+    product.video = video
+    product.save(update_fields=["video", "updated_at"])
+    if old_name and old_name != product.video.name:
+        delete_file_if_exists(old_name)
+    logger.info("product_video_set", product_id=str(product.id))
+    return product
+
+
+def remove_product_video(*, product: Product) -> Product:
+    if product.video:
+        delete_file_if_exists(product.video)
+        product.video = None
+        product.save(update_fields=["video", "updated_at"])
+        logger.info("product_video_removed", product_id=str(product.id))
+    return product
 
 
 def delete_product_media(*, media: ProductMedia) -> None:

@@ -282,3 +282,26 @@ class NimbusPostWebhookView(APIView):
         # Reuse generic webhook processor; provider is inferred from matched shipment.
         process_webhook_event.delay(str(event.id))
         return success_response(message="NimbusPost tracking update accepted.")
+
+
+class DeliveryEstimateView(APIView):
+    """
+    GET ?pincode=752002 → estimated delivery dates for that pincode.
+    Public; shown on the product page.
+    """
+    permission_classes = [AllowAny]
+    throttle_scope = "delivery_estimate"
+
+    def get(self, request):
+        from .delivery_estimate import estimate_delivery
+
+        try:
+            data = estimate_delivery(request.query_params.get("pincode", ""))
+        except ValueError as exc:
+            return error_response(
+                message=str(exc),
+                error_code="invalid_pincode",
+                status_code=400,
+                request_id=getattr(request, "request_id", None),
+            )
+        return success_response(data=data, request_id=getattr(request, "request_id", None))

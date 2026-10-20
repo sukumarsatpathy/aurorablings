@@ -16,6 +16,7 @@ from apps.accounts.permissions import IsStaffOrAdmin
 from core.response import success_response, error_response
 from core.viewsets import BaseViewSet, ReadOnlyViewSet, FullCRUDViewSet
 from core.exceptions import NotFoundError
+from core.media import build_media_url
 from core.logging import get_logger
 from audit.models import ActorType, AuditAction
 from audit.services.activity_logger import log_activity
@@ -551,6 +552,32 @@ class ProductViewSet(BaseViewSet):
             sort_order=sort_order,
         )
         return self.created(data=ProductMediaSerializer(media).data)
+
+    # ── Video (one per product) ───────────────────────────────
+    @action(
+        detail=True,
+        methods=["post", "delete"],
+        url_path="video",
+        parser_classes=[MultiPartParser, FormParser],
+        permission_classes=[IsAuthenticated, IsStaffOrAdmin],
+    )
+    def video(self, request, pk=None):
+        product = selectors.get_product_by_id(pk, published_only=False)
+        if not product:
+            raise NotFoundError("Product not found.")
+
+        if request.method == "DELETE":
+            services.remove_product_video(product=product)
+            return self.ok(data={"video": None}, message="Product video removed.")
+
+        upload = request.FILES.get("video")
+        if not upload:
+            return self.bad_request(message="No video file provided.")
+        services.set_product_video(product=product, video=upload)
+        return self.ok(
+            data={"video": build_media_url(product.video, request=request)},
+            message="Product video saved.",
+        )
 
     @action(
         detail=True,

@@ -1,6 +1,6 @@
 import React, { Suspense, lazy, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate, useParams, useSearchParams } from 'react-router-dom';
-import { ChevronRight, Minus, Plus, ShoppingCart, Star, Truck } from 'lucide-react';
+import { ChevronRight, Minus, Play, Plus, ShoppingCart, Star, Truck } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Badge } from '@/components/ui/Badge';
 import { Input } from '@/components/ui/Input';
@@ -9,6 +9,9 @@ import notifyService, { type NotifySubscriptionPayload } from '@/services/api/no
 import cartService from '@/services/api/cart';
 import { useCurrency } from '@/hooks/useCurrency';
 import { useShippingSummary } from '@/hooks/useShippingSummary';
+import { DeliveryCheck } from '@/components/storefront/DeliveryCheck';
+import { WhatsAppIcon } from '@/components/storefront/WhatsAppButton';
+import { whatsappLink } from '@/lib/contact';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { useStagger } from '@/animations/useStagger';
 import { applySeo, stripHtml, truncateText } from '@/lib/seo';
@@ -159,7 +162,11 @@ export const ProductDetailPage: React.FC = () => {
     return ['https://placehold.co/1000x1000/f3f4f6/517b4b?text=Product'];
   }, [product]);
 
-  const displayedImageIndex = isGalleryHovered ? hoverImageIndex : activeImage;
+  // The video, if any, sits after the photos as one more gallery slot.
+  const videoUrl = product?.video ? normalizeAssetUrl(product.video) : '';
+  const videoIndex = images.length;
+  const showingVideo = Boolean(videoUrl) && activeImage === videoIndex;
+  const displayedImageIndex = isGalleryHovered && !showingVideo ? hoverImageIndex : activeImage;
 
   const activeVariants = useMemo(() => {
     return (product?.variants || []).filter((variant) => variant.is_active !== false);
@@ -393,19 +400,35 @@ export const ProductDetailPage: React.FC = () => {
           <div className="lg:col-span-7 flex flex-col md:flex-row-reverse gap-4">
             <div
               className="flex-1 rounded-2xl overflow-hidden border border-border bg-muted/20 aspect-square"
-              onMouseEnter={() => setIsGalleryHovered(true)}
+              onMouseEnter={() => setIsGalleryHovered(!showingVideo)}
               onMouseLeave={() => setIsGalleryHovered(false)}
             >
-              <OptimizedImage
-                src={images[displayedImageIndex]}
-                alt={product.name}
-                className="w-full h-full object-contain transition-opacity duration-300"
-                width={1000}
-                height={1000}
-                priority
-                loading="eager"
-                decoding="sync"
-              />
+              {showingVideo ? (
+                <video
+                  key={videoUrl}
+                  src={videoUrl}
+                  poster={images[0]}
+                  className="h-full w-full bg-black object-contain"
+                  autoPlay
+                  muted
+                  loop
+                  playsInline
+                  controls
+                  preload="metadata"
+                  aria-label={`${product.name} video`}
+                />
+              ) : (
+                <OptimizedImage
+                  src={images[displayedImageIndex] || images[0]}
+                  alt={product.name}
+                  className="w-full h-full object-contain transition-opacity duration-300"
+                  width={1000}
+                  height={1000}
+                  priority
+                  loading="eager"
+                  decoding="sync"
+                />
+              )}
             </div>
             <div className="flex md:flex-col gap-3">
               {images.map((img, idx) => (
@@ -426,6 +449,32 @@ export const ProductDetailPage: React.FC = () => {
                   />
                 </button>
               ))}
+              {videoUrl ? (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setIsGalleryHovered(false);
+                    setActiveImage(videoIndex);
+                  }}
+                  aria-label="Play video"
+                  className={`relative w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden border-2 ${showingVideo ? 'border-primary' : 'border-transparent opacity-80 hover:opacity-100'}`}
+                >
+                  <OptimizedImage
+                    src={images[0]}
+                    alt=""
+                    className="w-full h-full object-cover"
+                    width={120}
+                    height={120}
+                    loading="lazy"
+                    decoding="async"
+                  />
+                  <span className="absolute inset-0 flex items-center justify-center bg-black/35">
+                    <span className="flex h-9 w-9 items-center justify-center rounded-full bg-white/90 text-primary shadow">
+                      <Play size={16} fill="currentColor" aria-hidden="true" />
+                    </span>
+                  </span>
+                </button>
+              ) : null}
             </div>
           </div>
 
@@ -558,6 +607,16 @@ export const ProductDetailPage: React.FC = () => {
                 </Button>
               </div>
               {cartMessage ? <p className="text-xs font-medium text-emerald-700">{cartMessage}</p> : null}
+              <a
+                href={whatsappLink(`Hi Aurora Blings! I have a question about "${product.name}": ${window.location.origin}/product/${product.slug || product.id}`)}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-2 text-sm font-semibold text-[#128C7E] hover:underline"
+              >
+                <WhatsAppIcon className="h-4 w-4" />
+                Ask about this piece on WhatsApp
+              </a>
+              <DeliveryCheck />
               {!isInStock ? (
                 <div className="rounded-2xl border border-border bg-muted/20 p-4 space-y-3">
                   <h5 className="text-sm font-semibold text-black">Notify Me When Available</h5>

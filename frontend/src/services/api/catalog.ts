@@ -70,6 +70,8 @@ export interface CatalogProductDetail {
   stock_id?: number | null;
   description: string;
   short_description: string;
+  /** Absolute URL of the product's video clip, if one was uploaded. */
+  video?: string | null;
   is_active: boolean;
   rating?: string | number;
   avg_rating?: string | number;
@@ -450,6 +452,21 @@ const catalogService = {
     payload: Partial<{ alt_text: string; is_primary: boolean; sort_order: number }>
   ) => {
     const response = await apiClient.patch(`/v1/catalog/products/${productId}/media/${mediaId}/`, payload);
+    return response.data;
+  },
+
+  uploadProductVideo: async (productId: string, file: File, onProgress?: UploadProgressHandler) => {
+    const form = new FormData();
+    form.append('video', file);
+    const response = await apiClient.post(`/v1/catalog/products/${productId}/video/`, form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+      onUploadProgress: toUploadProgress(onProgress),
+    });
+    return response.data;
+  },
+
+  deleteProductVideo: async (productId: string) => {
+    const response = await apiClient.delete(`/v1/catalog/products/${productId}/video/`);
     return response.data;
   },
 
