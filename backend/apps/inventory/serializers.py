@@ -1,4 +1,5 @@
 from rest_framework import serializers
+from apps.catalog.media import variant_photo
 from core.media import build_media_url
 from .models import (
     Warehouse, WarehouseStock, StockLedger,
@@ -38,6 +39,18 @@ class WarehouseStockSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class StockRecordBulkDeleteSerializer(serializers.Serializer):
+    """
+    Bulk delete of stock records. Capped at 200 ids: this writes one audit row
+    per record and erases ledger history, so a larger request is almost always
+    a select-all mis-click rather than an intent.
+    """
+
+    ids = serializers.ListField(
+        child=serializers.UUIDField(), allow_empty=False, max_length=200,
+    )
+
+
 class WarehouseStockUpdateSerializer(serializers.Serializer):
     low_stock_threshold = serializers.IntegerField(min_value=0, max_value=9999)
 
@@ -53,17 +66,18 @@ class VariantOptionSerializer(serializers.Serializer):
     price = serializers.DecimalField(max_digits=12, decimal_places=2, source="effective_price", read_only=True)
 
     def get_product_image(self, obj) -> str | None:
+        """
+        The variant's own photo: one tagged with its colour (e.g. the Violet
+        photo for "Violet / 2-6"), else the product's main photo. Uses the
+        small copy — this is a 40px thumbnail in a long list.
+        """
         product = getattr(obj, "product", None)
         if not product:
             return None
-
-        media_items = list(product.media.all())
-        if not media_items:
+        media = variant_photo(obj, list(product.media.all()))
+        if media is None:
             return None
-
-        primary = next((item for item in media_items if item.is_primary), None)
-        image = (primary or media_items[0]).image
-        return build_media_url(image, request=self.context.get("request"))
+        return build_media_url(media.image_small or media.image, request=self.context.get("request"))
 
 
 class StockLedgerSerializer(serializers.ModelSerializer):
