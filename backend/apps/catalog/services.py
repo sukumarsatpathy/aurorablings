@@ -235,6 +235,7 @@ def add_product_media(
     alt_text: str = "",
     is_primary: bool = False,
     sort_order: int = 0,
+    attribute_value_id=None,
 ) -> ProductMedia:
     image = validate_image_file(image)
     media = ProductMedia.objects.create(
@@ -243,6 +244,7 @@ def add_product_media(
         alt_text=alt_text,
         is_primary=is_primary,
         sort_order=sort_order,
+        attribute_value=resolve_media_attribute_value(product=product, value_id=attribute_value_id),
     )
     logger.info("media_added", product_id=str(product.id), media_id=str(media.id))
     return media
@@ -267,6 +269,30 @@ def remove_product_video(*, product: Product) -> Product:
         product.save(update_fields=["video", "updated_at"])
         logger.info("product_video_removed", product_id=str(product.id))
     return product
+
+
+def resolve_media_attribute_value(*, product: Product, value_id):
+    """
+    The AttributeValue a photo is tagged with, checked to belong to this
+    product. Blank → None (photo shows for every option).
+    """
+    raw = str(value_id or "").strip()
+    if not raw or raw.lower() in {"null", "none"}:
+        return None
+    value = AttributeValue.objects.filter(pk=raw, attribute__product=product).first() if _is_uuid(raw) else None
+    if value is None:
+        raise ValidationError("That option doesn't belong to this product.")
+    return value
+
+
+def _is_uuid(raw: str) -> bool:
+    import uuid
+
+    try:
+        uuid.UUID(raw)
+    except ValueError:
+        return False
+    return True
 
 
 def delete_product_media(*, media: ProductMedia) -> None:

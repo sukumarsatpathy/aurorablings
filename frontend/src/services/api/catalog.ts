@@ -13,6 +13,8 @@ export interface CatalogMedia {
   image_medium?: string | null;
   image_large?: string | null;
   alt_text: string;
+  /** Option this photo shows (e.g. the "Violet" value of Color); null = every option. */
+  attribute_value?: string | null;
   is_primary: boolean;
   sort_order: number;
 }
@@ -37,7 +39,7 @@ export interface CatalogVariant {
   discount_percentage?: number | null;
   is_in_stock?: boolean;
   is_low_stock?: boolean;
-  attribute_values?: Array<{ attribute_name: string; value: string }>;
+  attribute_values?: Array<{ id?: string; attribute_name: string; value: string }>;
 }
 
 export interface CatalogAttributeValue {
@@ -430,12 +432,13 @@ const catalogService = {
   uploadProductMedia: async (
     productId: string,
     file: File,
-    data?: { alt_text?: string; is_primary?: boolean; sort_order?: number },
+    data?: { alt_text?: string; is_primary?: boolean; sort_order?: number; attribute_value_id?: string | null },
     onProgress?: UploadProgressHandler
   ) => {
     const form = new FormData();
     form.append('image', file);
     if (data?.alt_text) form.append('alt_text', data.alt_text);
+    if (data?.attribute_value_id) form.append('attribute_value_id', data.attribute_value_id);
     if (typeof data?.is_primary === 'boolean') form.append('is_primary', data.is_primary ? 'true' : 'false');
     if (typeof data?.sort_order === 'number') form.append('sort_order', String(data.sort_order));
 
@@ -449,7 +452,7 @@ const catalogService = {
   updateProductMedia: async (
     productId: string,
     mediaId: string,
-    payload: Partial<{ alt_text: string; is_primary: boolean; sort_order: number }>
+    payload: Partial<{ alt_text: string; is_primary: boolean; sort_order: number; attribute_value_id: string | null }>
   ) => {
     const response = await apiClient.patch(`/v1/catalog/products/${productId}/media/${mediaId}/`, payload);
     return response.data;

@@ -15,6 +15,16 @@ import { whatsappLink } from '@/lib/contact';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { useStagger } from '@/animations/useStagger';
 import { applySeo, stripHtml, truncateText } from '@/lib/seo';
+import {
+  buildOptionGroups,
+  findVariant,
+  mediaForColour,
+  optionState,
+  pickOption,
+  swatchFor,
+  variantSelection,
+  type Selection,
+} from '@/lib/variantOptions';
 
 const LazyProductReviewsSection = lazy(() =>
   import('@/components/storefront/reviews/ProductReviewsSection').then((mod) => ({
@@ -98,7 +108,7 @@ export const ProductDetailPage: React.FC = () => {
   const [isGalleryHovered, setIsGalleryHovered] = useState(false);
   const [hoverImageIndex, setHoverImageIndex] = useState(0);
   const [quantity, setQuantity] = useState(1);
-  const [selectedVariantId, setSelectedVariantId] = useState<string>('');
+  const [selection, setSelection] = useState<Selection>({});
   const [notifyName, setNotifyName] = useState('');
   const [notifyEmail, setNotifyEmail] = useState('');
   const [notifyPhone, setNotifyPhone] = useState('');
@@ -161,18 +171,6 @@ export const ProductDetailPage: React.FC = () => {
     load();
   }, [id, navigate]);
 
-  const images = useMemo(() => {
-    const media = (product?.media || []).map((m) => normalizeAssetUrl(m.image)).filter(Boolean);
-    if (media.length > 0) return media;
-    return ['https://placehold.co/1000x1000/f3f4f6/517b4b?text=Product'];
-  }, [product]);
-
-  // The video, if any, sits after the photos as one more gallery slot.
-  const videoUrl = product?.video ? normalizeAssetUrl(product.video) : '';
-  const videoIndex = images.length;
-  const showingVideo = Boolean(videoUrl) && activeImage === videoIndex;
-  const displayedImageIndex = isGalleryHovered && !showingVideo ? hoverImageIndex : activeImage;
-
   const activeVariants = useMemo(() => {
     return (product?.variants || []).filter((variant) => variant.is_active !== false);
   }, [product?.variants]);
@@ -182,10 +180,109 @@ export const ProductDetailPage: React.FC = () => {
     return activeVariants.find((variant) => variant.is_default) || activeVariants[0];
   }, [activeVariants]);
 
+  // One picker per attribute (e.g. Color, Size), only with options some variant has.
+  const optionGroups = useMemo(
+    () => buildOptionGroups(activeVariants, product?.attributes || []),
+    [activeVariants, product?.attributes],
+  );
+  const colourGroup = optionGroups.find((group) => group.isColour) || null;
+
+  // Start from ?color=…&size=… when present (shared links), else the default variant.
   useEffect(() => {
     if (!defaultVariant) return;
-    setSelectedVariantId(defaultVariant.id);
-  }, [defaultVariant?.id]);
+    let next = variantSelection(defaultVariant, optionGroups);
+    // Default sold out? Open on an in-stock size of the same colour instead.
+    const lead = optionGroups[0];
+    if (lead && next[lead.key]) next = pickOption(activeVariants, optionGroups, next, lead.key, next[lead.key]);
+    for (const group of optionGroups) {
+      const wanted = searchParams.get(group.key);
+      if (!wanted) continue;
+      const value = group.values.find((v) => v.key === wanted.trim().toLowerCase());
+      if (value) next = pickOption(activeVariants, optionGroups, next, group.key, value.key);
+    }
+    // A shared link to an exact combination opens on it, even if sold out
+    // (so the shopper can ask to be notified).
+    const exact = { ...variantSelection(defaultVariant, optionGroups) };
+    for (const group of optionGroups) {
+      const wanted = searchParams.get(group.key)?.trim().toLowerCase();
+      if (wanted && group.values.some((v) => v.key === wanted)) exact[group.key] = wanted;
+    }
+    if (optionGroups.some((g) => searchParams.get(g.key)) && findVariant(activeVariants, optionGroups, exact)) {
+      next = exact;
+    }
+    setSelection(next);
+    setActiveImage(0);
+    // Only when the product changes; later picks are the shopper's.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [defaultVariant?.id, optionGroups]);
+
+  const selectedVariant = useMemo(() => {
+    if (!activeVariants.length) return null;
+    return findVariant(activeVariants, optionGroups, selection) || defaultVariant;
+  }, [activeVariants, optionGroups, selection, defaultVariant]);
+
+  const selectedColourIds = useMemo(() => {
+    if (!colourGroup) return null;
+    return colourGroup.values.find((v) => v.key === selection[colourGroup.key])?.valueIds || null;
+  }, [colourGroup, selection]);
+
+  // Photos for the chosen colour. Main view uses the 480/768/1200px versions
+  // made at upload (not the full-size original); thumbnails use the 480px one.
+  const gallery = useMemo(() => {
+    const media = mediaForColour(product?.media || [], selectedColourIds);
+    const items = media
+      .map((m) => {
+        const full = normalizeAssetUrl(m.image);
+        const small = normalizeAssetUrl(m.image_small);
+        const medium = normalizeAssetUrl(m.image_medium);
+        const large = normalizeAssetUrl(m.image_large);
+        const srcSet = small && medium && large ? `${small} 480w, ${medium} 768w, ${large} 1200w` : undefined;
+        return { main: large || full, thumb: small || full, srcSet, alt: m.alt_text };
+      })
+      .filter((item) => item.main);
+    if (items.length > 0) return items;
+    const placeholder = 'https://placehold.co/1000x1000/f3f4f6/517b4b?text=Product';
+    return [{ main: placeholder, thumb: placeholder, srcSet: undefined, alt: '' }];
+  }, [product?.media, selectedColourIds]);
+  const images = useMemo(() => gallery.map((item) => item.main), [gallery]);
+
+  // The video, if any, sits after the photos as one more gallery slot.
+  const videoUrl = product?.video ? normalizeAssetUrl(product.video) : '';
+  const videoIndex = images.length;
+  const showingVideo = Boolean(videoUrl) && activeImage === videoIndex;
+  const displayedImageIndex = isGalleryHovered && !showingVideo ? hoverImageIndex : activeImage;
+
+  // Keep the picks in the address bar so a shared link opens on the same colour.
+  useEffect(() => {
+    if (!optionGroups.length || optionGroups[0].key === '__variant') return;
+    const url = new URL(window.location.href);
+    for (const group of optionGroups) {
+      if (selection[group.key]) url.searchParams.set(group.key, selection[group.key]);
+    }
+    if (url.href !== window.location.href) window.history.replaceState(window.history.state, '', url);
+  }, [optionGroups, selection]);
+
+  const choose = (groupKey: string, valueKey: string) => {
+    const next = pickOption(activeVariants, optionGroups, selection, groupKey, valueKey);
+    if (colourGroup && next[colourGroup.key] !== selection[colourGroup.key]) {
+      setActiveImage(0);
+      setIsGalleryHovered(false);
+    }
+    setSelection(next);
+  };
+
+  // Warm the first photo of a colour when the shopper hovers its chip, so the
+  // switch is instant without downloading every colour's photos up front.
+  const preloadedRef = useRef(new Set<string>());
+  const preloadColour = (valueIds: string[]) => {
+    const first = mediaForColour(product?.media || [], valueIds)[0];
+    const url = normalizeAssetUrl(first?.image_large || first?.image);
+    if (!url || preloadedRef.current.has(url)) return;
+    preloadedRef.current.add(url);
+    const img = new Image();
+    img.decoding = 'async';
+    img.src = url;
+  };
 
   useEffect(() => {
     setHoverImageIndex(activeImage);
@@ -205,11 +302,6 @@ export const ProductDetailPage: React.FC = () => {
       window.clearInterval(intervalId);
     };
   }, [activeImage, images.length, isGalleryHovered]);
-
-  const selectedVariant = useMemo(() => {
-    if (!activeVariants.length) return null;
-    return activeVariants.find((variant) => variant.id === selectedVariantId) || defaultVariant;
-  }, [activeVariants, selectedVariantId, defaultVariant]);
 
   const isInStock = Boolean((selectedVariant as any)?.is_in_stock || (selectedVariant?.stock_quantity || 0) > 0);
 
@@ -231,30 +323,6 @@ export const ProductDetailPage: React.FC = () => {
       });
     return rows;
   }, [product?.info_items]);
-
-  const sizeOptions = useMemo(() => {
-    const variants = activeVariants;
-    const preferredKeys = ['size', 'weight', 'volume', 'pack'];
-    const found: Array<{ id: string; label: string }> = [];
-
-    for (const variant of variants) {
-      const attrValues = (variant.attribute_values || []) as Array<{ attribute_name: string; value: string }>;
-      const picked = attrValues.find((a) =>
-        preferredKeys.some((key) => (a.attribute_name || '').toLowerCase().includes(key))
-      );
-      if (picked?.value) {
-        found.push({ id: variant.id, label: picked.value });
-      } else if (variant.name && variant.name !== variant.sku) {
-        found.push({ id: variant.id, label: variant.name });
-      }
-    }
-
-    const dedup = new Map<string, { id: string; label: string }>();
-    for (const entry of found) {
-      if (!dedup.has(entry.label)) dedup.set(entry.label, entry);
-    }
-    return Array.from(dedup.values());
-  }, [activeVariants]);
 
   const notifyStorageKey = useMemo(
     () => (product?.id ? `notify_success:${product.id}` : ''),
@@ -425,7 +493,9 @@ export const ProductDetailPage: React.FC = () => {
               ) : (
                 <OptimizedImage
                   src={images[displayedImageIndex] || images[0]}
-                  alt={product.name}
+                  srcSet={(gallery[displayedImageIndex] || gallery[0])?.srcSet}
+                  sizes="(min-width: 1024px) 50vw, 100vw"
+                  alt={(gallery[displayedImageIndex] || gallery[0])?.alt || product.name}
                   className="w-full h-full object-contain transition-opacity duration-300"
                   width={1000}
                   height={1000}
@@ -436,15 +506,16 @@ export const ProductDetailPage: React.FC = () => {
               )}
             </div>
             <div className="flex md:flex-col gap-3">
-              {images.map((img, idx) => (
+              {gallery.map((item, idx) => (
                 <button
-                  key={`${img}-${idx}`}
+                  key={`${item.main}-${idx}`}
                   type="button"
                   onClick={() => setActiveImage(idx)}
+                  aria-label={`Show photo ${idx + 1}`}
                   className={`w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden border-2 ${displayedImageIndex === idx ? 'border-primary' : 'border-transparent opacity-60 hover:opacity-100'}`}
                 >
                   <OptimizedImage
-                    src={img}
+                    src={item.thumb}
                     alt=""
                     className="w-full h-full object-cover"
                     width={120}
@@ -465,7 +536,7 @@ export const ProductDetailPage: React.FC = () => {
                   className={`relative w-20 h-20 md:w-24 md:h-24 rounded-xl overflow-hidden border-2 ${showingVideo ? 'border-primary' : 'border-transparent opacity-80 hover:opacity-100'}`}
                 >
                   <OptimizedImage
-                    src={images[0]}
+                    src={gallery[0]?.thumb || images[0]}
                     alt=""
                     className="w-full h-full object-cover"
                     width={120}
@@ -566,27 +637,53 @@ export const ProductDetailPage: React.FC = () => {
               </ul>
             </div>
 
-            {sizeOptions.length > 0 ? (
-              <div className="space-y-3">
-                <h4 className="text-xl font-bold uppercase tracking-wider text-black">Sizes</h4>
-                <div className="flex flex-wrap gap-2">
-                  {sizeOptions.map((option) => (
-                    <button
-                      key={option.id}
-                      type="button"
-                      onClick={() => setSelectedVariantId(option.id)}
-                      className={`h-11 px-6 rounded-xl border text-lg transition-colors ${
-                        selectedVariantId === option.id
-                          ? 'bg-[#517b4b] text-white border-[#517b4b]'
-                          : 'bg-white/70 backdrop-blur-sm text-[#4e5d78] border-border hover:border-[#517b4b]/50'
-                      }`}
-                    >
-                      {option.label}
-                    </button>
-                  ))}
+            {optionGroups.map((group) => {
+              const chosen = group.values.find((v) => v.key === selection[group.key]);
+              return (
+                <div key={group.key} className="space-y-3" role="radiogroup" aria-label={group.name}>
+                  <h4 className="text-xl font-bold uppercase tracking-wider text-black">
+                    {group.name}
+                    {chosen ? (
+                      <span className="ml-2 text-base font-semibold normal-case tracking-normal text-[#4e5d78]">: {chosen.label}</span>
+                    ) : null}
+                  </h4>
+                  <div className="flex flex-wrap gap-2">
+                    {group.values.map((value) => {
+                      const state = optionState(activeVariants, optionGroups, selection, group.key, value.key);
+                      const isSelected = selection[group.key] === value.key;
+                      const swatch = group.isColour ? swatchFor(value.label) : null;
+                      const unavailable = !state.exists || !state.inStock;
+                      return (
+                        <button
+                          key={value.key}
+                          type="button"
+                          role="radio"
+                          aria-checked={isSelected}
+                          title={!state.exists ? `${value.label} isn't made in this combination` : !state.inStock ? `${value.label} is out of stock` : value.label}
+                          onClick={() => choose(group.key, value.key)}
+                          onMouseEnter={group.isColour ? () => preloadColour(value.valueIds) : undefined}
+                          onFocus={group.isColour ? () => preloadColour(value.valueIds) : undefined}
+                          className={`relative inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-base transition-colors ${
+                            isSelected
+                              ? 'bg-[#517b4b] text-white border-[#517b4b]'
+                              : 'bg-white/70 backdrop-blur-sm text-[#4e5d78] border-border hover:border-[#517b4b]/50'
+                          } ${unavailable && !isSelected ? 'opacity-50' : ''}`}
+                        >
+                          {swatch ? (
+                            <span
+                              aria-hidden="true"
+                              className="h-5 w-5 shrink-0 rounded-full border border-black/15 shadow-inner"
+                              style={{ background: swatch }}
+                            />
+                          ) : null}
+                          <span className={unavailable ? 'line-through decoration-1' : ''}>{value.label}</span>
+                        </button>
+                      );
+                    })}
+                  </div>
                 </div>
-              </div>
-            ) : null}
+              );
+            })}
 
             <div className="space-y-3 pt-2">
               <div className="flex items-center gap-3">

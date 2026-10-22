@@ -550,6 +550,7 @@ class ProductViewSet(BaseViewSet):
             alt_text=alt_text,
             is_primary=is_primary,
             sort_order=sort_order,
+            attribute_value_id=request.data.get("attribute_value_id"),
         )
         return self.created(data=ProductMediaSerializer(media).data)
 
@@ -610,6 +611,10 @@ class ProductViewSet(BaseViewSet):
                 media.is_primary = raw
             else:
                 media.is_primary = str(raw).lower() == "true"
+        if "attribute_value_id" in request.data:
+            media.attribute_value = services.resolve_media_attribute_value(
+                product=product, value_id=request.data.get("attribute_value_id"),
+            )
         media.save()
         return self.ok(data=ProductMediaSerializer(media).data, message="Product media updated.")
 

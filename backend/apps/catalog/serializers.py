@@ -164,6 +164,8 @@ class ProductMediaSerializer(serializers.ModelSerializer):
     image_small = serializers.ImageField(required=False, allow_null=True)
     image_medium = serializers.ImageField(required=False, allow_null=True)
     image_large = serializers.ImageField(required=False, allow_null=True)
+    # The AttributeValue id this photo belongs to (e.g. Color: Violet), or null.
+    attribute_value = serializers.PrimaryKeyRelatedField(read_only=True)
 
     class Meta:
         model  = ProductMedia
@@ -174,6 +176,7 @@ class ProductMediaSerializer(serializers.ModelSerializer):
             "image_medium",
             "image_large",
             "alt_text",
+            "attribute_value",
             "is_primary",
             "sort_order",
         ]

@@ -310,6 +310,14 @@ class ProductMedia(BaseModel):
     image_medium = models.ImageField(upload_to="products/%Y/%m/", blank=True, null=True)
     image_large = models.ImageField(upload_to="products/%Y/%m/", blank=True, null=True)
     alt_text   = models.CharField(max_length=255, blank=True)
+    # Which option this photo shows, e.g. "Color: Violet". Empty = shown for
+    # every option. The product page shows the selected colour's photos first.
+    attribute_value = models.ForeignKey(
+        "catalog.AttributeValue",
+        null=True, blank=True,
+        on_delete=models.SET_NULL,
+        related_name="media",
+    )
     is_primary = models.BooleanField(default=False, db_index=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
 

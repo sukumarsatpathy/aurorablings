@@ -65,6 +65,8 @@ interface ProductMedia {
   id: string;
   url: string;
   altText: string;
+  /** Colour option this photo shows (e.g. "Violet"); '' = all colours. */
+  optionLabel: string;
   isPrimary: boolean;
   sortOrder: number;
   file?: File;
@@ -184,6 +186,18 @@ const localDateTimeToIso = (localDate: string, localTime: string): string => {
 
 const normalizeKey = (value: string): string => value.trim().toLowerCase();
 
+const isColourAttributeName = (name: string): boolean => /colou?r/i.test(name || '');
+
+/** AttributeValue id → its label, for the product's colour attribute. */
+const colourLabelsById = (detail: CatalogProductDetail): Map<string, string> => {
+  const labels = new Map<string, string>();
+  for (const attr of detail.attributes || []) {
+    if (!isColourAttributeName(attr.name)) continue;
+    for (const val of attr.values || []) labels.set(String(val.id), val.value);
+  }
+  return labels;
+};
+
 const buildAttributeValueIdMap = (detail: CatalogProductDetail): Record<string, string> => {
   const result: Record<string, string> = {};
   for (const attr of detail.attributes || []) {
@@ -301,6 +315,7 @@ const mapDetailToProduct = (raw: CatalogProductDetail): Product => ({
     id: m.id,
     url: normalizeAssetUrl(m.image),
     altText: m.alt_text || '',
+    optionLabel: (m.attribute_value && colourLabelsById(raw).get(String(m.attribute_value))) || '',
     isPrimary: !!m.is_primary,
     sortOrder: Number(m.sort_order || 0),
     persisted: true,
@@ -536,6 +551,7 @@ export const ProductManagement: React.FC = () => {
                 id: `LIST-MEDIA-${p.id}`,
                 url: normalizeAssetUrl(p.primary_image),
                 altText: '',
+                optionLabel: '',
                 isPrimary: true,
                 sortOrder: 0,
                 persisted: true,
@@ -958,8 +974,13 @@ export const ProductManagement: React.FC = () => {
     }
   };
 
-  const syncMedia = async (productId: string) => {
+  const syncMedia = async (productId: string, attributeValueIdMap: Record<string, string>) => {
     const keptPersistedIds = new Set<string>();
+    const colourAttr = formData.attributes.find((attr) => isColourAttributeName(attr.name));
+    const colourValueId = (label: string): string | null => {
+      if (!colourAttr || !label) return null;
+      return attributeValueIdMap[`${normalizeKey(colourAttr.name)}::${normalizeKey(label)}`] || null;
+    };
     const totalNewUploads = formData.media.filter((m) => !m.persisted && m.file).length;
     let uploadIndex = 0;
 
@@ -971,6 +992,7 @@ export const ProductManagement: React.FC = () => {
           alt_text: m.altText,
           is_primary: m.isPrimary,
           sort_order: i,
+          attribute_value_id: colourValueId(m.optionLabel),
         });
       } else if (m.file) {
         uploadIndex += 1;
@@ -983,6 +1005,7 @@ export const ProductManagement: React.FC = () => {
             alt_text: m.altText,
             is_primary: m.isPrimary,
             sort_order: i,
+            attribute_value_id: colourValueId(m.optionLabel),
           },
           (percent) => {
             setUploadStatus({
@@ -1155,7 +1178,7 @@ export const ProductManagement: React.FC = () => {
       const detailForIds = refreshed?.data as CatalogProductDetail;
       const attributeValueIdMap = buildAttributeValueIdMap(detailForIds);
       await syncVariants(productId, attributeValueIdMap);
-      await syncMedia(productId);
+      await syncMedia(productId, attributeValueIdMap);
       await syncVideo(productId);
       await syncInfoItems(productId);
 
@@ -1380,6 +1403,7 @@ export const ProductManagement: React.FC = () => {
       id: `temp-media-${Date.now()}-${index}`,
       url: URL.createObjectURL(file),
       altText: file.name.replace(/\.[^/.]+$/, ''),
+      optionLabel: '',
       isPrimary: false,
       sortOrder: formData.media.length + index,
       file,
@@ -1412,6 +1436,26 @@ export const ProductManagement: React.FC = () => {
     setFormData((prev) => ({
       ...prev,
       media: prev.media.map((m) => ({ ...m, isPrimary: m.id === mediaId })),
+    }));
+  };
+
+  // Colours a photo can be tagged with: the product's Color options that
+  // some variation uses (all of them while no variations exist yet).
+  const colourOptions = useMemo(() => {
+    const attr = formData.attributes.find((a) => isColourAttributeName(a.name));
+    if (!attr) return [] as string[];
+    const used = new Set(
+      formData.variations
+        .map((v) => v.attributes?.[attr.name])
+        .filter((value): value is string => Boolean(value)),
+    );
+    return used.size ? attr.options.filter((opt) => used.has(opt)) : attr.options;
+  }, [formData.attributes, formData.variations]);
+
+  const updateMediaColour = (mediaId: string, optionLabel: string) => {
+    setFormData((prev) => ({
+      ...prev,
+      media: prev.media.map((m) => (m.id === mediaId ? { ...m, optionLabel } : m)),
     }));
   };
 
@@ -2074,6 +2118,19 @@ export const ProductManagement: React.FC = () => {
                           placeholder="Alt text"
                           className="h-8 text-xs"
                         />
+                        {colourOptions.length > 0 ? (
+                          <select
+                            value={colourOptions.includes(media.optionLabel) ? media.optionLabel : ''}
+                            onChange={(e) => updateMediaColour(media.id, e.target.value)}
+                            aria-label="Colour shown in this photo"
+                            className="h-8 w-full rounded-md border border-input bg-white px-2 text-xs"
+                          >
+                            <option value="">All colours</option>
+                            {colourOptions.map((label) => (
+                              <option key={label} value={label}>{label}</option>
+                            ))}
+                          </select>
+                        ) : null}
                         <div className="flex items-center justify-between gap-2">
                           <Button
                             type="button"
