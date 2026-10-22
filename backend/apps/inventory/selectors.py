@@ -86,13 +86,30 @@ def get_stock_record_by_id(stock_record_id) -> WarehouseStock | None:
         return None
 
 
+def _live_stock():
+    """
+    Stock rows of products that haven't been deleted.
+
+    Products are soft-deleted (``deleted_at`` is stamped, the row stays), and
+    joining through ``variant__product`` doesn't apply the product's
+    "hide deleted" manager — so without this filter a deleted product's stock
+    kept showing on the Inventory page and counting towards the low-stock and
+    out-of-stock totals. The rows are kept, not removed: restoring the product
+    brings its stock back as it was. Drafts still show, so stock can be
+    received before a product goes live.
+    """
+    return WarehouseStock.objects.select_related("variant__product", "warehouse").filter(
+        variant__product__deleted_at__isnull=True,
+    )
+
+
 def get_all_stock_records(
     *,
     search: str | None = None,
     warehouse_id=None,
     status: str | None = None,
 ) -> QuerySet:
-    qs = WarehouseStock.objects.select_related("variant__product", "warehouse")
+    qs = _live_stock()
 
     if search:
         qs = qs.filter(
@@ -143,7 +160,7 @@ def get_low_stock_records(threshold: int | None = None) -> QuerySet:
     All stock records where available <= threshold.
     If threshold is None, uses the per-record low_stock_threshold field.
     """
-    qs = WarehouseStock.objects.select_related("variant__product", "warehouse").filter(available__gt=0)
+    qs = _live_stock().filter(available__gt=0)
     if threshold is not None:
         return qs.filter(available__lte=threshold)
     # Use each row's own threshold
@@ -152,11 +169,7 @@ def get_low_stock_records(threshold: int | None = None) -> QuerySet:
 
 
 def get_out_of_stock_records() -> QuerySet:
-    return (
-        WarehouseStock.objects
-        .select_related("variant__product", "warehouse")
-        .filter(available__lte=0)
-    )
+    return _live_stock().filter(available__lte=0)
 
 
 # ─────────────────────────────────────────────────────────────
