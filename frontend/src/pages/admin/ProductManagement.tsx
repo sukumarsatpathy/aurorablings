@@ -4,7 +4,7 @@ import { DataTable, StatusBadge } from '@/components/admin/AdminTable';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import { Badge } from '@/components/ui/Badge';
-import { Plus, Search, MoreHorizontal, Edit, Trash2, RotateCcw } from 'lucide-react';
+import { Plus, Search, MoreHorizontal, Edit, Trash2, RotateCcw, Check, X } from 'lucide-react';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -21,6 +21,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import UploadOverlay from '@/components/ui/UploadOverlay';
 import catalogService, { type CatalogProductDetail } from '@/services/api/catalog';
+import { swatchFor } from '@/lib/variantOptions';
 import { useCurrency } from '@/hooks/useCurrency';
 import { LexicalHtmlEditor } from '@/components/admin/LexicalHtmlEditor';
 import {
@@ -44,6 +45,7 @@ interface ProductAttribute {
   id?: string;
   globalAttributeId?: string;
   name: string;
+  /** The options THIS product comes in (a subset of the shared list). */
   options: string[];
   persisted?: boolean;
 }
@@ -954,6 +956,10 @@ export const ProductManagement: React.FC = () => {
       };
 
       if (!payload.name) continue;
+      if (payload.options.length === 0) {
+        if (attr.persisted && attr.id) keptPersistedIds.add(attr.id);
+        continue;
+      }
 
       if (attr.persisted && attr.id) {
         keptPersistedIds.add(attr.id);
@@ -971,6 +977,22 @@ export const ProductManagement: React.FC = () => {
       if (!keptPersistedIds.has(oldId)) {
         await catalogService.deleteProductAttribute(productId, oldId);
       }
+    }
+  };
+
+  /**
+   * An option that was unticked but still had a variant is kept by the server
+   * until that variant is deleted. Variants are saved by now, so ask again.
+   */
+  const pruneAttributeOptions = async (productId: string) => {
+    const refreshed = await catalogService.getProduct(productId, { includeDrafts: true });
+    const detail = refreshed?.data as CatalogProductDetail | undefined;
+    for (const attr of formData.attributes) {
+      const options = attr.options.map((opt) => opt.trim()).filter(Boolean);
+      if (!options.length) continue;
+      const saved = (detail?.attributes || []).find((a) => normalizeKey(a.name) === normalizeKey(attr.name));
+      if (!saved || saved.values.length <= options.length) continue;
+      await catalogService.updateProductAttribute(productId, saved.id, { name: attr.name.trim(), options });
     }
   };
 
@@ -1178,6 +1200,7 @@ export const ProductManagement: React.FC = () => {
       const detailForIds = refreshed?.data as CatalogProductDetail;
       const attributeValueIdMap = buildAttributeValueIdMap(detailForIds);
       await syncVariants(productId, attributeValueIdMap);
+      await pruneAttributeOptions(productId);
       await syncMedia(productId, attributeValueIdMap);
       await syncVideo(productId);
       await syncInfoItems(productId);
@@ -1209,7 +1232,7 @@ export const ProductManagement: React.FC = () => {
   const handleAddGlobalAttribute = (ga: { id: string; name: string; options: string[] }) => {
     setFormData((prev) => ({
       ...prev,
-      attributes: [...prev.attributes, { globalAttributeId: ga.id, name: ga.name, options: [...ga.options] }],
+      attributes: [...prev.attributes, { globalAttributeId: ga.id, name: ga.name, options: [] }],
     }));
   };
 
@@ -1245,10 +1268,74 @@ export const ProductManagement: React.FC = () => {
     }
   };
 
-  const updateAttribute = (index: number, value: string) => {
-    const next = [...formData.attributes];
-    next[index].options = value.split(',').map((s) => s.trim()).filter(Boolean);
-    setFormData((prev) => ({ ...prev, attributes: next }));
+  const [newOptionDrafts, setNewOptionDrafts] = useState<Record<number, string>>({});
+
+  /** Every option this attribute can offer: the shared list plus anything this product already has. */
+  const availableOptionsFor = (attr: ProductAttribute): string[] => {
+    const shared = globalAttributes.find(
+      (ga) => (attr.globalAttributeId && ga.id === attr.globalAttributeId) || normalizeKey(ga.name) === normalizeKey(attr.name),
+    )?.options || [];
+    const seen = new Set(shared.map(normalizeKey));
+    return [...shared, ...attr.options.filter((opt) => !seen.has(normalizeKey(opt)))];
+  };
+
+  const setAttributeOptions = (index: number, options: string[]) => {
+    setFormData((prev) => {
+      const attributes = [...prev.attributes];
+      const attr = attributes[index];
+      if (!attr) return prev;
+      // Keep the shared list's order so pickers read the same everywhere.
+      const order = availableOptionsFor({ ...attr, options });
+      const sorted = [...options].sort(
+        (a, b) => order.findIndex((o) => normalizeKey(o) === normalizeKey(a)) - order.findIndex((o) => normalizeKey(o) === normalizeKey(b)),
+      );
+      attributes[index] = { ...attr, options: sorted };
+      return { ...prev, attributes };
+    });
+  };
+
+  const toggleAttributeOption = (index: number, option: string) => {
+    const attr = formData.attributes[index];
+    if (!attr) return;
+    const isOn = attr.options.some((opt) => normalizeKey(opt) === normalizeKey(option));
+    if (!isOn) {
+      setAttributeOptions(index, [...attr.options, option]);
+      return;
+    }
+    // Turning an option off also drops the variations made with it.
+    const using = formData.variations.filter((v) => normalizeKey(v.attributes?.[attr.name] || '') === normalizeKey(option));
+    if (using.length > 0) {
+      const ok = window.confirm(
+        `Remove ${option}? ${using.length} variation${using.length === 1 ? '' : 's'} with ${option} will also be removed when you save.`,
+      );
+      if (!ok) return;
+      const dropIds = new Set(using.map((v) => v.id));
+      setFormData((prev) => ({ ...prev, variations: prev.variations.filter((v) => !dropIds.has(v.id)) }));
+    }
+    setAttributeOptions(index, attr.options.filter((opt) => normalizeKey(opt) !== normalizeKey(option)));
+  };
+
+  const clearAttributeOptions = (index: number) => {
+    const attr = formData.attributes[index];
+    if (!attr || attr.options.length === 0) return;
+    const using = formData.variations.filter((v) => Boolean(v.attributes?.[attr.name]));
+    if (using.length > 0) {
+      const ok = window.confirm(`Untick every ${attr.name.toLowerCase()}? All ${using.length} variations will be removed when you save.`);
+      if (!ok) return;
+      setFormData((prev) => ({ ...prev, variations: prev.variations.filter((v) => !v.attributes?.[attr.name]) }));
+    }
+    setAttributeOptions(index, []);
+  };
+
+  const addCustomOption = (index: number) => {
+    const value = (newOptionDrafts[index] || '').trim();
+    const attr = formData.attributes[index];
+    if (!value || !attr) return;
+    if (!attr.options.some((opt) => normalizeKey(opt) === normalizeKey(value))) {
+      const existing = availableOptionsFor(attr).find((opt) => normalizeKey(opt) === normalizeKey(value));
+      setAttributeOptions(index, [...attr.options, existing || value]);
+    }
+    setNewOptionDrafts((prev) => ({ ...prev, [index]: '' }));
   };
 
   const removeAttribute = async (index: number) => {
@@ -1276,7 +1363,7 @@ export const ProductManagement: React.FC = () => {
     if (formData.attributes.length === 0) return;
     const arrays = formData.attributes.map((a) => a.options);
     if (arrays.some((x) => x.length === 0)) {
-      alert('All attributes must have at least one option.');
+      alert('Pick at least one option for each attribute (e.g. the colours this product comes in).');
       return;
     }
 
@@ -1286,11 +1373,19 @@ export const ProductManagement: React.FC = () => {
     };
     const combos = arrays.reduce(cartesian, [] as string[][]);
 
+    // Combinations that already exist keep their row (price, offer, and the
+    // saved variant with its stock); only missing ones are added.
+    const comboKey = (attrs: Record<string, string>) =>
+      formData.attributes.map((attr) => normalizeKey(attrs[attr.name] || '')).join('||');
+    const existingByKey = new Map(formData.variations.map((v) => [comboKey(v.attributes || {}), v]));
+
     const generated: ProductVariation[] = combos.map((combo, i) => {
       const attrs: Record<string, string> = {};
       formData.attributes.forEach((attr, idx) => {
         attrs[attr.name] = combo[idx];
       });
+      const existing = existingByKey.get(comboKey(attrs));
+      if (existing) return { ...existing, attributes: attrs };
       const skuSuffix = combo.join('-').toUpperCase().replace(/\s+/g, '');
       return {
         id: `temp-var-${Date.now()}-${i}`,
@@ -2243,15 +2338,73 @@ export const ProductManagement: React.FC = () => {
                   </div>
                 ) : null}
 
-                {formData.attributes.map((attr, i) => (
-                  <div key={i} className="flex gap-2 items-start rounded-lg border border-border/70 bg-white p-3">
-                    <div className="h-8 text-xs flex items-center font-semibold px-2 w-1/3 rounded-md bg-muted/20">{attr.name}</div>
-                    <div className="grid gap-2 w-full">
-                      <Input placeholder="Options (comma separated)" value={attr.options.join(', ')} onChange={(e) => updateAttribute(i, e.target.value)} className="h-8 text-xs bg-white" />
+                {formData.attributes.map((attr, i) => {
+                  const available = availableOptionsFor(attr);
+                  const isOn = (opt: string) => attr.options.some((o) => normalizeKey(o) === normalizeKey(opt));
+                  return (
+                    <div key={attr.id || attr.globalAttributeId || attr.name || i} className="space-y-2 rounded-lg border border-border/70 bg-white p-3">
+                      <div className="flex items-center justify-between gap-2">
+                        <div className="text-xs font-semibold">
+                          {attr.name}
+                          <span className="ml-2 font-normal text-muted-foreground">
+                            {attr.options.length} of {available.length} selected
+                          </span>
+                        </div>
+                        <div className="flex items-center gap-1">
+                          {available.length > 1 ? (
+                            <>
+                              <button type="button" className="rounded px-1.5 py-0.5 text-[11px] text-primary hover:bg-primary/10" onClick={() => setAttributeOptions(i, [...available])}>All</button>
+                              <button type="button" className="rounded px-1.5 py-0.5 text-[11px] text-muted-foreground hover:bg-muted" onClick={() => clearAttributeOptions(i)}>None</button>
+                            </>
+                          ) : null}
+                          <Button variant="ghost" size="sm" onClick={() => removeAttribute(i)} className="h-7 w-7 p-0 text-destructive shrink-0" title={`Remove ${attr.name} from this product`}><Trash2 size={14} /></Button>
+                        </div>
+                      </div>
+                      <div className="flex flex-wrap gap-1.5" role="group" aria-label={`${attr.name} options for this product`}>
+                        {available.map((opt) => {
+                          const on = isOn(opt);
+                          const swatch = isColourAttributeName(attr.name) ? swatchFor(opt) : null;
+                          return (
+                            <button
+                              key={opt}
+                              type="button"
+                              aria-pressed={on}
+                              onClick={() => toggleAttributeOption(i, opt)}
+                              title={on ? `Remove ${opt}` : `Add ${opt}`}
+                              className={`inline-flex h-7 items-center gap-1.5 rounded-full border px-2.5 text-xs transition-colors ${
+                                on
+                                  ? 'border-primary bg-primary text-primary-foreground'
+                                  : 'border-border bg-white text-muted-foreground hover:border-primary/50 hover:text-foreground'
+                              }`}
+                            >
+                              {swatch ? <span aria-hidden="true" className="h-3 w-3 rounded-full border border-black/15" style={{ background: swatch }} /> : null}
+                              {opt}
+                              {on ? <X size={12} aria-hidden="true" /> : <Check size={12} aria-hidden="true" className="opacity-0" />}
+                            </button>
+                          );
+                        })}
+                      </div>
+                      <div className="flex gap-2">
+                        <Input
+                          placeholder={`Add another ${attr.name.toLowerCase()}…`}
+                          value={newOptionDrafts[i] || ''}
+                          onChange={(e) => setNewOptionDrafts((prev) => ({ ...prev, [i]: e.target.value }))}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter') {
+                              e.preventDefault();
+                              addCustomOption(i);
+                            }
+                          }}
+                          className="h-7 text-xs bg-white"
+                        />
+                        <Button type="button" variant="outline" size="sm" className="h-7 px-2 text-xs" onClick={() => addCustomOption(i)}>Add</Button>
+                      </div>
+                      {attr.options.length === 0 ? (
+                        <p className="text-[11px] text-amber-700">Tap the {attr.name.toLowerCase()} options this product comes in.</p>
+                      ) : null}
                     </div>
-                    <Button variant="ghost" size="sm" onClick={() => removeAttribute(i)} className="h-8 w-8 p-0 text-destructive shrink-0"><Trash2 size={14} /></Button>
-                  </div>
-                ))}
+                  );
+                })}
                 {formData.attributes.length === 0 && !isCreatingAttr ? (
                   <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
                     Add attributes and options here. These can be used to generate variations.

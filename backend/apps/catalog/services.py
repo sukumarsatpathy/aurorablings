@@ -547,6 +547,7 @@ def assign_global_attribute_to_product(
     product: Product,
     global_attribute: GlobalAttribute,
     sort_order: int = 0,
+    selected: list[str] | None = None,
 ) -> ProductAttributeConfig:
     config, _ = ProductAttributeConfig.objects.get_or_create(
         product=product,
@@ -556,7 +557,7 @@ def assign_global_attribute_to_product(
     if not config.is_active:
         config.is_active = True
         config.save(update_fields=["is_active", "updated_at"])
-    _ensure_legacy_attribute_for_product(product, global_attribute)
+    _ensure_legacy_attribute_for_product(product, global_attribute, selected=selected)
     logger.info(
         "product_global_attribute_assigned",
         product_id=str(product.id),
@@ -900,8 +901,24 @@ def _sync_global_options(attribute: GlobalAttribute, options: list[str]) -> None
             option.save(update_fields=["is_active", "updated_at"])
 
 
-def _ensure_legacy_attribute_for_product(product: Product, global_attribute: GlobalAttribute) -> Attribute:
-    legacy_attr, _ = Attribute.objects.get_or_create(
+def _ensure_legacy_attribute_for_product(
+    product: Product,
+    global_attribute: GlobalAttribute,
+    selected: list[str] | None = None,
+) -> Attribute:
+    """
+    Mirror a global attribute onto one product.
+
+    `selected` is the subset of options this product comes in (e.g. only
+    Violet and Beige out of every colour). The product's values become exactly
+    that set — except a value still used by a variant is kept until that
+    variant is gone, so nothing breaks mid-save.
+
+    With `selected=None` (a global attribute was edited elsewhere) the
+    product's own choice is left alone: a newly attached attribute gets every
+    option, an existing one is only re-sorted.
+    """
+    legacy_attr, created = Attribute.objects.get_or_create(
         product=product,
         name=global_attribute.name,
         defaults={"sort_order": global_attribute.sort_order},
@@ -910,30 +927,69 @@ def _ensure_legacy_attribute_for_product(product: Product, global_attribute: Glo
         legacy_attr.sort_order = global_attribute.sort_order
         legacy_attr.save(update_fields=["sort_order", "updated_at"])
 
-    active_options = list(
+    global_options = list(
         GlobalAttributeOption.objects.filter(
             global_attribute=global_attribute,
             is_active=True,
         ).order_by("sort_order", "value")
     )
-    existing_values = {
-        val.value.lower(): val
-        for val in AttributeValue.objects.filter(attribute=legacy_attr)
-    }
-    for idx, option in enumerate(active_options):
-        key = option.value.lower()
-        current = existing_values.get(key)
+    global_order = {opt.value.lower(): idx for idx, opt in enumerate(global_options)}
+    canonical = {opt.value.lower(): opt.value for opt in global_options}
+    existing = {val.value.lower(): val for val in AttributeValue.objects.filter(attribute=legacy_attr)}
+
+    if selected is not None:
+        wanted = [canonical.get(v.lower(), v) for v in _sanitize_options(selected)]
+    elif created:
+        wanted = [opt.value for opt in global_options]
+    else:
+        wanted = [val.value for val in existing.values()]
+    wanted_keys = {v.lower() for v in wanted}
+
+    # Global list order first, then anything product-only in the order given.
+    def position(value: str, fallback: int) -> int:
+        return global_order.get(value.lower(), len(global_order) + fallback)
+
+    ordered = sorted(enumerate(wanted), key=lambda pair: position(pair[1], pair[0]))
+    for idx, (_, value) in enumerate(ordered):
+        current = existing.get(value.lower())
         if current:
             if current.sort_order != idx:
                 current.sort_order = idx
                 current.save(update_fields=["sort_order", "updated_at"])
         else:
-            AttributeValue.objects.create(
-                attribute=legacy_attr,
-                value=option.value,
-                sort_order=idx,
+            existing[value.lower()] = AttributeValue.objects.create(
+                attribute=legacy_attr, value=value, sort_order=idx,
             )
+
+    if selected is not None:
+        in_use = set(
+            VariantAttributeValue.objects
+            .filter(attribute_value__attribute=legacy_attr)
+            .values_list("attribute_value_id", flat=True)
+        )
+        for key, val in existing.items():
+            if key not in wanted_keys and val.id not in in_use:
+                val.delete()
     return legacy_attr
+
+
+def add_global_attribute_options(*, attribute: GlobalAttribute, options: list[str]) -> None:
+    """
+    Add options to a global attribute without touching the existing ones
+    (used when an option is typed while editing a product).
+    """
+    existing = {opt.value.lower(): opt for opt in GlobalAttributeOption.objects.filter(global_attribute=attribute)}
+    next_order = max((opt.sort_order for opt in existing.values()), default=-1) + 1
+    for value in _sanitize_options(options):
+        option = existing.get(value.lower())
+        if option is None:
+            GlobalAttributeOption.objects.create(
+                global_attribute=attribute, value=value, sort_order=next_order, is_active=True,
+            )
+            next_order += 1
+        elif not option.is_active:
+            option.is_active = True
+            option.save(update_fields=["is_active", "updated_at"])
 
 
 def _sync_linked_products_legacy_attribute(attribute: GlobalAttribute) -> None:

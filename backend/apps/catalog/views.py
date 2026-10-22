@@ -641,37 +641,31 @@ class ProductViewSet(BaseViewSet):
         global_attribute_id = s.validated_data.get("global_attribute_id")
         options = s.validated_data.get("options", [])
 
+        # `options` = the options THIS product comes in. They never replace the
+        # global list (other products use it); new ones are only added to it.
         if global_attribute_id:
             global_attribute = selectors.get_global_attribute_by_id(global_attribute_id)
             if not global_attribute:
                 raise NotFoundError("Global attribute not found.")
-            if options:
-                global_attribute = services.update_global_attribute(
-                    attribute=global_attribute,
-                    options=options,
-                )
         else:
             name = (s.validated_data.get("name") or "").strip()
             if not name:
                 return self.bad_request(message="Attribute name is required.")
             global_attribute = GlobalAttribute.objects.filter(name__iexact=name).first()
-            if global_attribute:
-                if options:
-                    global_attribute = services.update_global_attribute(
-                        attribute=global_attribute,
-                        options=options,
-                    )
-            else:
+            if not global_attribute:
                 global_attribute = services.create_global_attribute(
                     name=name,
                     options=options,
                     sort_order=0,
                 )
+        if options:
+            services.add_global_attribute_options(attribute=global_attribute, options=options)
 
         services.assign_global_attribute_to_product(
             product=product,
             global_attribute=global_attribute,
             sort_order=0,
+            selected=options or None,
         )
 
         legacy = (
@@ -716,18 +710,16 @@ class ProductViewSet(BaseViewSet):
 
         global_attribute = GlobalAttribute.objects.filter(name__iexact=attribute.name).first()
         if global_attribute:
-            new_name = s.validated_data.get("name")
-            if isinstance(new_name, str):
-                new_name = new_name.strip() or None
-            global_attribute = services.update_global_attribute(
-                attribute=global_attribute,
-                name=new_name,
-                options=s.validated_data.get("options") if "options" in s.validated_data else None,
-            )
+            # Choosing options for this product. Renaming the attribute or
+            # editing its full option list happens on the Attributes page.
+            options = s.validated_data.get("options") if "options" in s.validated_data else None
+            if options:
+                services.add_global_attribute_options(attribute=global_attribute, options=options)
             services.assign_global_attribute_to_product(
                 product=product,
                 global_attribute=global_attribute,
                 sort_order=attribute.sort_order,
+                selected=options or None,
             )
             updated = (
                 Attribute.objects
