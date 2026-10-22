@@ -15,6 +15,7 @@ import { whatsappLink } from '@/lib/contact';
 import { OptimizedImage } from '@/components/ui/OptimizedImage';
 import { useStagger } from '@/animations/useStagger';
 import { applySeo, stripHtml, truncateText } from '@/lib/seo';
+import { cleanDescriptionHtml } from '@/lib/cleanHtml';
 import {
   buildOptionGroups,
   findVariant,
@@ -323,6 +324,9 @@ export const ProductDetailPage: React.FC = () => {
       });
     return rows;
   }, [product?.info_items]);
+
+  // Older descriptions may carry styles pasted from other sites; show them clean.
+  const descriptionHtml = useMemo(() => cleanDescriptionHtml(product?.description || ''), [product?.description]);
 
   const notifyStorageKey = useMemo(
     () => (product?.id ? `notify_success:${product.id}` : ''),
@@ -779,8 +783,8 @@ export const ProductDetailPage: React.FC = () => {
               <div className="space-y-3">
                 <h4 className="text-base font-bold">Description</h4>
                 <div
-                  className="prose prose-sm max-w-none text-foreground"
-                  dangerouslySetInnerHTML={{ __html: product.description || '<p>No description available.</p>' }}
+                  className="rich-text max-w-none text-sm leading-relaxed text-foreground"
+                  dangerouslySetInnerHTML={{ __html: descriptionHtml || '<p>No description available.</p>' }}
                 />
               </div>
             </div>

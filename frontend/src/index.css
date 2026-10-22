@@ -184,3 +184,20 @@
   /* gray-300 — visible on light bg */
   color: transparent;
 }
+
+/* Product descriptions (stored as plain HTML, no classes). Used by the admin
+   editor and the product page so both look the same. Tailwind's reset removes
+   list bullets, so lists need them back here. */
+@layer components {
+  .rich-text p { margin: 0 0 0.5rem; }
+  .rich-text p:last-child { margin-bottom: 0; }
+  .rich-text ul, .rich-text ol { margin: 0 0 0.75rem; padding-left: 1.5rem; }
+  .rich-text ul { list-style: disc; }
+  .rich-text ol { list-style: decimal; }
+  .rich-text ul ul { list-style: circle; }
+  .rich-text li { margin: 0.2rem 0; }
+  .rich-text li::marker { color: currentColor; }
+  .rich-text strong, .rich-text b { font-weight: 700; }
+  .rich-text em, .rich-text i { font-style: italic; }
+  .rich-text u { text-decoration: underline; }
+}
