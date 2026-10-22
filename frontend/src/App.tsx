@@ -61,6 +61,7 @@ const ProductManagement = lazy(() => import('./pages/admin/ProductManagement').t
 const Orders = lazy(() => import('./pages/admin/Orders').then(m => ({ default: m.Orders })));
 const Shipments = lazy(() => import('./pages/admin/Shipments').then(m => ({ default: m.Shipments })));
 const Attributes = lazy(() => import('./pages/admin/Attributes').then(m => ({ default: m.Attributes })));
+const BulkReceive = lazy(() => import('./pages/admin/BulkReceive').then(m => ({ default: m.BulkReceive })));
 const Inventory = lazy(() => import('./pages/admin/Inventory').then(m => ({ default: m.Inventory })));
 const Returns = lazy(() => import('./pages/admin/Returns').then(m => ({ default: m.Returns })));
 const Customers = lazy(() => import('./pages/admin/Customers').then(m => ({ default: m.Customers })));
@@ -493,6 +494,7 @@ function AppContent() {
                 <Route path="orders" element={<Orders />} />
                 <Route path="shipments" element={<Shipments />} />
                 <Route path="inventory" element={<Inventory />} />
+                <Route path="inventory/bulk-receive" element={<BulkReceive />} />
                 <Route path="returns" element={<Returns />} />
                 <Route path="customers" element={<Customers />} />
                 <Route path="features" element={<Features />} />

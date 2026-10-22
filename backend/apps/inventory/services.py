@@ -809,6 +809,105 @@ def create_warehouse(*, name: str, code: str, type: str = "warehouse", **kwargs)
 
 
 # ─────────────────────────────────────────────────────────────
+#  Bulk delete stock records  (destructive — admin only)
+# ─────────────────────────────────────────────────────────────
+
+@transaction.atomic
+def bulk_delete_stock_records(*, stock_record_ids, created_by=None) -> dict:
+    """
+    Permanently remove WarehouseStock rows together with their ledger history.
+
+    This is the one place in the inventory app that breaks the append-only
+    ledger rule, so it is deliberately narrow:
+
+      * A record with stock held for a pending order (an ACTIVE reservation,
+        or a non-zero `reserved` counter) is never deleted — releasing the
+        order's hold is the caller's job, not ours.
+      * StockLedger and StockReservation both point at WarehouseStock with
+        on_delete=PROTECT, so the rows have to go first and in that order.
+      * An audit entry is written per record with the counters and the number
+        of ledger rows destroyed, because after this the stock position can no
+        longer be recomputed from the ledger.
+
+    Returns {"deleted": [...], "blocked": [...], "missing": [...]}.
+    """
+    ids = [str(i) for i in stock_record_ids]
+
+    records = list(
+        WarehouseStock.objects
+        .select_for_update(of=("self",))
+        .select_related("variant", "variant__product", "warehouse")
+        .filter(id__in=ids)
+    )
+    found = {str(r.id) for r in records}
+    missing = [i for i in ids if i not in found]
+
+    deleted: list[dict] = []
+    blocked: list[dict] = []
+
+    for record in records:
+        sku = record.variant.sku
+        warehouse_code = record.warehouse.code
+
+        active_holds = StockReservation.objects.filter(
+            stock_record=record, status=ReservationStatus.ACTIVE,
+        ).count()
+
+        if active_holds or record.reserved:
+            blocked.append({
+                "id": str(record.id),
+                "sku": sku,
+                "warehouse_code": warehouse_code,
+                "reserved": record.reserved,
+                "active_reservations": active_holds,
+                "reason": "Stock is reserved for a pending order.",
+            })
+            continue
+
+        ledger_rows = StockLedger.objects.filter(stock_record=record).count()
+        reservation_rows = StockReservation.objects.filter(stock_record=record).count()
+
+        StockLedger.objects.filter(stock_record=record).delete()
+        StockReservation.objects.filter(stock_record=record).delete()
+
+        record_id = str(record.id)
+        snapshot = {
+            "sku": sku,
+            "warehouse_code": warehouse_code,
+            "product": record.variant.product.name,
+            "on_hand": record.on_hand,
+            "reserved": record.reserved,
+            "available": record.available,
+            "low_stock_threshold": record.low_stock_threshold,
+            "ledger_entries_deleted": ledger_rows,
+            "reservations_deleted": reservation_rows,
+        }
+        record.delete()
+
+        logger.warning(
+            "stock_record_deleted",
+            stock_record_id=record_id,
+            sku=sku,
+            warehouse=warehouse_code,
+            on_hand=snapshot["on_hand"],
+            ledger_entries_deleted=ledger_rows,
+        )
+        _log_inventory_activity(
+            created_by=created_by,
+            action=AuditAction.DELETE,
+            entity_id=record_id,
+            description=(
+                f"Deleted stock record for SKU {sku} @ {warehouse_code} "
+                f"({snapshot['on_hand']} on hand, {ledger_rows} ledger entries erased)"
+            ),
+            metadata={"old_value": snapshot, "bulk": True},
+        )
+        deleted.append({"id": record_id, **snapshot})
+
+    return {"deleted": deleted, "blocked": blocked, "missing": missing}
+
+
+# ─────────────────────────────────────────────────────────────
 #  Private helpers
 # ─────────────────────────────────────────────────────────────
 

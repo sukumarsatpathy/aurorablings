@@ -19,6 +19,7 @@ from .serializers import (
     WarehouseSerializer,
     WarehouseStockSerializer,
     WarehouseStockUpdateSerializer,
+    StockRecordBulkDeleteSerializer,
     VariantOptionSerializer,
     StockLedgerSerializer,
     StockReservationSerializer,
@@ -158,6 +159,41 @@ class StockRecordDetailView(APIView):
         return success_response(
             data=WarehouseStockSerializer(record).data,
             message="Stock threshold updated.",
+            request_id=getattr(request, "request_id", None),
+        )
+
+
+class BulkDeleteStockRecordsView(APIView):
+    """
+    POST /stock/bulk-delete/   {"ids": [...]}   — admin only.
+
+    Removes the selected stock records outright, ledger history included.
+    Records holding stock for a pending order come back under `blocked`
+    instead of being deleted; ids that no longer exist come back as `missing`.
+    """
+    permission_classes = [IsAuthenticated, IsAdminUser]
+
+    def post(self, request):
+        s = StockRecordBulkDeleteSerializer(data=request.data)
+        s.is_valid(raise_exception=True)
+        result = services.bulk_delete_stock_records(
+            stock_record_ids=s.validated_data["ids"],
+            created_by=request.user,
+        )
+        deleted_count = len(result["deleted"])
+        blocked_count = len(result["blocked"])
+        message = (
+            f"{deleted_count} stock record{'' if deleted_count == 1 else 's'} deleted."
+            + (f" {blocked_count} skipped — stock reserved for pending orders." if blocked_count else "")
+        )
+        return success_response(
+            data={
+                "deleted": deleted_count,
+                "deleted_records": result["deleted"],
+                "blocked": result["blocked"],
+                "missing": result["missing"],
+            },
+            message=message,
             request_id=getattr(request, "request_id", None),
         )
 

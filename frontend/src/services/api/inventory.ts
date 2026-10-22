@@ -17,6 +17,11 @@ const inventoryService = {
     return response.data;
   },
 
+  bulkDeleteStock: async (ids: string[]) => {
+    const response = await apiClient.post('/v1/inventory/stock/bulk-delete/', { ids });
+    return response.data;
+  },
+
   listVariants: async (params?: { search?: string; active_only?: boolean }) => {
     const response = await apiClient.get('/v1/inventory/stock/variants/', { params });
     return response.data;

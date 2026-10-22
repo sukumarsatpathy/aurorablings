@@ -1,6 +1,6 @@
 from django.urls import path, include
 from rest_framework.routers import DefaultRouter
-from . import views
+from . import bulk_receive, views
 
 app_name = "inventory"
 
@@ -15,10 +15,13 @@ urlpatterns = [
     path("stock/<uuid:pk>/",                 views.StockRecordDetailView.as_view(),  name="stock-detail"),
     path("stock/variant/<uuid:variant_id>/", views.StockLevelView.as_view(),      name="stock-level"),
     path("stock/variants/",                  views.VariantOptionsView.as_view(),     name="stock-variants"),
+    path("stock/bulk-delete/",               views.BulkDeleteStockRecordsView.as_view(), name="stock-bulk-delete"),
     path("stock/low-stock/",                 views.LowStockView.as_view(),         name="low-stock"),
     path("stock/availability/",              views.AvailabilityCheckView.as_view(), name="availability"),
 
     # ── Operations ────────────────────────────────────────────
+    path("stock/bulk-receive/",              bulk_receive.BulkReceiveView.as_view(),        name="bulk-receive"),
+    path("stock/bulk-receive/catalog/",      bulk_receive.BulkReceiveCatalogView.as_view(), name="bulk-receive-catalog"),
     path("stock/receive/",                   views.ReceiveStockView.as_view(),     name="receive"),
     path("stock/adjust/",                    views.AdjustStockView.as_view(),      name="adjust"),
     path("stock/transfer/",                  views.TransferStockView.as_view(),    name="transfer"),

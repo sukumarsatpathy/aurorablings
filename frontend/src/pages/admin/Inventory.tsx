@@ -1,13 +1,20 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { useLocation } from 'react-router-dom';
-import { Search, Plus, Edit, Trash2, PackagePlus, Shuffle, SlidersHorizontal, AlertCircle, ChevronDown } from 'lucide-react';
+import { Link, useLocation } from 'react-router-dom';
+import { Search, Plus, Edit, Trash2, PackagePlus, Shuffle, SlidersHorizontal, AlertCircle, ChevronDown, Boxes } from 'lucide-react';
 import { DataTable, StatusBadge } from '@/components/admin/AdminTable';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
 import { Input } from '@/components/ui/Input';
 import { Modal, ModalContent, ModalFooter, ModalHeader, ModalTitle } from '@/components/ui/Modal';
+import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import inventoryService from '@/services/api/inventory';
-import type { InventoryStockRecord, InventoryVariantOption, Warehouse, WarehouseType } from '@/types/inventory';
+import type {
+  BulkDeleteStockResult,
+  InventoryStockRecord,
+  InventoryVariantOption,
+  Warehouse,
+  WarehouseType,
+} from '@/types/inventory';
 
 type StockFilter = '' | 'in' | 'low' | 'out';
 type Ops = 'receive' | 'adjust' | 'transfer';
@@ -47,6 +54,11 @@ export const Inventory: React.FC = () => {
     from_warehouse_id: '',
     to_warehouse_id: '',
   });
+
+  const [selectedIds, setSelectedIds] = useState<string[]>([]);
+  const [bulkBusy, setBulkBusy] = useState(false);
+  const [bulkDeleteOpen, setBulkDeleteOpen] = useState(false);
+  const [bulkNotice, setBulkNotice] = useState<{ tone: 'ok' | 'error'; text: string } | null>(null);
 
   const [thresholdOpen, setThresholdOpen] = useState(false);
   const [thresholdRecord, setThresholdRecord] = useState<InventoryStockRecord | null>(null);
@@ -92,6 +104,72 @@ export const Inventory: React.FC = () => {
     const t = setTimeout(() => loadStocks().catch(() => undefined), 250);
     return () => clearTimeout(t);
   }, [search, status, warehouseFilter]);
+
+  // Rows that scrolled out of the current filter must not stay selected — the
+  // bulk bar would then delete records the admin can no longer see.
+  useEffect(() => {
+    setSelectedIds((prev) => {
+      const visible = new Set(stocks.map((s) => s.id));
+      const next = prev.filter((id) => visible.has(id));
+      return next.length === prev.length ? prev : next;
+    });
+  }, [stocks]);
+
+  const toggleRow = (id: string) =>
+    setSelectedIds((prev) => (prev.includes(id) ? prev.filter((x) => x !== id) : [...prev, id]));
+
+  const toggleAllOnPage = (checked: boolean) => {
+    const pageIds = stocks.map((s) => s.id);
+    setSelectedIds((prev) =>
+      checked ? Array.from(new Set([...prev, ...pageIds])) : prev.filter((id) => !pageIds.includes(id))
+    );
+  };
+
+  const selectedRecords = useMemo(
+    () => stocks.filter((s) => selectedIds.includes(s.id)),
+    [stocks, selectedIds]
+  );
+
+  const selectedOnHand = useMemo(
+    () => selectedRecords.reduce((total, s) => total + s.on_hand, 0),
+    [selectedRecords]
+  );
+
+  const applyBulkDelete = async () => {
+    if (selectedIds.length === 0) return;
+    try {
+      setBulkBusy(true);
+      setBulkNotice(null);
+      const response = await inventoryService.bulkDeleteStock(selectedIds);
+      const result = response?.data as BulkDeleteStockResult | undefined;
+      const deleted = Number(result?.deleted ?? 0);
+      const blocked = Array.isArray(result?.blocked) ? result.blocked : [];
+      setSelectedIds([]);
+      setBulkDeleteOpen(false);
+      setBulkNotice({
+        tone: blocked.length && !deleted ? 'error' : 'ok',
+        text:
+          `${deleted} stock record${deleted === 1 ? '' : 's'} deleted` +
+          (blocked.length
+            ? ` · ${blocked.length} kept (reserved for pending orders: ${blocked
+                .map((b) => b.sku)
+                .join(', ')})`
+            : '') +
+          '.',
+      });
+      await loadStocks();
+    } catch (error: any) {
+      setBulkNotice({
+        tone: 'error',
+        text:
+          error?.response?.data?.message ||
+          error?.response?.data?.detail ||
+          'Could not delete those stock records.',
+      });
+    } finally {
+      setBulkBusy(false);
+    }
+  };
 
   const summary = useMemo(() => ({
     low: stocks.filter((s) => s.available > 0 && s.available <= s.low_stock_threshold).length,
@@ -223,6 +301,7 @@ export const Inventory: React.FC = () => {
         </div>
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground" onClick={() => openOps('receive')}><PackagePlus size={15} /> Receive</Button>
+          <Button asChild variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground"><Link to="/admin/inventory/bulk-receive"><Boxes size={15} /> Bulk Receive</Link></Button>
           <Button variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground" onClick={() => openOps('adjust')}><SlidersHorizontal size={15} /> Adjust</Button>
           <Button variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground" onClick={() => openOps('transfer')}><Shuffle size={15} /> Transfer</Button>
           <Button className="h-10 gap-2" onClick={() => openWarehouseModal()}><Plus size={15} /> Add Warehouse</Button>
@@ -241,7 +320,59 @@ export const Inventory: React.FC = () => {
         <select className="h-10 min-w-[150px] rounded-xl border border-border/60 bg-background px-3 text-sm" value={status} onChange={(e) => setStatus(e.target.value as StockFilter)}><option value="">All Status</option><option value="in">In Stock</option><option value="low">Low Stock</option><option value="out">Out of Stock</option></select>
       </div>
 
-      {loading ? <div className="text-center py-10 text-muted-foreground text-xs uppercase tracking-widest animate-pulse">Loading inventory...</div> : <DataTable data={stocks} columns={columns} />}
+      {bulkNotice ? (
+        <div
+          className={`rounded-[14px] border px-3 py-2 text-xs ${
+            bulkNotice.tone === 'ok'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-700'
+              : 'border-destructive/30 bg-destructive/5 text-destructive'
+          }`}
+        >
+          {bulkNotice.text}
+        </div>
+      ) : null}
+
+      {selectedIds.length > 0 ? (
+        <div className="flex flex-col gap-2 rounded-[14px] border border-primary/30 bg-primary/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+          <div className="text-xs font-semibold text-foreground">
+            {selectedIds.length} selected
+            <span className="ml-2 font-normal text-muted-foreground">{selectedOnHand} units on hand</span>
+          </div>
+          <div className="flex items-center gap-2">
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-3 text-xs text-destructive hover:text-destructive"
+              disabled={bulkBusy}
+              onClick={() => setBulkDeleteOpen(true)}
+            >
+              <Trash2 size={13} className="mr-1" /> {bulkBusy ? 'Working...' : 'Delete'}
+            </Button>
+            <Button
+              size="sm"
+              variant="ghost"
+              className="h-8 px-3 text-xs"
+              disabled={bulkBusy}
+              onClick={() => setSelectedIds([])}
+            >
+              Clear
+            </Button>
+          </div>
+        </div>
+      ) : null}
+
+      {loading ? (
+        <div className="text-center py-10 text-muted-foreground text-xs uppercase tracking-widest animate-pulse">Loading inventory...</div>
+      ) : (
+        <DataTable
+          data={stocks}
+          columns={columns}
+          getRowId={(item) => item.id}
+          selectedIds={selectedIds}
+          onToggleRow={toggleRow}
+          onToggleAll={toggleAllOnPage}
+        />
+      )}
 
       <div className="bg-white rounded-[14px] border border-border shadow-sm p-4 space-y-2">
         <h3 className="text-sm font-bold uppercase tracking-wider text-muted-foreground">Warehouses</h3>
@@ -356,6 +487,21 @@ export const Inventory: React.FC = () => {
           </ModalFooter>
         </ModalContent>
       </Modal>
+
+      <ConfirmDialog
+        open={bulkDeleteOpen}
+        onOpenChange={setBulkDeleteOpen}
+        title={`Delete ${selectedIds.length} stock record${selectedIds.length === 1 ? '' : 's'}?`}
+        description={
+          `This removes the record and its entire movement history — ${selectedOnHand} unit${selectedOnHand === 1 ? '' : 's'} on hand across ` +
+          `${selectedIds.length} record${selectedIds.length === 1 ? '' : 's'}. Stock held for a pending order is kept. ` +
+          'Nothing can be recovered afterwards; receiving the variant again starts a fresh record at zero.'
+        }
+        confirmLabel="Delete permanently"
+        variant="destructive"
+        loading={bulkBusy}
+        onConfirm={applyBulkDelete}
+      />
 
       <Modal open={thresholdOpen} onOpenChange={setThresholdOpen}><ModalContent className="max-w-md"><ModalHeader><ModalTitle>Update Low Stock Threshold</ModalTitle></ModalHeader><div className="space-y-3 py-2">{thresholdRecord && <div className="rounded-xl border border-border bg-muted/30 p-3 text-sm"><div className="font-semibold">{thresholdRecord.sku}</div><div className="text-xs text-muted-foreground">{thresholdRecord.product_name}</div></div>}<div className="grid gap-2"><label className="text-xs font-bold uppercase text-muted-foreground">Threshold</label><Input type="number" min={0} value={thresholdValue} onChange={(e) => setThresholdValue(Number(e.target.value || 0))} /></div></div><ModalFooter><Button variant="outline" onClick={() => setThresholdOpen(false)} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Cancel</Button><Button variant="outline" onClick={saveThreshold} className="rounded-xl border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground">Update</Button></ModalFooter></ModalContent></Modal>
     </div>

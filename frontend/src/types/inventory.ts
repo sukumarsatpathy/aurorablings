@@ -38,6 +38,35 @@ export interface InventoryVariantOption {
   is_active: boolean;
 }
 
+export interface DeletedStockRecordSummary {
+  id: string;
+  sku: string;
+  warehouse_code: string;
+  product: string;
+  on_hand: number;
+  reserved: number;
+  available: number;
+  low_stock_threshold: number;
+  ledger_entries_deleted: number;
+  reservations_deleted: number;
+}
+
+export interface BlockedStockRecordSummary {
+  id: string;
+  sku: string;
+  warehouse_code: string;
+  reserved: number;
+  active_reservations: number;
+  reason: string;
+}
+
+export interface BulkDeleteStockResult {
+  deleted: number;
+  deleted_records: DeletedStockRecordSummary[];
+  blocked: BlockedStockRecordSummary[];
+  missing: string[];
+}
+
 export interface WarehouseWriteData {
   name: string;
   code: string;

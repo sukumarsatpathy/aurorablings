@@ -104,7 +104,7 @@ urlpatterns = [
 
 spa_admin_patterns = [
     re_path(
-        r"^admin/(?P<_path>(dashboard|categories|attributes|products|inventory|reviews|orders|customers|returns|coupons|banners|features|settings|shipments|notifications(?:/logs)?|newsletter|audit-logs|health|notify-requests|enquiries|tracking-settings|gtm-settings))/?$",
+        r"^admin/(?P<_path>(dashboard|categories|attributes|products|inventory(?:/bulk-receive)?|reviews|orders|customers|returns|coupons|banners|features|settings|shipments|notifications(?:/logs)?|newsletter|audit-logs|health|notify-requests|enquiries|tracking-settings|gtm-settings))/?$",
         spa_admin_route,
         name="spa-admin-route",
     )
