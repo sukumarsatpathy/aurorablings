@@ -169,7 +169,7 @@ export const ContactUsPage: React.FC = () => {
           <div className="rounded-3xl overflow-hidden border border-border bg-white/85 backdrop-blur-sm min-h-[560px]">
             <iframe
               title="Aurora Blings Location"
-              src="https://www.google.com/maps?q=Gangamata+Bagicha,+Near+Nabakalebara+Road,+Puri+752002&output=embed"
+              src="https://www.google.com/maps?q=Aurora+Blings,+Beside+Gandharbha+Matha,+Old+Sadar+Thana+Road,+Puri+752002&output=embed"
               className="w-full h-full min-h-[560px]"
               loading="lazy"
               referrerPolicy="no-referrer-when-downgrade"

@@ -13,6 +13,7 @@ const quickLinks = [
   { label: 'Shop', href: '/shop' },
   { label: 'Contact Us', href: '/contact-us/' },
   { label: 'My Account', href: '/login' },
+  { label: 'Status', href: 'https://status.aurorablings.com', external: true },
 ];
 
 const policyLinks = [
@@ -172,7 +173,13 @@ export function LuxuryFooter() {
                 <ul className="space-y-4 text-sm leading-6 text-[#4b5a49] dark:text-[#d6ddd2]">
                   <li className="flex items-start justify-center gap-3 md:justify-start">
                     <MapPin size={17} className="mt-1 shrink-0 text-[#517b4b] dark:text-[#9fbd99]" />
-                    <span>Gangamata Bagicha, Near Nabakalebara Road, Puri 752002</span>
+                    <span>
+                      Aurora Blings
+                      <br />
+                      Beside Gandharbha Matha,
+                      <br />
+                      Old Sadar Thana Road, Puri 752002
+                    </span>
                   </li>
                   <li className="flex items-center justify-center gap-3 md:justify-start">
                     <MessageCircle size={17} className="shrink-0 text-[#517b4b] dark:text-[#9fbd99]" />
