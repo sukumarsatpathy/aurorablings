@@ -1534,18 +1534,12 @@ export const ProductManagement: React.FC = () => {
     }));
   };
 
-  // Colours a photo can be tagged with: the product's Color options that
-  // some variation uses (all of them while no variations exist yet).
+  // Colours a photo can be tagged with: every colour ticked for this product,
+  // including ones whose variations haven't been generated yet.
   const colourOptions = useMemo(() => {
     const attr = formData.attributes.find((a) => isColourAttributeName(a.name));
-    if (!attr) return [] as string[];
-    const used = new Set(
-      formData.variations
-        .map((v) => v.attributes?.[attr.name])
-        .filter((value): value is string => Boolean(value)),
-    );
-    return used.size ? attr.options.filter((opt) => used.has(opt)) : attr.options;
-  }, [formData.attributes, formData.variations]);
+    return attr ? attr.options : ([] as string[]);
+  }, [formData.attributes]);
 
   const updateMediaColour = (mediaId: string, optionLabel: string) => {
     setFormData((prev) => ({
