@@ -39,18 +39,22 @@ export interface CatalogVariant {
   discount_percentage?: number | null;
   is_in_stock?: boolean;
   is_low_stock?: boolean;
-  attribute_values?: Array<{ id?: string; attribute_name: string; value: string }>;
+  attribute_values?: Array<{ id?: string; attribute_name: string; value: string; hex_code?: string }>;
 }
 
 export interface CatalogAttributeValue {
   id: string;
   value: string;
+  /** Swatch colour "#RRGGBB" set on the Attributes page; "" when none. */
+  hex_code?: string;
   sort_order: number;
 }
 
 export interface CatalogAttribute {
   id: string;
   name: string;
+  /** Draw this attribute's options as colour dots. */
+  show_swatches?: boolean;
   sort_order: number;
   values: CatalogAttributeValue[];
 }
@@ -62,6 +66,18 @@ export interface CatalogAdminAttribute {
   is_active: boolean;
   linked_products: number;
   options: string[];
+  show_swatches?: boolean;
+  option_details?: Array<{ value: string; hex_code: string }>;
+}
+
+export interface AttributeWritePayload {
+  name: string;
+  options?: string[];
+  sort_order?: number;
+  is_active?: boolean;
+  show_swatches?: boolean;
+  /** Option value → "#RRGGBB"; "" clears it. */
+  option_colors?: Record<string, string>;
 }
 
 export interface CatalogProductDetail {
@@ -375,12 +391,12 @@ const catalogService = {
     return response.data;
   },
 
-  createAttribute: async (payload: { name: string; options?: string[]; sort_order?: number; is_active?: boolean }) => {
+  createAttribute: async (payload: AttributeWritePayload) => {
     const response = await apiClient.post('/v1/catalog/attributes/', payload);
     return response.data;
   },
 
-  updateAttribute: async (id: string, payload: Partial<{ name: string; options: string[]; sort_order: number; is_active: boolean }>) => {
+  updateAttribute: async (id: string, payload: Partial<AttributeWritePayload>) => {
     const response = await apiClient.patch(`/v1/catalog/attributes/${id}/`, payload);
     return response.data;
   },

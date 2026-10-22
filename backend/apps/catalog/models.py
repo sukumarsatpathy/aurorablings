@@ -390,6 +390,8 @@ class Attribute(BaseModel):
         related_name="attributes",
     )
     name       = models.CharField(max_length=100)      # e.g. "Color"
+    # Copied from GlobalAttribute.show_swatches: draw options as colour dots.
+    show_swatches = models.BooleanField(default=False)
     sort_order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
@@ -413,6 +415,9 @@ class AttributeValue(BaseModel):
         related_name="values",
     )
     value      = models.CharField(max_length=100)      # e.g. "Red"
+    # Copied from the shared option (GlobalAttributeOption.hex_code) so the
+    # product page gets swatch colours without extra queries. "" = none set.
+    hex_code   = models.CharField(max_length=7, blank=True, default="")
     sort_order = models.PositiveSmallIntegerField(default=0)
 
     class Meta:
@@ -438,6 +443,8 @@ class GlobalAttribute(BaseModel):
     name = models.CharField(max_length=100, unique=True, db_index=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
+    # Show options as colour dots (Color) rather than plain text (Size).
+    show_swatches = models.BooleanField(default=False)
 
     class Meta:
         verbose_name = _("global attribute")
@@ -460,6 +467,9 @@ class GlobalAttributeOption(BaseModel):
         related_name="options",
     )
     value = models.CharField(max_length=100)
+    # Swatch colour as #RRGGBB, set on the Attributes page. "" = none set
+    # (the site then falls back to a colour guessed from the name).
+    hex_code = models.CharField(max_length=7, blank=True, default="")
     sort_order = models.PositiveSmallIntegerField(default=0)
     is_active = models.BooleanField(default=True, db_index=True)
 

@@ -21,7 +21,7 @@ import {
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import UploadOverlay from '@/components/ui/UploadOverlay';
 import catalogService, { type CatalogProductDetail } from '@/services/api/catalog';
-import { swatchFor } from '@/lib/variantOptions';
+import { swatchColour } from '@/lib/variantOptions';
 import { useCurrency } from '@/hooks/useCurrency';
 import { LexicalHtmlEditor } from '@/components/admin/LexicalHtmlEditor';
 import {
@@ -366,7 +366,14 @@ export const ProductManagement: React.FC = () => {
   const navigate = useNavigate();
   const [products, setProducts] = useState<Product[]>([]);
   const [categories, setCategories] = useState<CategoryOption[]>([]);
-  const [globalAttributes, setGlobalAttributes] = useState<Array<{ id: string; name: string; options: string[] }>>([]);
+  const [globalAttributes, setGlobalAttributes] = useState<Array<{
+    id: string;
+    name: string;
+    options: string[];
+    showSwatches?: boolean;
+    /** lower-cased option → "#RRGGBB" */
+    hexByOption?: Record<string, string>;
+  }>>([]);
   const [searchTerm, setSearchTerm] = useState('');
   const [offerFilter, setOfferFilter] = useState<'all' | 'active' | 'none'>('all');
   const [statusFilter, setStatusFilter] = useState<'all' | 'Active' | 'Draft' | 'Deleted'>('all');
@@ -574,6 +581,12 @@ export const ProductManagement: React.FC = () => {
           id: String(a.id),
           name: String(a.name || ''),
           options: Array.isArray(a.options) ? a.options.map((opt: any) => String(opt)) : [],
+          showSwatches: typeof a.show_swatches === 'boolean' ? a.show_swatches : undefined,
+          hexByOption: Object.fromEntries(
+            (Array.isArray(a.option_details) ? a.option_details : [])
+              .filter((d: { value?: string; hex_code?: string }) => d?.value && d?.hex_code)
+              .map((d: { value: string; hex_code: string }) => [normalizeKey(d.value), d.hex_code]),
+          ),
         }))
       );
       if (productsRes.status === 'rejected') {
@@ -2334,6 +2347,10 @@ export const ProductManagement: React.FC = () => {
 
                 {formData.attributes.map((attr, i) => {
                   const available = availableOptionsFor(attr);
+                  const shared = globalAttributes.find(
+                    (ga) => (attr.globalAttributeId && ga.id === attr.globalAttributeId) || normalizeKey(ga.name) === normalizeKey(attr.name),
+                  );
+                  const showSwatches = shared?.showSwatches ?? isColourAttributeName(attr.name);
                   const isOn = (opt: string) => attr.options.some((o) => normalizeKey(o) === normalizeKey(opt));
                   return (
                     <div key={attr.id || attr.globalAttributeId || attr.name || i} className="space-y-2 rounded-lg border border-border/70 bg-white p-3">
@@ -2357,7 +2374,7 @@ export const ProductManagement: React.FC = () => {
                       <div className="flex flex-wrap gap-1.5" role="group" aria-label={`${attr.name} options for this product`}>
                         {available.map((opt) => {
                           const on = isOn(opt);
-                          const swatch = isColourAttributeName(attr.name) ? swatchFor(opt) : null;
+                          const swatch = showSwatches ? swatchColour(opt, shared?.hexByOption?.[normalizeKey(opt)]) : null;
                           return (
                             <button
                               key={opt}

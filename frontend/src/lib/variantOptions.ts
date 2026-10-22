@@ -12,6 +12,8 @@ import type { CatalogAttribute, CatalogMedia, CatalogVariant } from '@/services/
 export interface OptionValue {
   key: string;
   label: string;
+  /** Swatch colour set on the Attributes page, or null. */
+  hex: string | null;
   /** AttributeValue ids behind this label (photos are tagged with these). */
   valueIds: string[];
 }
@@ -19,7 +21,10 @@ export interface OptionValue {
 export interface OptionGroup {
   key: string;
   name: string;
+  /** A colour attribute: drives which photos show. */
   isColour: boolean;
+  /** Draw options as colour dots (the attribute's "Show as colour swatches" switch). */
+  showSwatches: boolean;
   values: OptionValue[];
 }
 
@@ -51,13 +56,21 @@ export function buildOptionGroups(
   variants: CatalogVariant[],
   attributes: CatalogAttribute[] = [],
 ): OptionGroup[] {
-  const attrOrder = new Map<string, { order: number; values: Map<string, { order: number; id: string }> }>();
+  const attrOrder = new Map<string, {
+    order: number;
+    swatches?: boolean;
+    values: Map<string, { order: number; id: string; hex: string }>;
+  }>();
   attributes.forEach((attr, index) => {
-    const values = new Map<string, { order: number; id: string }>();
+    const values = new Map<string, { order: number; id: string; hex: string }>();
     (attr.values || []).forEach((v, vIndex) => {
-      values.set(normaliseKey(v.value), { order: Number(v.sort_order ?? vIndex) * 1000 + vIndex, id: v.id });
+      values.set(normaliseKey(v.value), { order: Number(v.sort_order ?? vIndex) * 1000 + vIndex, id: v.id, hex: v.hex_code || '' });
     });
-    attrOrder.set(normaliseKey(attr.name), { order: Number(attr.sort_order ?? index) * 1000 + index, values });
+    attrOrder.set(normaliseKey(attr.name), {
+      order: Number(attr.sort_order ?? index) * 1000 + index,
+      swatches: typeof attr.show_swatches === 'boolean' ? attr.show_swatches : undefined,
+      values,
+    });
   });
 
   const groups = new Map<string, OptionGroup>();
@@ -68,12 +81,20 @@ export function buildOptionGroups(
       if (!groupKey || !valueKey) continue;
       let group = groups.get(groupKey);
       if (!group) {
-        group = { key: groupKey, name: String(av.attribute_name).trim(), isColour: isColourName(av.attribute_name), values: [] };
+        const isColour = isColourName(av.attribute_name);
+        group = {
+          key: groupKey,
+          name: String(av.attribute_name).trim(),
+          isColour,
+          showSwatches: attrOrder.get(groupKey)?.swatches ?? isColour,
+          values: [],
+        };
         groups.set(groupKey, group);
       }
       let value = group.values.find((v) => v.key === valueKey);
       if (!value) {
-        value = { key: valueKey, label: String(av.value).trim(), valueIds: [] };
+        const hex = av.hex_code || attrOrder.get(groupKey)?.values.get(valueKey)?.hex || '';
+        value = { key: valueKey, label: String(av.value).trim(), hex: hex || null, valueIds: [] };
         group.values.push(value);
       }
       const ids = [av.id, attrOrder.get(groupKey)?.values.get(valueKey)?.id];
@@ -91,7 +112,8 @@ export function buildOptionGroups(
       key: FALLBACK_GROUP,
       name: 'Options',
       isColour: false,
-      values: variants.map((v) => ({ key: v.id, label: v.name || v.sku, valueIds: [] })),
+      showSwatches: false,
+      values: variants.map((v) => ({ key: v.id, label: v.name || v.sku, hex: null, valueIds: [] })),
     }];
   }
 
@@ -189,7 +211,15 @@ export function mediaForColour(media: CatalogMedia[], colourValueIds: string[] |
   return shared.length ? shared : sorted;
 }
 
-/** Swatch colours for common jewellery colour names. Unknown names get no dot. */
+/**
+ * Dot colour for an option: the hex code set on the Attributes page, else a
+ * colour guessed from the name (below).
+ */
+export function swatchColour(label: string, hex?: string | null): string | null {
+  return hex && /^#[0-9a-f]{6}$/i.test(hex) ? hex : swatchFor(label);
+}
+
+/** Backup swatch colours for common jewellery colour names, used when no hex code is set. */
 const SWATCHES: Record<string, string> = {
   'mustard yellow': '#d4a017',
   mustard: '#d4a017',
@@ -227,6 +257,60 @@ const SWATCHES: Record<string, string> = {
   silver: '#c0c0c0',
   'rose gold': '#b76e79',
   peach: '#f6b48f',
+  rust: '#b7410e',
+  'rust orange': '#b7410e',
+  'blush pink': '#f4c2c2',
+  blush: '#f4c2c2',
+  'baby pink': '#f4c2c2',
+  'pastel pink': '#f8c8dc',
+  'hot pink': '#ff4f9a',
+  'dusty pink': '#d4a5a5',
+  'onion pink': '#e8a0a8',
+  'rani pink': '#e0218a',
+  rani: '#e0218a',
+  coral: '#ff7f50',
+  salmon: '#fa8072',
+  mauve: '#c49bbb',
+  lavender: '#b9a7e0',
+  lilac: '#c8a2c8',
+  wine: '#722f37',
+  burgundy: '#800020',
+  'bottle green': '#006a4e',
+  'mint green': '#98d8b5',
+  mint: '#98d8b5',
+  'olive green': '#708238',
+  olive: '#708238',
+  'sea green': '#2e8b57',
+  'parrot green': '#3fb83f',
+  'lime green': '#9acd32',
+  'peacock blue': '#00727a',
+  peacock: '#00727a',
+  'ice blue': '#c9e6f2',
+  'powder blue': '#b0d4e8',
+  aqua: '#5fd3d3',
+  cyan: '#00b7c7',
+  'off white': '#f5f1e6',
+  'pearl white': '#f3eee4',
+  pearl: '#efe8da',
+  champagne: '#e8d4a8',
+  copper: '#b87333',
+  bronze: '#a97142',
+  oxidised: '#5b5b5b',
+  oxidized: '#5b5b5b',
+  'antique gold': '#a8892c',
+  lemon: '#f6e05e',
+  'lemon yellow': '#f6e05e',
+  tan: '#d2b48c',
+  nude: '#e3bc9a',
+  'coffee brown': '#6f4e37',
+  coffee: '#6f4e37',
+  charcoal: '#36454f',
+  'dark green': '#1e5631',
+  'light green': '#90d890',
+  'dark blue': '#1b2f6b',
+  'light blue': '#9cc8ec',
+  'light pink': '#f7c6d0',
+  'dark pink': '#d1477a',
   brown: '#7a4a26',
   grey: '#8a8a8a',
   gray: '#8a8a8a',
@@ -234,6 +318,20 @@ const SWATCHES: Record<string, string> = {
   multicolor: 'conic-gradient(#e53935, #fbc02d, #43a047, #1e88e5, #8e24aa, #e53935)',
 };
 
+/**
+ * Swatch for a colour name. Exact names first ("Blush Pink"), then the base
+ * colour word ("Dusky Rose Pink" → pink), then any colour the browser itself
+ * knows ("Teal", "Khaki"). Only names nothing matches get no dot.
+ */
 export function swatchFor(label: string): string | null {
-  return SWATCHES[normaliseKey(label)] ?? null;
+  const key = normaliseKey(label).replace(/\s+/g, ' ');
+  if (!key) return null;
+  if (SWATCHES[key]) return SWATCHES[key];
+  const words = key.split(/[\s/&,-]+/).filter(Boolean);
+  for (let i = words.length - 1; i >= 0; i -= 1) {
+    if (SWATCHES[words[i]]) return SWATCHES[words[i]];
+  }
+  const compact = key.replace(/[^a-z]/g, '');
+  if (compact && typeof CSS !== 'undefined' && CSS.supports?.('color', compact)) return compact;
+  return null;
 }

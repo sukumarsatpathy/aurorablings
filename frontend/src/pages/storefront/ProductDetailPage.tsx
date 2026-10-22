@@ -22,7 +22,7 @@ import {
   mediaForColour,
   optionState,
   pickOption,
-  swatchFor,
+  swatchColour,
   variantSelection,
   type Selection,
 } from '@/lib/variantOptions';
@@ -655,7 +655,7 @@ export const ProductDetailPage: React.FC = () => {
                     {group.values.map((value) => {
                       const state = optionState(activeVariants, optionGroups, selection, group.key, value.key);
                       const isSelected = selection[group.key] === value.key;
-                      const swatch = group.isColour ? swatchFor(value.label) : null;
+                      const swatch = group.showSwatches ? swatchColour(value.label, value.hex) : null;
                       const unavailable = !state.exists || !state.inStock;
                       return (
                         <button

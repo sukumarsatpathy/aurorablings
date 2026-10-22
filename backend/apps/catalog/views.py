@@ -996,6 +996,8 @@ class AttributeViewSet(BaseViewSet):
             options=s.validated_data.get("options", []),
             sort_order=s.validated_data.get("sort_order", 0),
             is_active=s.validated_data.get("is_active", True),
+            show_swatches=s.validated_data.get("show_swatches"),
+            option_colors=s.validated_data.get("option_colors"),
         )
         attribute = selectors.get_global_attribute_by_id(attribute.id)
         return self.created(data=AttributeAdminSerializer(attribute).data)
@@ -1014,6 +1016,8 @@ class AttributeViewSet(BaseViewSet):
             options=s.validated_data.get("options") if "options" in s.validated_data else None,
             sort_order=s.validated_data.get("sort_order"),
             is_active=s.validated_data.get("is_active"),
+            show_swatches=s.validated_data.get("show_swatches"),
+            option_colors=s.validated_data.get("option_colors"),
         )
         attribute = selectors.get_global_attribute_by_id(attribute.id)
         return self.ok(data=AttributeAdminSerializer(attribute).data, message="Attribute updated.")

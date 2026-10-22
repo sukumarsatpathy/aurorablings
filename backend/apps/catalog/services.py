@@ -10,6 +10,7 @@ Design rules:
 """
 
 from __future__ import annotations
+import re
 
 from django.db import transaction
 from django.utils.text import slugify
@@ -477,6 +478,8 @@ def create_global_attribute(
     options: list[str] | None = None,
     sort_order: int = 0,
     is_active: bool = True,
+    show_swatches: bool | None = None,
+    option_colors: dict[str, str] | None = None,
 ) -> GlobalAttribute:
     if GlobalAttribute.objects.filter(name__iexact=name).exists():
         raise ConflictError(f"Global attribute '{name}' already exists.")
@@ -485,8 +488,9 @@ def create_global_attribute(
         name=name.strip(),
         sort_order=sort_order,
         is_active=is_active,
+        show_swatches=_is_colour_name(name) if show_swatches is None else show_swatches,
     )
-    _sync_global_options(attribute, options or [])
+    _sync_global_options(attribute, options or [], colors=option_colors)
     logger.info("global_attribute_created", attribute_id=str(attribute.id), name=attribute.name)
     return attribute
 
@@ -499,7 +503,14 @@ def update_global_attribute(
     options: list[str] | None = None,
     sort_order: int | None = None,
     is_active: bool | None = None,
+    show_swatches: bool | None = None,
+    option_colors: dict[str, str] | None = None,
 ) -> GlobalAttribute:
+    """
+    `option_colors` maps option value → "#RRGGBB" ("" clears it); options
+    not mentioned keep their colour. Colour and swatch changes are copied to
+    every product using this attribute.
+    """
     if name is not None:
         normalized = name.strip()
         if (
@@ -514,11 +525,16 @@ def update_global_attribute(
         attribute.sort_order = sort_order
     if is_active is not None:
         attribute.is_active = is_active
+    if show_swatches is not None:
+        attribute.show_swatches = show_swatches
     attribute.full_clean()
     attribute.save()
 
     if options is not None:
-        _sync_global_options(attribute, options)
+        _sync_global_options(attribute, options, colors=option_colors)
+    elif option_colors is not None:
+        _apply_option_colors(attribute, option_colors)
+    if options is not None or option_colors is not None or show_swatches is not None:
         _sync_linked_products_legacy_attribute(attribute)
 
     logger.info("global_attribute_updated", attribute_id=str(attribute.id))
@@ -867,10 +883,43 @@ def _sanitize_options(values: list[str]) -> list[str]:
     return cleaned
 
 
-def _sync_global_options(attribute: GlobalAttribute, options: list[str]) -> None:
+_HEX_RE = re.compile(r"^#[0-9A-Fa-f]{6}$")
+
+
+def _is_colour_name(name: str) -> bool:
+    return bool(re.search(r"colou?r", name or "", re.I))
+
+
+def normalize_hex(raw) -> str:
+    """'#b7410e' / 'B7410E' / '#B7410E' → '#B7410E'; '' stays ''. Anything else is refused."""
+    value = str(raw or "").strip()
+    if not value:
+        return ""
+    if not value.startswith("#"):
+        value = f"#{value}"
+    if not _HEX_RE.match(value):
+        raise ValidationError(f"'{raw}' isn't a colour code. Use 6 hex digits, e.g. #B7410E.")
+    return value.upper()
+
+
+def _clean_colors(colors: dict[str, str] | None) -> dict[str, str]:
+    return {str(k).strip().lower(): normalize_hex(v) for k, v in (colors or {}).items() if str(k).strip()}
+
+
+def _apply_option_colors(attribute: GlobalAttribute, colors: dict[str, str]) -> None:
+    cleaned = _clean_colors(colors)
+    for option in GlobalAttributeOption.objects.filter(global_attribute=attribute):
+        key = option.value.lower()
+        if key in cleaned and option.hex_code != cleaned[key]:
+            option.hex_code = cleaned[key]
+            option.save(update_fields=["hex_code", "updated_at"])
+
+
+def _sync_global_options(attribute: GlobalAttribute, options: list[str], colors: dict[str, str] | None = None) -> None:
     """
     Replace active option set using soft-deactivation for removed options.
     """
+    colour_map = _clean_colors(colors)
     cleaned = _sanitize_options(options)
     existing = {
         opt.value.lower(): opt
@@ -886,13 +935,16 @@ def _sync_global_options(attribute: GlobalAttribute, options: list[str]) -> None
             option.value = value
             option.sort_order = idx
             option.is_active = True
-            option.save(update_fields=["value", "sort_order", "is_active", "updated_at"])
+            if key in colour_map:
+                option.hex_code = colour_map[key]
+            option.save(update_fields=["value", "sort_order", "is_active", "hex_code", "updated_at"])
         else:
             GlobalAttributeOption.objects.create(
                 global_attribute=attribute,
                 value=value,
                 sort_order=idx,
                 is_active=True,
+                hex_code=colour_map.get(key, ""),
             )
 
     for key, option in existing.items():
@@ -921,11 +973,15 @@ def _ensure_legacy_attribute_for_product(
     legacy_attr, created = Attribute.objects.get_or_create(
         product=product,
         name=global_attribute.name,
-        defaults={"sort_order": global_attribute.sort_order},
+        defaults={"sort_order": global_attribute.sort_order, "show_swatches": global_attribute.show_swatches},
     )
-    if legacy_attr.sort_order != global_attribute.sort_order:
+    if (
+        legacy_attr.sort_order != global_attribute.sort_order
+        or legacy_attr.show_swatches != global_attribute.show_swatches
+    ):
         legacy_attr.sort_order = global_attribute.sort_order
-        legacy_attr.save(update_fields=["sort_order", "updated_at"])
+        legacy_attr.show_swatches = global_attribute.show_swatches
+        legacy_attr.save(update_fields=["sort_order", "show_swatches", "updated_at"])
 
     global_options = list(
         GlobalAttributeOption.objects.filter(
@@ -935,6 +991,7 @@ def _ensure_legacy_attribute_for_product(
     )
     global_order = {opt.value.lower(): idx for idx, opt in enumerate(global_options)}
     canonical = {opt.value.lower(): opt.value for opt in global_options}
+    hex_by_key = {opt.value.lower(): opt.hex_code for opt in global_options}
     existing = {val.value.lower(): val for val in AttributeValue.objects.filter(attribute=legacy_attr)}
 
     if selected is not None:
@@ -952,13 +1009,16 @@ def _ensure_legacy_attribute_for_product(
     ordered = sorted(enumerate(wanted), key=lambda pair: position(pair[1], pair[0]))
     for idx, (_, value) in enumerate(ordered):
         current = existing.get(value.lower())
+        # Product-only options (not in the shared list) keep their own colour.
+        hex_code = hex_by_key.get(value.lower(), current.hex_code if current else "")
         if current:
-            if current.sort_order != idx:
+            if current.sort_order != idx or current.hex_code != hex_code:
                 current.sort_order = idx
-                current.save(update_fields=["sort_order", "updated_at"])
+                current.hex_code = hex_code
+                current.save(update_fields=["sort_order", "hex_code", "updated_at"])
         else:
             existing[value.lower()] = AttributeValue.objects.create(
-                attribute=legacy_attr, value=value, sort_order=idx,
+                attribute=legacy_attr, value=value, sort_order=idx, hex_code=hex_code,
             )
 
     if selected is not None:

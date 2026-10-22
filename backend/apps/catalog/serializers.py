@@ -96,7 +96,7 @@ class BrandSerializer(serializers.ModelSerializer):
 class AttributeValueSerializer(serializers.ModelSerializer):
     class Meta:
         model  = AttributeValue
-        fields = ["id", "value", "sort_order"]
+        fields = ["id", "value", "hex_code", "sort_order"]
         read_only_fields = ["id"]
 
 
@@ -105,7 +105,7 @@ class AttributeSerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Attribute
-        fields = ["id", "name", "sort_order", "values"]
+        fields = ["id", "name", "show_swatches", "sort_order", "values"]
         read_only_fields = ["id"]
 
 
@@ -122,23 +122,37 @@ class ProductAttributeWriteSerializer(serializers.Serializer):
 class GlobalAttributeOptionSerializer(serializers.ModelSerializer):
     class Meta:
         model = GlobalAttributeOption
-        fields = ["id", "value", "sort_order", "is_active"]
+        fields = ["id", "value", "hex_code", "sort_order", "is_active"]
         read_only_fields = ["id"]
 
 
 class AttributeAdminSerializer(serializers.ModelSerializer):
     options = serializers.SerializerMethodField()
+    option_details = serializers.SerializerMethodField()
     linked_products = serializers.SerializerMethodField()
 
     class Meta:
         model = GlobalAttribute
-        fields = ["id", "name", "sort_order", "is_active", "linked_products", "options"]
+        fields = ["id", "name", "sort_order", "is_active", "show_swatches", "linked_products", "options", "option_details"]
+
+    def _active_options(self, obj):
+        # Read once per attribute; both option fields use it.
+        cache = getattr(self, "_option_cache", None)
+        if cache is None:
+            cache = self._option_cache = {}
+        if obj.pk not in cache:
+            cache[obj.pk] = sorted(
+                (opt for opt in obj.options.all() if opt.is_active),
+                key=lambda opt: (opt.sort_order, opt.value),
+            )
+        return cache[obj.pk]
 
     def get_options(self, obj):
-        return [
-            value.value
-            for value in obj.options.filter(is_active=True).order_by("sort_order", "value")
-        ]
+        return [opt.value for opt in self._active_options(obj)]
+
+    def get_option_details(self, obj):
+        """[{value, hex_code}] in display order. `options` stays a plain list for older callers."""
+        return [{"value": opt.value, "hex_code": opt.hex_code} for opt in self._active_options(obj)]
 
     def get_linked_products(self, obj):
         return obj.product_configs.filter(is_active=True).count()
@@ -153,6 +167,12 @@ class AttributeAdminWriteSerializer(serializers.Serializer):
     )
     sort_order = serializers.IntegerField(required=False, default=0)
     is_active = serializers.BooleanField(required=False, default=True)
+    show_swatches = serializers.BooleanField(required=False)
+    # {"Rust": "#B7410E", "Beige": ""} — "" clears a colour.
+    option_colors = serializers.DictField(
+        child=serializers.CharField(max_length=7, allow_blank=True),
+        required=False,
+    )
 
 
 # ─────────────────────────────────────────────────────────────
@@ -273,7 +293,7 @@ class AttributeValueSummarySerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = AttributeValue
-        fields = ["id", "attribute_name", "value"]
+        fields = ["id", "attribute_name", "value", "hex_code"]
 
 
 class ProductVariantSerializer(serializers.ModelSerializer):
