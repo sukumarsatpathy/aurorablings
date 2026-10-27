@@ -28,7 +28,7 @@ export function ShiftGate({ terminals, terminalId, onChooseTerminal, onOpenShift
     try {
       await onOpenShift(float || '0');
     } catch (err: any) {
-      setFailure(err?.response?.data?.detail || err?.message || 'Could not open the shift.');
+      setFailure((err?.response?.data?.detail || err?.response?.data?.message) || err?.message || 'Could not open the shift.');
     } finally {
       setBusy(false);
     }

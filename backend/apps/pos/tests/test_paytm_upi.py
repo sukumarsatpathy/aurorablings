@@ -19,7 +19,7 @@ from rest_framework.test import APIClient
 
 from apps.accounts.models import User, UserRole
 from apps.features.models import AppSetting
-from apps.orders.models import Order, OrderStatus, PaymentStatus, SalesChannel
+from apps.orders.models import FulfilmentType, Order, OrderStatus, PaymentStatus, SalesChannel
 from apps.payments.models import PaymentTransaction, TenderMethod, TenderStatus
 from apps.pos import collection_service, services
 from apps.pos.models import POSTerminal
@@ -112,6 +112,18 @@ class PaytmUpiTests(TestCase):
         self.assertEqual(tender.raw["upi_reference"], "412345678901")
         self.assertEqual(self.order.payment_status, PaymentStatus.PAID)
         self.assertEqual(self.order.payment_reference, "PAYTM-UPI-412345678901")
+
+    def test_carry_away_sale_completes_when_upi_settles_it(self):
+        """The screen-reported bug: the final tender rolled back on PAID → COMPLETED."""
+        order = self._order("1.00")
+        order.fulfilment_type = FulfilmentType.CARRY_AWAY
+        order.save(update_fields=["fulfilment_type"])
+
+        services.take_upi_tender(order=order, shift=self.shift, staff=self.staff, reference="2124")
+        order.refresh_from_db()
+
+        self.assertEqual(order.payment_status, PaymentStatus.PAID)
+        self.assertEqual(order.status, OrderStatus.COMPLETED)
 
     def test_split_cash_then_paytm_upi(self):
         services.take_cash_tender(

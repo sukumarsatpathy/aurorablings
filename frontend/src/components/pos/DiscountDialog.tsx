@@ -65,7 +65,7 @@ export function DiscountDialog({ orderId, orderTotal, onClose, onApplied }: Prop
       } as any);
       onApplied(result.grand_total);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not apply the discount.');
+      setError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not apply the discount.');
     } finally {
       setBusy(false);
     }

@@ -57,7 +57,7 @@ export function CloseShiftDialog({ shiftId, onCancel, onClosed }: Props) {
       onClosed();
     } catch (err: any) {
       const status = err?.response?.status;
-      setError(err?.response?.data?.detail || 'Could not close the shift.');
+      setError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not close the shift.');
       // 409 is the drawer refusing, not a malformed request: part-paid sales are
       // still open. Offer the override rather than leaving staff stuck at close.
       if (status === 409) setNeedsForce(true);

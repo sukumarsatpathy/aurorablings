@@ -1153,7 +1153,11 @@ def _apply_transition(
     Apply a status transition after validating it against STATE_TRANSITIONS.
     Writes an immutable OrderStatusHistory entry.
     """
-    if new_status not in STATE_TRANSITIONS.get(order.status, set()):
+    # Ask the order, not the raw map: can_transition_to adds the one sanctioned
+    # exception (a paid carry-away counter sale closing straight to COMPLETED).
+    # Checking STATE_TRANSITIONS directly here refused that move, which rolled
+    # back the final tender of every fully-paid counter sale.
+    if not order.can_transition_to(new_status):
         raise ConflictError(
             f"Invalid transition: '{order.status}' → '{new_status}' "
             f"for order '{order.order_number}'."

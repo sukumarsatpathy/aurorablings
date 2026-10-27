@@ -83,7 +83,7 @@ export function UpiQrScreen({
       setConfirmedRef(result.reference);
       await refresh();
     } catch (err: any) {
-      setConfirmError(err?.response?.data?.detail || 'Could not record the payment.');
+      setConfirmError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not record the payment.');
     } finally {
       setConfirming(false);
     }

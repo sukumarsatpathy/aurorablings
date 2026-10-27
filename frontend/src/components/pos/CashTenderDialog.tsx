@@ -67,7 +67,7 @@ export function CashTenderDialog({
       });
       onTaken(result);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not record the cash.');
+      setError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not record the cash.');
     } finally {
       setBusy(false);
     }

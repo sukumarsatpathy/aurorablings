@@ -82,7 +82,7 @@ export function PaymentStage({
       await posService.voidSale(order.order_id, 'edited before payment');
       onBack(state?.items ?? []);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not return to the cart.');
+      setError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not return to the cart.');
     } finally {
       setBusy(false);
     }
@@ -95,7 +95,7 @@ export function PaymentStage({
       const next = await posService.upiCollection(order.order_id, shiftId);
       setCollection(next);
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not raise a UPI collection.');
+      setError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not raise a UPI collection.');
     } finally {
       setBusy(false);
     }
@@ -116,7 +116,7 @@ export function PaymentStage({
       }
       onVoided();
     } catch (err: any) {
-      setError(err?.response?.data?.detail || 'Could not void the sale.');
+      setError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not void the sale.');
     } finally {
       setBusy(false);
     }
