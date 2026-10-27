@@ -1,20 +1,11 @@
 import { useEffect, useMemo, useState } from 'react';
 
 import { usePaymentPolling } from '@/hooks/usePaymentPolling';
-import posService from '@/services/api/pos';
+import posService, { type UpiCollection } from '@/services/api/pos';
 
 import { money } from './money';
 
-interface Collection {
-  kind: 'qr' | 'link';
-  transaction_id: string;
-  qr_id: string;
-  image_url?: string;
-  payment_url?: string;
-  amount: string;
-  note?: string;
-  close_by?: number | null;
-}
+type Collection = UpiCollection;
 
 interface Props {
   orderId: string;
@@ -37,8 +28,13 @@ interface Props {
  * paid in cash — without that line, a customer looking at a second amount
  * reasonably assumes they are being charged twice.
  *
- * "Paid" here is never decided by this screen. It polls our backend, which only
- * believes a signature-verified webhook.
+ * Two rails, one screen:
+ *  - Razorpay (legacy): "Paid" is never decided here. It polls our backend,
+ *    which only believes a signature-verified webhook.
+ *  - Paytm (default): the money lands on the shop's Paytm merchant account and
+ *    the Soundbox announces it. Paytm never tells our backend, so a staff member
+ *    confirms it here with the UPI reference — and only that confirmation, not
+ *    the code being on screen, moves the balance.
  */
 export function UpiQrScreen({
   orderId,
@@ -62,18 +58,46 @@ export function UpiQrScreen({
   const [secondsLeft, setSecondsLeft] = useState(() =>
     collection.close_by ? Math.max(collection.close_by - Math.floor(Date.now() / 1000), 0) : 15 * 60,
   );
+  const [reference, setReference] = useState('');
+  const [confirming, setConfirming] = useState(false);
+  const [confirmError, setConfirmError] = useState('');
+  const [confirmedRef, setConfirmedRef] = useState('');
+
+  // Paytm: no webhook, no expiry — a person confirms what the Soundbox said.
+  const manual = Boolean(
+    collection.requires_confirmation || collection.kind === 'upi_intent' || collection.kind === 'device',
+  );
+  const cleanRef = reference.replace(/[^0-9a-z]/gi, '');
 
   const settled = state ? Number(state.balance_due) <= 0 : false;
+
+  const confirmReceived = async () => {
+    if (cleanRef.length < 4) {
+      setConfirmError('Enter the UPI reference from the Paytm app (at least the last 4 digits).');
+      return;
+    }
+    setConfirming(true);
+    setConfirmError('');
+    try {
+      const result = await posService.upiTender(shiftId, { order: orderId, reference: cleanRef });
+      setConfirmedRef(result.reference);
+      await refresh();
+    } catch (err: any) {
+      setConfirmError(err?.response?.data?.detail || 'Could not record the payment.');
+    } finally {
+      setConfirming(false);
+    }
+  };
 
   useEffect(() => {
     if (settled) onSettled();
   }, [settled, onSettled]);
 
   useEffect(() => {
-    if (settled) return;
+    if (settled || manual) return;
     const t = window.setInterval(() => setSecondsLeft((s) => Math.max(s - 1, 0)), 1000);
     return () => window.clearInterval(t);
-  }, [settled]);
+  }, [settled, manual]);
 
   const clock = useMemo(() => {
     const m = Math.floor(secondsLeft / 60);
@@ -103,7 +127,13 @@ export function UpiQrScreen({
           Aurora <span className="text-emerald-400">Blings</span>
         </span>
         <span className="ml-auto font-mono text-xs text-white/50">
-          {settled ? orderNumber : secondsLeft > 0 ? `expires in ${clock}` : 'QR expired'}
+          {settled
+            ? orderNumber
+            : manual
+              ? 'Paytm UPI'
+              : secondsLeft > 0
+                ? `expires in ${clock}`
+                : 'QR expired'}
         </span>
       </header>
 
@@ -118,7 +148,9 @@ export function UpiQrScreen({
             <h2 className="text-3xl font-semibold">Paid</h2>
             <p className="text-2xl font-semibold tabular-nums">{money(orderTotal)}</p>
             <p className="text-xs uppercase tracking-widest text-white/50">
-              confirmed by the payment gateway
+              {manual
+                ? `confirmed at the counter${confirmedRef ? ` · ref ${confirmedRef}` : ''}`
+                : 'confirmed by the payment gateway'}
             </p>
           </div>
         ) : (
@@ -130,7 +162,14 @@ export function UpiQrScreen({
               phone. The server now renders that link as a QR too, so this only
               needs to know whether it got an image.
             */}
-            {collection.image_url && !imageBroken ? (
+            {collection.kind === 'device' ? (
+              <div className="max-w-sm rounded-2xl bg-white/5 p-6">
+                <p className="text-lg font-semibold">Scan the Paytm QR at the counter</p>
+                <p className="mt-2 text-sm text-white/60">
+                  Pay the amount below using any UPI app.
+                </p>
+              </div>
+            ) : collection.image_url && !imageBroken ? (
               <>
                 <img
                   src={collection.image_url}
@@ -168,6 +207,9 @@ export function UpiQrScreen({
               <p className="mt-1 text-xs uppercase tracking-widest text-white/50">
                 {orderNumber} · scan with any UPI app
               </p>
+              {collection.kind === 'upi_intent' && collection.payee && (
+                <p className="mt-1 text-xs text-white/40">Paying {collection.payee}</p>
+              )}
               {cashAlready > 0 && (
                 <p className="mt-3 inline-flex rounded-full bg-emerald-400/10 px-4 py-1.5 text-sm font-medium text-emerald-300">
                   ✓ {money(cashAlready)} already paid in cash · order total {money(orderTotal)}
@@ -177,7 +219,9 @@ export function UpiQrScreen({
 
             <p className="flex items-center gap-2 text-xs text-white/50">
               <span className="h-2 w-2 animate-pulse rounded-full bg-emerald-400" />
-              Waiting for the payment gateway…
+              {manual
+                ? `Staff: wait for the Soundbox to announce ${money(collection.amount)}, then enter the UPI reference below.`
+                : 'Waiting for the payment gateway…'}
             </p>
             {error && <p className="text-xs text-amber-300">{error}</p>}
           </div>
@@ -193,7 +237,41 @@ export function UpiQrScreen({
           {settled ? 'Done' : 'Back'}
         </button>
 
-        {!settled && (
+        {!settled && manual && (
+          <form
+            className="ml-auto flex w-full flex-wrap items-center gap-2 sm:w-auto"
+            onSubmit={(e) => {
+              e.preventDefault();
+              void confirmReceived();
+            }}
+          >
+            <label htmlFor="upi-ref" className="sr-only">
+              UPI reference
+            </label>
+            <input
+              id="upi-ref"
+              value={reference}
+              onChange={(e) => {
+                setReference(e.target.value);
+                setConfirmError('');
+              }}
+              inputMode="numeric"
+              autoComplete="off"
+              placeholder="UPI ref (last 4+ digits)"
+              className="min-w-0 flex-1 rounded-lg border border-white/20 bg-white/5 px-3 py-2 font-mono text-sm text-white placeholder:text-white/30 sm:w-56 sm:flex-none"
+            />
+            <button
+              type="submit"
+              disabled={confirming || cleanRef.length < 4}
+              className="rounded-lg bg-emerald-400 px-4 py-2 text-sm font-semibold text-[#04231b] disabled:opacity-40"
+            >
+              {confirming ? 'Recording…' : `Received ${money(collection.amount)}`}
+            </button>
+            {confirmError && <p className="w-full text-xs text-amber-300">{confirmError}</p>}
+          </form>
+        )}
+
+        {!settled && !manual && (
           <>
             <button
               type="button"

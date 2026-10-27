@@ -60,6 +60,8 @@ export interface ShiftSummary {
   manual_discounts: string;
   coupon_discounts: string;
   part_paid_open: number;
+  /** Staff-confirmed Paytm UPI payments, to tick off against the Paytm app at close. */
+  paytm_upi?: Array<{ order_number: string; amount: string; reference: string; at: string; by: string }>;
 }
 
 export interface CatalogueRow {
@@ -110,7 +112,42 @@ export interface PaymentState {
   items: Array<{ variant_id: string; quantity: number }>;
   amount_paid: string;
   balance_due: string;
-  tenders: Array<{ method: string; amount: string; status: string; at: string }>;
+  /** Which rail the counter is using for UPI. 'paytm' = staff confirm with the UPI reference. */
+  upi_provider?: 'paytm' | 'razorpay';
+  tenders: Array<{
+    method: string;
+    provider?: string;
+    amount: string;
+    status: string;
+    /** Paytm UPI reference typed by staff, for matching at close. */
+    reference?: string;
+    at: string;
+  }>;
+}
+
+/**
+ * What the counter gets back when it asks for UPI.
+ *
+ *  - 'qr' / 'link' — Razorpay dynamic QR, settled by webhook (legacy rail).
+ *  - 'upi_intent'  — QR for the shop's Paytm merchant UPI with the balance
+ *                    pre-filled; staff confirm once the Soundbox announces it.
+ *  - 'device'      — no merchant UPI ID configured: customer scans the Paytm
+ *                    standee; staff confirm the same way.
+ */
+export interface UpiCollection {
+  kind: 'qr' | 'link' | 'upi_intent' | 'device';
+  provider?: 'paytm' | 'razorpay';
+  transaction_id: string;
+  qr_id: string;
+  image_url?: string;
+  payment_url?: string;
+  upi_uri?: string;
+  payee?: string;
+  vpa?: string;
+  amount: string;
+  note?: string;
+  close_by?: number | null;
+  requires_confirmation?: boolean;
 }
 
 export interface CustomerLookup {
@@ -281,12 +318,27 @@ const posService = {
     return data;
   },
 
-  upiCollection: async (orderId: string, shiftId: string, replaces?: string) => {
+  upiCollection: async (orderId: string, shiftId: string, replaces?: string): Promise<UpiCollection> => {
     const { data } = await apiClient.post(`/v1/pos/orders/${orderId}/upi/`, {
       shift: shiftId,
       replaces,
     });
     return data;
+  },
+
+  /**
+   * Staff confirming a UPI payment received on the shop's Paytm account.
+   * No amount is sent — the server credits the outstanding balance.
+   */
+  upiTender: async (shiftId: string, payload: { order: string; reference: string }) => {
+    const { data } = await apiClient.post(`/v1/pos/shifts/${shiftId}/upi-tender/`, payload);
+    return data as {
+      tender_id: string;
+      amount_applied: string;
+      reference: string;
+      order_payment_status: string;
+      balance_due: string;
+    };
   },
 
   /** Polls our own backend — never Razorpay. Only a verified webhook turns this green. */
@@ -302,7 +354,13 @@ const posService = {
 
   voidSale: async (orderId: string, reason: string) => {
     const { data } = await apiClient.post(`/v1/pos/orders/${orderId}/void/`, { reason });
-    return data;
+    return data as {
+      order_number: string;
+      status: string;
+      payment_status: string;
+      /** UPI received on Paytm for this sale that must be refunded from the Paytm app. */
+      paytm_upi_to_refund?: string;
+    };
   },
 };
 

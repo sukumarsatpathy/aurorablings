@@ -15,6 +15,7 @@ urlpatterns = [
     path("shifts/<uuid:shift_id>/summary/", views.ShiftSummaryView.as_view(), name="shift-summary"),
     path("shifts/<uuid:shift_id>/cash-movement/", views.CashMovementView.as_view(), name="cash-movement"),
     path("shifts/<uuid:shift_id>/cash-tender/",   views.CashTenderView.as_view(),   name="cash-tender"),
+    path("shifts/<uuid:shift_id>/upi-tender/",    views.UpiTenderView.as_view(),    name="upi-tender"),
 
     path("customers/lookup/",             views.CustomerLookupView.as_view(),    name="customer-lookup"),
     path("customers/<uuid:user_id>/occasions/",

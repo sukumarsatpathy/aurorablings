@@ -167,6 +167,34 @@ class ProviderListView(APIView):
         return success_response(data=s.data)
 
 
+
+def _order_for_request(request, order_id):
+    """
+    The order this caller may pay for.
+
+    Logged-in: scoped to their own orders (staff see all), exactly as before.
+    Guest: only the one order their X-Guest-Order-Token vouches for.
+    Neither: 401, as these endpoints always returned to anonymous callers.
+    """
+    from rest_framework.exceptions import NotAuthenticated
+
+    from apps.orders import guest_access
+
+    if guest_access.request_is_authenticated(request):
+        order = get_order_by_id(order_id, user=request.user)
+        if not order:
+            raise NotFoundError("Order not found.")
+        return order
+    if guest_access.token_order_id(request):
+        return guest_access.get_guest_order_or_404(request, order_id)
+    raise NotAuthenticated()
+
+
+def _acting_user(request):
+    """The user to stamp on a transaction — None for a guest, never AnonymousUser."""
+    user = getattr(request, "user", None)
+    return user if user is not None and user.is_authenticated else None
+
 # ─────────────────────────────────────────────────────────────
 #  Initiate Payment
 # ─────────────────────────────────────────────────────────────
@@ -216,16 +244,16 @@ class CreatePaymentOrderView(APIView):
     POST /payments/create-order/
     Body: { order_id, amount, currency? }
     """
-    permission_classes = [IsAuthenticated]
+    # AllowAny so a guest can pay; _order_for_request still demands a JWT or a
+    # valid guest token and returns 401 to anyone with neither.
+    permission_classes = [AllowAny]
 
     def post(self, request):
         s = RazorpayCreateOrderSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         data = s.validated_data
 
-        order = get_order_by_id(data["order_id"], user=request.user)
-        if not order:
-            raise NotFoundError("Order not found.")
+        order = _order_for_request(request, data["order_id"])
 
         try:
             txn = services.create_checkout_order(
@@ -233,7 +261,7 @@ class CreatePaymentOrderView(APIView):
                 provider_name="razorpay",
                 amount=data["amount"],
                 currency=data.get("currency"),
-                initiated_by=request.user,
+                initiated_by=_acting_user(request),
             )
         except AuroraBaseException:
             raise
@@ -241,7 +269,7 @@ class CreatePaymentOrderView(APIView):
             logger.exception(
                 "razorpay_create_order_unexpected_error",
                 order_id=str(order.id),
-                user_id=str(request.user.id),
+                user_id=str(getattr(_acting_user(request), "id", "") or "guest"),
                 error=str(exc),
             )
             return error_response(
@@ -279,21 +307,33 @@ class VerifyPaymentView(APIView):
     POST /payments/verify/
     Body: { razorpay_order_id, razorpay_payment_id, razorpay_signature }
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
+        from rest_framework.exceptions import NotAuthenticated
+
+        from apps.orders import guest_access
+
         s = RazorpayVerifyPaymentSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         data = s.validated_data
 
+        authenticated = guest_access.request_is_authenticated(request)
+        if not authenticated and not guest_access.token_order_id(request):
+            raise NotAuthenticated()
+
         txn = selectors.get_transaction_by_razorpay_order_id(data["razorpay_order_id"])
         if not txn:
             raise NotFoundError("Payment transaction not found.")
-        if (
-            not request.user.role in ("admin", "staff")
-            and txn.order.user != request.user
-        ):
-            raise NotFoundError("Payment transaction not found.")
+        if authenticated:
+            if (
+                not request.user.role in ("admin", "staff")
+                and txn.order.user != request.user
+            ):
+                raise NotFoundError("Payment transaction not found.")
+        else:
+            # Same 404 whether the token is for another order or the order has an owner.
+            guest_access.get_guest_order_or_404(request, txn.order_id)
 
         try:
             verified_txn = services.verify_checkout_payment(
@@ -386,15 +426,13 @@ class ReconcilePaymentView(APIView):
 
     Fallback for return-url flow when webhook processing is delayed.
     """
-    permission_classes = [IsAuthenticated]
+    permission_classes = [AllowAny]
 
     def post(self, request):
         s = ReconcilePaymentSerializer(data=request.data)
         s.is_valid(raise_exception=True)
 
-        order = get_order_by_id(s.validated_data["order_id"], user=request.user)
-        if not order:
-            raise NotFoundError("Order not found.")
+        order = _order_for_request(request, s.validated_data["order_id"])
 
         txn = services.reconcile_order_payment(order=order)
         return success_response(

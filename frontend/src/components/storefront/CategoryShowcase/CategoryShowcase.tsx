@@ -5,7 +5,7 @@ import { Link } from 'react-router-dom';
 // nothing imports it.
 import heroImg from '@/assets/bg-img.webp';
 import heroImgSmall from '@/assets/bg-img-640.webp';
-import { Circle } from 'lucide-react';
+import { Circle, ChevronLeft, ChevronRight } from 'lucide-react';
 import { gsap } from '@/animations/gsapConfig';
 import catalogService from '@/services/api/catalog';
 import { Badge } from '@/components/ui/Badge';
@@ -21,7 +21,6 @@ interface Category {
     color: 'pink' | 'green';
 }
 
-const INTERVAL = 2500;
 const CARD_GAP = 24;
 
 const getVisibleCount = () => {
@@ -35,10 +34,12 @@ const getVisibleCount = () => {
 const CategoryShowcase: React.FC = () => {
     const [categories, setCategories] = useState<Category[]>([]);
     const [loading, setLoading] = useState(true);
-    const [current, setCurrent] = useState(0);
-    const [isResetting, setIsResetting] = useState(false);
     const [cardPxWidth, setCardPxWidth] = useState(0);
     const [visibleCount, setVisibleCount] = useState(getVisibleCount);
+    // Which arrows make sense right now. Derived from the real scroll position,
+    // so a swipe, a trackpad flick or a scrollbar drag all keep them honest.
+    const [canPrev, setCanPrev] = useState(false);
+    const [canNext, setCanNext] = useState(false);
 
     const trackRef = useRef<HTMLDivElement>(null);
     const titleRef = useRef<HTMLHeadingElement>(null);
@@ -123,16 +124,15 @@ const CategoryShowcase: React.FC = () => {
         };
     }, [categories]);
 
-    const total = categories.length;
-    const shouldLoop = total > visibleCount;
-    const trackCategories = shouldLoop ? [...categories, ...categories] : categories;
-
+    // Manual scroller: the browser owns the scrolling (touch swipe, trackpad,
+    // shift+wheel, scrollbar, keyboard), we only size the cards and drive the
+    // arrows. No autoplay and no duplicated cards, so each category appears once.
     useEffect(() => {
         const measure = () => {
             const newVisible = getVisibleCount();
             setVisibleCount(newVisible);
             if (trackRef.current) {
-                const containerW = trackRef.current.offsetWidth;
+                const containerW = trackRef.current.clientWidth;
                 const w = (containerW - CARD_GAP * (newVisible - 1)) / newVisible;
                 setCardPxWidth(w);
             }
@@ -142,39 +142,28 @@ const CategoryShowcase: React.FC = () => {
         return () => window.removeEventListener('resize', measure);
     }, [categories.length]);
 
-    useEffect(() => {
-        if (!shouldLoop) {
-            setCurrent(0);
-            setIsResetting(false);
-        } else {
-            setCurrent((c) => Math.min(c, total));
-        }
-    }, [shouldLoop, total]);
+    const updateArrows = useCallback(() => {
+        const el = trackRef.current;
+        if (!el) return;
+        // 2px of slack absorbs sub-pixel rounding at the ends.
+        setCanPrev(el.scrollLeft > 2);
+        setCanNext(el.scrollLeft + el.clientWidth < el.scrollWidth - 2);
+    }, []);
 
     useEffect(() => {
-        if (!shouldLoop || cardPxWidth === 0) return;
-        const timer = window.setTimeout(() => {
-            setCurrent((value) => value + 1);
-        }, INTERVAL);
-        return () => window.clearTimeout(timer);
-    }, [current, shouldLoop, cardPxWidth]);
+        updateArrows();
+    }, [updateArrows, cardPxWidth, categories.length]);
 
-    const handleTransitionEnd = useCallback(() => {
-        if (!shouldLoop || current < total) return;
-        setIsResetting(true);
-        setCurrent(0);
-    }, [current, shouldLoop, total]);
+    const scrollByCards = useCallback((direction: 1 | -1) => {
+        const el = trackRef.current;
+        if (!el) return;
+        // One "page" of cards per click, so nothing is skipped or half-shown.
+        const step = (cardPxWidth > 0 ? cardPxWidth + CARD_GAP : el.clientWidth) * Math.max(1, visibleCount - 1);
+        el.scrollBy({ left: direction * step, behavior: 'smooth' });
+    }, [cardPxWidth, visibleCount]);
 
-    useEffect(() => {
-        if (!isResetting) return;
-        const frame = window.requestAnimationFrame(() => {
-            setIsResetting(false);
-        });
-        return () => window.cancelAnimationFrame(frame);
-    }, [isResetting]);
-
-    const offset = cardPxWidth > 0 ? current * (cardPxWidth + CARD_GAP) : 0;
     const fallbackWidth = `calc((100% - ${CARD_GAP * (visibleCount - 1)}px) / ${visibleCount})`;
+    const showArrows = canPrev || canNext;
 
     if (loading && categories.length === 0) {
         return <div className="py-24 text-center text-muted-foreground">Loading categories...</div>;
@@ -223,69 +212,79 @@ const CategoryShowcase: React.FC = () => {
                         <div
                             className="relative z-[1] lg:-ml-[30%] lg:mt-23 p-6 pt-7 bg-white rounded-[30px]"
                         >
-                            <div className="overflow-hidden" ref={trackRef}>
-                                <div
-                                    className="flex ease-[cubic-bezier(0.4,0,0.2,1)]"
-                                    onTransitionEnd={handleTransitionEnd}
-                                    style={{
-                                        gap: `${CARD_GAP}px`,
-                                        transform: `translateX(-${offset}px)`,
-                                        perspective: '2000px',
-                                        transitionDuration: isResetting ? '0ms' : '500ms',
-                                        transitionProperty: 'transform',
-                                    }}
-                                >
-                                    {trackCategories.map((cat, idx) => (
-                                        <div
-                                            key={`${cat.id}-${idx}`}
-                                            ref={el => { cardsRef.current[idx] = el; }}
-                                            className="flex-shrink-0"
-                                            style={{
-                                                width: cardPxWidth > 0 ? `${cardPxWidth}px` : fallbackWidth,
-                                                transformStyle: 'preserve-3d'
-                                            }}
-                                        >
-                                            {/* The loop repeats every card once; the copies are visual only,
-                                                so screen readers and keyboard users meet each category once. */}
-                                            <Link
-                                                to={cat.href}
-                                                className="block group"
-                                                tabIndex={idx >= categories.length ? -1 : undefined}
-                                                aria-hidden={idx >= categories.length ? true : undefined}
+                            <div
+                                ref={trackRef}
+                                onScroll={updateArrows}
+                                role="region"
+                                aria-label="Product categories"
+                                tabIndex={0}
+                                className="category-scroller flex overflow-x-auto snap-x snap-mandatory scroll-smooth pt-2 pb-3 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#517b4b]/40 rounded-[20px]"
+                                style={{ gap: `${CARD_GAP}px` }}
+                            >
+                                {categories.map((cat, idx) => (
+                                    <div
+                                        key={cat.id}
+                                        ref={el => { cardsRef.current[idx] = el; }}
+                                        className="flex-shrink-0 snap-start"
+                                        style={{ width: cardPxWidth > 0 ? `${cardPxWidth}px` : fallbackWidth }}
+                                    >
+                                        <Link to={cat.href} className="block group" draggable={false}>
+                                            <div
+                                                className={`flex flex-col items-center justify-center w-[250px] max-w-full h-[180px] mx-auto p-6 rounded-[20px] text-center cursor-pointer transition-all duration-300 hover:-translate-y-1.5 ${cat.color === 'pink' ? 'bg-category-pink' : 'bg-category-green'
+                                                    }`}
                                             >
-                                                <div
-                                                    className={`flex flex-col items-center justify-center w-[250px] max-w-full h-[180px] mx-auto p-6 rounded-[20px] text-center cursor-pointer transition-all duration-300 hover:-translate-y-1.5 ${cat.color === 'pink' ? 'bg-category-pink' : 'bg-category-green'
-                                                        }`}
-                                                >
-                                                    <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mb-1.5 text-primary group-hover:animate-zoom-in-out">
-                                                        {cat.image ? (
-                                                            <img
-                                                                src={cat.image}
-                                                                alt={cat.title}
-                                                                className="w-10 h-10 sm:w-12 sm:h-12 object-contain"
-                                                            />
-                                                        ) : cat.icon ? (
-                                                            <cat.icon className="w-10 h-10 sm:w-12 sm:h-12 stroke-[1.5]" />
-                                                        ) : (
-                                                            <Circle className="w-10 h-10 sm:w-12 sm:h-12 stroke-[1.5]" />
-                                                        )}
-                                                    </div>
-                                                    <h5 className="text-sm sm:text-base font-bold text-foreground mb-1 whitespace-nowrap overflow-hidden text-ellipsis w-full px-2">
-                                                        {cat.title}
-                                                    </h5>
-                                                    {cat.is_coming_soon ? (
-                                                        <Badge variant="surface" className="text-[10px] bg-amber-50 text-amber-600 border-amber-100 font-bold px-2 py-0">
-                                                            Coming Soon
-                                                        </Badge>
+                                                <div className="w-16 h-16 sm:w-20 sm:h-20 flex items-center justify-center mb-1.5 text-primary group-hover:animate-zoom-in-out">
+                                                    {cat.image ? (
+                                                        <img
+                                                            src={cat.image}
+                                                            alt={cat.title}
+                                                            className="w-10 h-10 sm:w-12 sm:h-12 object-contain"
+                                                            draggable={false}
+                                                        />
+                                                    ) : cat.icon ? (
+                                                        <cat.icon className="w-10 h-10 sm:w-12 sm:h-12 stroke-[1.5]" />
                                                     ) : (
-                                                        <p className="text-xs text-muted-foreground font-medium">{cat.count}</p>
+                                                        <Circle className="w-10 h-10 sm:w-12 sm:h-12 stroke-[1.5]" />
                                                     )}
                                                 </div>
-                                            </Link>
-                                        </div>
-                                    ))}
-                                </div>
+                                                <h5 className="text-sm sm:text-base font-bold text-foreground mb-1 whitespace-nowrap overflow-hidden text-ellipsis w-full px-2">
+                                                    {cat.title}
+                                                </h5>
+                                                {cat.is_coming_soon ? (
+                                                    <Badge variant="surface" className="text-[10px] bg-amber-50 text-amber-600 border-amber-100 font-bold px-2 py-0">
+                                                        Coming Soon
+                                                    </Badge>
+                                                ) : (
+                                                    <p className="text-xs text-muted-foreground font-medium">{cat.count}</p>
+                                                )}
+                                            </div>
+                                        </Link>
+                                    </div>
+                                ))}
                             </div>
+
+                            {showArrows && (
+                                <div className="flex justify-end gap-2 mt-3">
+                                    <button
+                                        type="button"
+                                        onClick={() => scrollByCards(-1)}
+                                        disabled={!canPrev}
+                                        aria-label="Previous categories"
+                                        className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-[#517b4b] hover:text-white hover:border-[#517b4b] transition-all duration-300 disabled:opacity-40 disabled:pointer-events-none"
+                                    >
+                                        <ChevronLeft size={20} />
+                                    </button>
+                                    <button
+                                        type="button"
+                                        onClick={() => scrollByCards(1)}
+                                        disabled={!canNext}
+                                        aria-label="Next categories"
+                                        className="w-10 h-10 rounded-full border border-gray-200 flex items-center justify-center text-gray-500 hover:bg-[#517b4b] hover:text-white hover:border-[#517b4b] transition-all duration-300 disabled:opacity-40 disabled:pointer-events-none"
+                                    >
+                                        <ChevronRight size={20} />
+                                    </button>
+                                </div>
+                            )}
                         </div>
                     </div>
                 </div>

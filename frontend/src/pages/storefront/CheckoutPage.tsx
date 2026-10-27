@@ -9,6 +9,8 @@ import cartService, { type CartCouponSummary } from '@/services/api/cart';
 import ordersService from '@/services/api/orders';
 import apiClient from '@/services/api/client';
 import paymentsService from '@/services/api/payments';
+import settingsService from '@/services/api/settings';
+import { GUEST_ORDER_TOKEN_KEY } from '@/services/api/client';
 import profileService, { type AddressData as ProfileAddressData } from '@/services/api/profile';
 import { useAddressAutoFill } from '@/hooks/useAddressAutoFill';
 import { useTurnstileConfig } from '@/hooks/useTurnstileConfig';
@@ -270,6 +272,13 @@ export const CheckoutPage: React.FC = () => {
   const navigate = useNavigate();
 
   const isAuthenticated = Boolean(localStorage.getItem('auth_token'));
+  // Guest checkout: no email code, no account. Name, phone and address are still
+  // needed for the courier; email is optional. The admin can switch it off
+  // (checkout_guest_enabled), which puts this page back to email-code-only.
+  const [guestCheckoutAllowed, setGuestCheckoutAllowed] = useState(true);
+  const [guestMode, setGuestMode] = useState(false);
+  const isGuest = !isAuthenticated && guestMode && guestCheckoutAllowed;
+  const canCheckout = isAuthenticated || isGuest;
 
   const syncCartPricing = (payload: any) => {
     const data = payload?.data || {};
@@ -500,6 +509,16 @@ export const CheckoutPage: React.FC = () => {
     void loadCart();
     void hydrateProfile();
     void loadPaymentMethods();
+  }, []);
+
+  useEffect(() => {
+    settingsService
+      .getPublic()
+      .then((response: any) => {
+        const value = response?.data?.checkout_guest_enabled;
+        if (value === false || value === 'false') setGuestCheckoutAllowed(false);
+      })
+      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
@@ -765,8 +784,19 @@ export const CheckoutPage: React.FC = () => {
   };
 
   const placeOrder = async () => {
-    if (!isAuthenticated) {
-      setOrderError('Please confirm your email above to continue.');
+    if (!canCheckout) {
+      setOrderError(
+        guestCheckoutAllowed
+          ? 'Please confirm your email above, or continue as a guest.'
+          : 'Please confirm your email above to continue.',
+      );
+      return;
+    }
+
+    // Guests pay through Razorpay only — the other gateways' session endpoints
+    // still need an account.
+    if (isGuest && paymentMethod !== 'razorpay') {
+      setOrderError('Guest checkout supports Razorpay payments. Please choose Razorpay or sign in.');
       return;
     }
 
@@ -781,7 +811,7 @@ export const CheckoutPage: React.FC = () => {
 
     const validationErrors: Record<string, string> = {};
     if (!shippingAddress.full_name.trim()) validationErrors['shipping.full_name'] = 'Full Name is required.';
-    if (!normalizedEmail) validationErrors['contact_email'] = 'Email is required.';
+    if (!normalizedEmail && !isGuest) validationErrors['contact_email'] = 'Email is required.';
     if (normalizedEmail && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
       validationErrors['contact_email'] = 'Please enter a valid email address.';
     }
@@ -832,7 +862,8 @@ export const CheckoutPage: React.FC = () => {
         notes: orderNotes.trim(),
         guest_email: normalizedEmail,
         create_account: false,
-        save_address: true,
+        save_address: !isGuest,
+        guest_checkout: isGuest,
       });
 
       const placedOrder = response?.data || null;
@@ -845,8 +876,12 @@ export const CheckoutPage: React.FC = () => {
         await hydrateProfile();
       }
       if (placedOrder) {
-        const { auth: _auth, ...orderSnapshot } = placedOrder;
+        const { auth: _auth, guest_token: guestToken, ...orderSnapshot } = placedOrder;
         sessionStorage.setItem('aurora_last_order', JSON.stringify(orderSnapshot));
+        // A guest's proof that this order is theirs, for paying, the thank-you
+        // page and cancelling a dismissed checkout. Session-only by design.
+        if (guestToken) sessionStorage.setItem(GUEST_ORDER_TOKEN_KEY, String(guestToken));
+        else sessionStorage.removeItem(GUEST_ORDER_TOKEN_KEY);
       } else {
         sessionStorage.removeItem('aurora_last_order');
       }
@@ -1170,7 +1205,25 @@ export const CheckoutPage: React.FC = () => {
 
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-12 lg:gap-12">
           <div className="lg:col-span-7 space-y-8">
-            {!isAuthenticated ? (
+            {isGuest ? (
+              <section className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border bg-white p-5">
+                <div>
+                  <h2 className="text-base font-bold">Checking out as a guest</h2>
+                  <p className="mt-0.5 text-sm text-muted-foreground">
+                    No account needed. We only ask for what the courier needs to deliver.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  className="text-sm font-semibold text-primary underline-offset-4 hover:underline"
+                  onClick={() => setGuestMode(false)}
+                >
+                  Sign in instead
+                </button>
+              </section>
+            ) : null}
+
+            {!isAuthenticated && !isGuest ? (
               <section className="space-y-5 rounded-2xl border bg-white p-6">
                 {authMode === 'otp' ? (
                   <>
@@ -1324,10 +1377,30 @@ export const CheckoutPage: React.FC = () => {
                 )}
 
                 {authError ? <p className="text-sm text-red-600">{authError}</p> : null}
+
+                {guestCheckoutAllowed ? (
+                  <div className="border-t border-border/60 pt-4">
+                    <Button
+                      type="button"
+                      variant="outline"
+                      className="w-full rounded-xl"
+                      onClick={() => {
+                        setGuestMode(true);
+                        setAuthError('');
+                        setOrderError('');
+                      }}
+                    >
+                      Continue as guest
+                    </Button>
+                    <p className="mt-2 text-center text-xs text-muted-foreground">
+                      No account or email code. You&apos;ll still need a name, phone and address for delivery.
+                    </p>
+                  </div>
+                ) : null}
               </section>
             ) : null}
 
-            {isAuthenticated ? (
+            {canCheckout ? (
               <>
             <section className="space-y-6 rounded-2xl border border-border/70 bg-white p-5 shadow-sm md:p-6">
               <div className="flex items-center gap-3 text-primary">
@@ -1352,7 +1425,9 @@ export const CheckoutPage: React.FC = () => {
                   {fieldErrors['shipping.full_name'] ? <p className="text-xs text-red-600">{fieldErrors['shipping.full_name']}</p> : null}
                 </div>
                 <div className="space-y-2">
-                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">Email</label>
+                  <label className="text-xs font-bold uppercase tracking-widest text-muted-foreground ml-1">
+                    Email{isGuest ? <span className="ml-1 normal-case tracking-normal font-medium">— optional, for your invoice</span> : null}
+                  </label>
                   <Input
                     data-field-key="contact_email"
                     type="email"
@@ -1771,7 +1846,7 @@ export const CheckoutPage: React.FC = () => {
               <Button
                 size="lg"
                 className="w-full rounded-xl h-14 text-lg"
-                disabled={!isAuthenticated || placingOrder || cartLoading || items.length === 0}
+                disabled={!canCheckout || placingOrder || cartLoading || items.length === 0}
                 onClick={() => void placeOrder()}
               >
                 {placingOrder ? 'Placing Order...' : orderActionLabel}
@@ -1794,7 +1869,7 @@ export const CheckoutPage: React.FC = () => {
           <Button
             size="lg"
             className="h-11 min-w-[188px] rounded-xl px-5 text-sm"
-            disabled={!isAuthenticated || placingOrder || cartLoading || items.length === 0}
+            disabled={!canCheckout || placingOrder || cartLoading || items.length === 0}
             onClick={() => void placeOrder()}
           >
             {placingOrder ? 'Placing Order...' : orderActionLabel}

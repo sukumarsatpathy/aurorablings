@@ -106,7 +106,14 @@ export function PaymentStage({
     if (!reason) return;
     setBusy(true);
     try {
-      await posService.voidSale(order.order_id, reason);
+      const result = await posService.voidSale(order.order_id, reason);
+      const upiToRefund = Number(result?.paytm_upi_to_refund || 0);
+      if (upiToRefund > 0) {
+        // The ledger is reversed, but the money is sitting in the Paytm account.
+        window.alert(
+          `Sale voided. ${money(upiToRefund)} was received by UPI on Paytm — refund it to the customer from the Paytm for Business app.`,
+        );
+      }
       onVoided();
     } catch (err: any) {
       setError(err?.response?.data?.detail || 'Could not void the sale.');

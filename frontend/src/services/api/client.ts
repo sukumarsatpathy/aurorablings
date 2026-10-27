@@ -25,10 +25,26 @@ const redirectToLogin = () => {
   window.location.replace(`/login?next=${encodeURIComponent(currentPath)}`);
 };
 
+/**
+ * Session key for a guest's order token (issued when a guest places an order).
+ * Lets a shopper with no login pay for, view and cancel that one order.
+ */
+export const GUEST_ORDER_TOKEN_KEY = 'aurora_guest_order_token';
+
 apiClient.interceptors.request.use((config) => {
   const token = localStorage.getItem('auth_token');
   if (token) {
     config.headers.Authorization = `Bearer ${token}`;
+  } else {
+    // Only when nobody is logged in: a signed-in customer never needs it, and
+    // the server ignores it for them anyway.
+    let guestToken: string | null = null;
+    try {
+      guestToken = sessionStorage.getItem(GUEST_ORDER_TOKEN_KEY);
+    } catch {
+      guestToken = null;
+    }
+    if (guestToken) config.headers['X-Guest-Order-Token'] = guestToken;
   }
   return config;
 });

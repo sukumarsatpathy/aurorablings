@@ -27,6 +27,10 @@ def qr_ok(**kwargs):
     )
 
 
+# These pin the Razorpay dynamic-QR path, which the counter no longer uses by
+# default (Paytm is). It is still reachable via the pos_upi_provider setting, so
+# it keeps its tests; the Paytm path has its own in test_paytm_upi.py.
+@patch("apps.pos.collection_service.counter_upi_provider", lambda: "razorpay")
 class CollectionTests(TestCase):
     def setUp(self):
         self.staff = User.objects.create_user(

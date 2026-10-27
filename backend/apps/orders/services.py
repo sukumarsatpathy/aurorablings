@@ -108,13 +108,39 @@ def checkout_place_order(
     create_account: bool = False,
     account_data: dict | None = None,
     save_address: bool = True,
+    guest_checkout: bool = False,
 ) -> tuple[Order, object | None]:
     resolved_user = user
     account_payload = dict(account_data or {})
     shipping_address = _normalise_checkout_address(shipping_address)
     billing_address = _normalise_checkout_address(billing_address or shipping_address)
 
-    if resolved_user is None and not create_account and payment_method in ONLINE_PAYMENT_METHODS:
+    # An explicit guest checkout: no login, no account, email optional. Only
+    # honoured for someone who is genuinely not logged in and only while the
+    # admin switch is on; otherwise everything below behaves as it always did.
+    from apps.orders import guest_access
+
+    is_guest_checkout = bool(
+        guest_checkout
+        and resolved_user is None
+        and not create_account
+        and guest_access.guest_checkout_enabled()
+    )
+
+    if is_guest_checkout:
+        # The courier still has to find the parcel and ring the customer.
+        if not str(shipping_address.get("full_name", "") or "").strip():
+            raise ValidationError("Please enter the recipient's name for delivery.")
+        phone_digits = "".join(ch for ch in str(shipping_address.get("phone", "") or "") if ch.isdigit())
+        if len(phone_digits) < 10:
+            raise ValidationError("Please enter a 10-digit phone number for delivery updates.")
+
+    if (
+        resolved_user is None
+        and not create_account
+        and not is_guest_checkout
+        and payment_method in ONLINE_PAYMENT_METHODS
+    ):
         raise ValidationError("Please login or create an account to continue with prepaid checkout.")
 
     if create_account and resolved_user is None:
@@ -157,6 +183,14 @@ def checkout_place_order(
         warehouse_id=warehouse_id,
         changed_by=changed_by or resolved_user,
     )
+
+    if is_guest_checkout and order.contact_wants_account:
+        # They chose not to have an account. Without this the post-payment task
+        # would create one from the receipt email and send a welcome mail —
+        # the opposite of what "checkout as guest" promised.
+        order.contact_wants_account = False
+        order.save(update_fields=["contact_wants_account"])
+
     return order, resolved_user
 
 

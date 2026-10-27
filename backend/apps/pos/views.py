@@ -29,6 +29,7 @@ from apps.pos.serializers import (
     POSQuoteSerializer,
     VoidSaleSerializer,
     CashTenderSerializer,
+    UpiTenderSerializer,
     CloseShiftSerializer,
     OpenShiftSerializer,
     POSShiftSerializer,
@@ -312,6 +313,55 @@ class CashTenderView(APIView):
         )
 
 
+class UpiTenderView(APIView):
+    """
+    Confirm a UPI payment taken on the shop's Paytm merchant account.
+
+    Paytm's Soundbox has no callback into this system, so this is the one place
+    a person, not a webhook, marks UPI as received. It is staff-only, bound to an
+    open shift, credits only the outstanding balance, and needs the UPI reference.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request, shift_id):
+        payload = UpiTenderSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+
+        try:
+            shift = POSShift.objects.get(pk=shift_id)
+        except POSShift.DoesNotExist:
+            return _bad("Shift not found.", status.HTTP_404_NOT_FOUND)
+
+        try:
+            order = Order.objects.get(pk=payload.validated_data["order"])
+        except Order.DoesNotExist:
+            return _bad("Order not found.", status.HTTP_404_NOT_FOUND)
+
+        try:
+            tender = services.take_upi_tender(
+                order=order,
+                shift=shift,
+                staff=request.user,
+                reference=payload.validated_data["reference"],
+            )
+        except (services.ShiftError, TenderError) as exc:
+            return _bad(exc, status.HTTP_409_CONFLICT)
+
+        order.refresh_from_db()
+        from apps.payments import tender_service
+
+        return Response(
+            {
+                "tender_id": str(tender.id),
+                "amount_applied": str(tender.amount_applied),
+                "reference": (tender.raw or {}).get("upi_reference", ""),
+                "order_payment_status": order.payment_status,
+                "balance_due": str(tender_service.balance_due(order)),
+            },
+            status=status.HTTP_201_CREATED,
+        )
+
+
 class PartPaidOrderListView(APIView):
     """
     Sales holding cash that were never completed.
@@ -366,10 +416,14 @@ class VoidSaleView(APIView):
         except Exception as exc:  # ConflictError from the order state machine
             return _bad(exc, status.HTTP_409_CONFLICT)
 
+        upi_to_refund = getattr(order, "paytm_upi_to_refund", None)
         return Response({
             "order_number": order.order_number,
             "status": order.status,
             "payment_status": order.payment_status,
+            # Non-zero means UPI was received on Paytm for this sale and has to be
+            # refunded to the customer from the Paytm for Business app.
+            "paytm_upi_to_refund": str(upi_to_refund) if upi_to_refund else "0.00",
         })
 
 

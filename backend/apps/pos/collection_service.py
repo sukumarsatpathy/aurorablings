@@ -37,6 +37,103 @@ logger = structlog.get_logger(__name__)
 ZERO = Decimal("0.00")
 PROVIDER = "razorpay"
 
+#: Counter UPI on the shop's own Paytm merchant account (Soundbox / standee).
+PAYTM_PROVIDER = "paytm"
+
+
+def counter_upi_provider() -> str:
+    """
+    Which rail the counter uses for UPI: ``"paytm"`` (default) or ``"razorpay"``.
+
+    A setting rather than a code change, so the old Razorpay QR flow is still
+    one admin edit away if it is ever needed again. Anything unrecognised falls
+    back to Paytm, because that is the device actually on the counter.
+    """
+    from apps.features.services import get_setting
+
+    value = str(get_setting("pos_upi_provider", default=PAYTM_PROVIDER) or PAYTM_PROVIDER).strip().lower()
+    return PROVIDER if value == PROVIDER else PAYTM_PROVIDER
+
+
+def build_upi_uri(*, vpa: str, payee_name: str, amount: Decimal, note: str) -> str:
+    """
+    A standard UPI intent string, the same thing a printed UPI QR encodes.
+
+    Deliberately minimal: ``pa``/``pn``/``am``/``cu``/``tn`` only. A ``tr``
+    (transaction ref) on a code the merchant's PSP did not issue is rejected by
+    some apps, and ``mc`` is the PSP's business. The order number goes in the
+    note, where it shows up in the Paytm for Business transaction list for
+    matching at close.
+    """
+    from urllib.parse import quote
+
+    params = [
+        ("pa", vpa.strip()),
+        ("pn", (payee_name or "").strip()),
+        ("am", f"{Decimal(amount).quantize(Decimal('0.01'))}"),
+        ("cu", "INR"),
+        ("tn", (note or "").strip()[:50]),
+    ]
+    query = "&".join(f"{k}={quote(v, safe='@.-_')}" for k, v in params if v)
+    return f"upi://pay?{query}"
+
+
+def create_paytm_collection(*, order: Order, staff=None, shift=None) -> dict:
+    """
+    Show the customer what to pay on the shop's Paytm merchant UPI.
+
+    Nothing is created upstream and no gateway transaction row is written: the
+    money goes straight to the Paytm merchant account, the Soundbox announces it,
+    and the staff member confirms it with :func:`apps.pos.services.take_upi_tender`
+    using the UPI reference. Until they do, the order's balance is unchanged —
+    a QR on screen is not a payment.
+
+    With a merchant UPI ID configured, the QR carries the exact balance so the
+    customer cannot mistype it. Without one, the counter tells staff to use the
+    Paytm standee and confirm by hand.
+    """
+    from apps.features.services import get_setting
+
+    outstanding = tender_service.balance_due(order)
+    if outstanding <= ZERO:
+        raise CollectionError("This order is already fully paid.")
+
+    if shift is not None:
+        from apps.pos.services import attach_to_counter
+        attach_to_counter(order=order, shift=shift, staff=staff)
+
+    vpa = str(get_setting("pos_upi_vpa", default="") or "").strip()
+    payee = str(get_setting("pos_upi_payee_name", default="Aurora Blings") or "Aurora Blings").strip()
+
+    base = {
+        "provider": PAYTM_PROVIDER,
+        "transaction_id": "",
+        "qr_id": "",
+        "amount": str(outstanding),
+        "close_by": None,
+        "requires_confirmation": True,
+    }
+
+    if not vpa:
+        logger.info("pos_paytm_device_collection", order_id=str(order.id), amount=str(outstanding))
+        return {
+            **base,
+            "kind": "device",
+            "image_url": "",
+            "note": "Ask the customer to scan the Paytm standee for this amount, then confirm below.",
+        }
+
+    uri = build_upi_uri(vpa=vpa, payee_name=payee, amount=outstanding, note=order.order_number)
+    logger.info("pos_paytm_qr_created", order_id=str(order.id), amount=str(outstanding))
+    return {
+        **base,
+        "kind": "upi_intent",
+        "image_url": qr_data_uri(uri),
+        "upi_uri": uri,
+        "payee": payee,
+        "vpa": vpa,
+    }
+
 
 class CollectionError(Exception):
     """Raised when a UPI collection cannot be raised for this order."""
@@ -85,6 +182,9 @@ def create_upi_collection(
     whose account lacks the QR product still gets a working till rather than a
     dead button. The response says which one came back so the UI can label it.
     """
+    if counter_upi_provider() == PAYTM_PROVIDER:
+        return create_paytm_collection(order=order, staff=staff, shift=shift)
+
     outstanding = tender_service.balance_due(order)
     if outstanding <= ZERO:
         raise CollectionError("This order is already fully paid.")
@@ -209,6 +309,9 @@ def cancel_collection(*, transaction_id: str) -> bool:
     both be paid — which would over-collect and leave you refunding a customer
     who did nothing wrong.
     """
+    if not transaction_id:
+        # A Paytm collection is only a code on screen; there is nothing upstream to close.
+        return False
     txn = PaymentTransaction.objects.filter(pk=transaction_id).first()
     if not txn or not txn.provider_ref:
         return False
@@ -281,11 +384,15 @@ def payment_state(*, order: Order) -> dict:
         ],
         "amount_paid": str(tender_service.amount_paid(order)),
         "balance_due": str(tender_service.balance_due(order)),
+        # Lets the counter word its prompts for the rail actually in use.
+        "upi_provider": counter_upi_provider(),
         "tenders": [
             {
                 "method": t.method,
+                "provider": t.provider or "",
                 "amount": str(t.amount_applied),
                 "status": t.status,
+                "reference": (t.raw or {}).get("upi_reference", "") if t.raw else "",
                 "at": t.created_at,
             }
             for t in order.tenders.all()

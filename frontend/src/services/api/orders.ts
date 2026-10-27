@@ -241,6 +241,8 @@ const ordersService = {
     warehouse_id?: string | null;
     create_account?: boolean;
     save_address?: boolean;
+    /** Shopper chose "Continue as guest": no login, email optional. */
+    guest_checkout?: boolean;
     account?: {
       email: string;
       password: string;

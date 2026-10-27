@@ -259,6 +259,93 @@ def take_cash_tender(
     return tender
 
 
+#: A full UPI reference (RRN/UTR) is 12 digits. Anything shorter is the last few
+#: digits staff read off the Paytm app — fine for matching, not unique enough to
+#: refuse a second sale over.
+FULL_UPI_REFERENCE_LENGTH = 12
+MIN_UPI_REFERENCE_LENGTH = 4
+
+
+def normalise_upi_reference(reference: str) -> str:
+    return "".join(ch for ch in str(reference or "") if ch.isalnum()).upper()
+
+
+@transaction.atomic
+def take_upi_tender(*, order: Order, shift: POSShift, staff, reference: str):
+    """
+    Record a UPI payment the customer made on the shop's Paytm merchant account.
+
+    Paytm's Soundbox and standee have no callback into this system, so a person
+    confirms it: they heard the Soundbox (or saw it in the Paytm app) and type
+    the UPI reference. The reference is mandatory — it is the only thing that
+    lets the day's counter UPI be matched against the Paytm settlement.
+
+    The amount is always the outstanding balance, read from the ledger here. The
+    counter does not send one: on a split sale the cash leg is already in, and a
+    figure from the tablet is a figure that can be wrong.
+
+    The reference is kept in ``raw``/``notes`` rather than ``provider_ref``.
+    ``provider_ref`` is unique per provider and a duplicate silently returns the
+    existing tender — right for webhook redelivery, wrong for staff typing the
+    last four digits, which can legitimately repeat. A full 12-digit reference
+    *is* unique, so a repeat of one is refused instead.
+    """
+    from apps.payments.models import OrderTender
+
+    if not shift.is_open:
+        raise ShiftError("Cannot take a payment against a closed shift.")
+
+    ref = normalise_upi_reference(reference)
+    if len(ref) < MIN_UPI_REFERENCE_LENGTH:
+        raise ShiftError(
+            f"Enter the UPI reference from the Paytm app (at least the last "
+            f"{MIN_UPI_REFERENCE_LENGTH} characters)."
+        )
+
+    if len(ref) >= FULL_UPI_REFERENCE_LENGTH:
+        clash = (
+            OrderTender.objects
+            .filter(provider="paytm", status=TenderStatus.CAPTURED, raw__upi_reference=ref)
+            .select_related("order")
+            .first()
+        )
+        if clash is not None:
+            raise ShiftError(
+                f"UPI reference {ref} is already recorded on order {clash.order.order_number}."
+            )
+
+    amount = tender_service.balance_due(order)
+    if amount <= ZERO:
+        raise ShiftError("This order is already fully paid.")
+
+    attach_to_counter(order=order, shift=shift, staff=staff)
+
+    tender = tender_service.record_tender(
+        order=order,
+        method=TenderMethod.UPI,
+        amount_applied=amount,
+        provider="paytm",
+        collected_by=staff,
+        shift=shift,
+        payment_method="upi",
+        notes=f"Paytm UPI ref {ref}",
+        raw={"upi_reference": ref, "confirmed_manually": True},
+    )
+
+    # The ledger has no provider_ref to hand mark_paid, so the order would be
+    # "paid" with no reference on it. Give it the one staff typed.
+    order.refresh_from_db()
+    if not order.payment_reference:
+        order.payment_reference = f"PAYTM-UPI-{ref}"
+        order.save(update_fields=["payment_reference"])
+
+    logger.info(
+        "pos_paytm_upi_confirmed", order_id=str(order.id), amount=str(amount),
+        reference=ref, staff=getattr(staff, "id", None),
+    )
+    return tender
+
+
 @transaction.atomic
 def void_cash_tender(*, tender, staff, reason: str = "sale voided"):
     """
@@ -305,7 +392,11 @@ def void_sale(*, order: Order, staff, reason: str) -> Order:
         raise ShiftError("A void needs a reason. An unexplained reversal is what this prevents.")
 
     captured = order.tenders.filter(status=TenderStatus.CAPTURED)
-    gateway_legs = captured.exclude(method=TenderMethod.CASH)
+    # A staff-confirmed Paytm UPI leg is not a gateway payment this system can
+    # refund through an API — it is a ledger entry a person made. Voiding takes
+    # it back out; the money itself is refunded from the Paytm for Business app.
+    manual_upi_legs = captured.filter(method=TenderMethod.UPI, provider="paytm")
+    gateway_legs = captured.exclude(method=TenderMethod.CASH).exclude(pk__in=manual_upi_legs.values("pk"))
     if gateway_legs.exists():
         raise ShiftError(
             "This sale has a settled gateway payment. Refund it through the refund "
@@ -317,6 +408,13 @@ def void_sale(*, order: Order, staff, reason: str) -> Order:
         tender_service.void_tender(tender=tender, reason=f"sale voided: {reason}", changed_by=staff)
         refunded += tender.amount_applied
 
+    upi_to_refund = ZERO
+    for tender in list(manual_upi_legs):
+        tender_service.void_tender(
+            tender=tender, reason=f"sale voided: {reason} (refund via Paytm app)", changed_by=staff,
+        )
+        upi_to_refund += tender.amount_applied
+
     order.refresh_from_db()
 
     from apps.orders.services import cancel_order
@@ -326,9 +424,11 @@ def void_sale(*, order: Order, staff, reason: str) -> Order:
     logger.info(
         "pos_sale_voided",
         order_id=str(order.id), order_number=order.order_number,
-        cash_refunded=str(refunded), reason=reason,
+        cash_refunded=str(refunded), paytm_upi_to_refund=str(upi_to_refund), reason=reason,
         staff=getattr(staff, "id", None),
     )
+    # Not a field — read by the view so staff are told to refund the UPI part.
+    order.paytm_upi_to_refund = upi_to_refund
     return order
 
 
@@ -399,4 +499,17 @@ def shift_summary(shift: POSShift) -> dict:
         "manual_discounts": money(discounts["manual"]),
         "coupon_discounts": money(discounts["coupon"]),
         "part_paid_open": open_part_paid_orders(shift).count(),
+        # Every staff-confirmed Paytm UPI payment, to tick off against the
+        # Paytm for Business transaction list at close. Paytm never told this
+        # system about these, so this list is the only bridge between the two.
+        "paytm_upi": [
+            {
+                "order_number": t.order.order_number,
+                "amount": money(t.amount_applied),
+                "reference": (t.raw or {}).get("upi_reference", ""),
+                "at": t.created_at,
+                "by": getattr(t.collected_by, "email", "") if t.collected_by_id else "",
+            }
+            for t in tenders.filter(provider="paytm").select_related("order", "collected_by").order_by("created_at")
+        ],
     }

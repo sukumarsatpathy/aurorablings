@@ -43,7 +43,15 @@ class InvoiceService:
     @classmethod
     def _resolve_customer_name(cls, *, order) -> str:
         if not order.user:
-            return order.shipping_address.get("full_name", "Customer") if order.shipping_address else "Customer"
+            # Guest checkout or a counter sale. A counter sale keeps what staff
+            # typed in contact_name, not in a shipping address; a customer who
+            # gave nothing at all is a walk-in, which is a complete sale.
+            name = ((order.shipping_address or {}).get("full_name") or "").strip()
+            if not name:
+                name = (getattr(order, "contact_name", "") or "").strip()
+            if name:
+                return name
+            return "Walk-in Customer" if getattr(order, "channel", "") == "pos" else "Customer"
 
         full_name = ""
         get_full_name = getattr(order.user, "get_full_name", None)
@@ -137,7 +145,7 @@ class InvoiceService:
             "order_date": order.placed_at or order.created_at,
             "customer_name": cls._resolve_customer_name(order=order),
             "customer_email": order.user.email if order.user else order.guest_email,
-            "customer_phone": shipping_address.get("phone", ""),
+            "customer_phone": shipping_address.get("phone", "") or (getattr(order, "contact_phone", "") or ""),
             "shipping_address": shipping_address,
             "billing_address": billing_address,
             "items": items,

@@ -57,6 +57,10 @@ export function CustomerPanel({ value, onChange }: Props) {
   const [lookup, setLookup] = useState<CustomerLookup | null>(null);
   const [looking, setLooking] = useState(false);
   const draft = value ?? EMPTY;
+  const phoneOk = draft.phone.length === 0 || draft.phone.length === 10;
+  const emailOk = !draft.email.trim() || /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(draft.email.trim());
+  const hasAnyDetail = Boolean(draft.name.trim() || draft.phone || draft.email.trim());
+  const canAttach = hasAnyDetail && phoneOk && emailOk;
 
   const update = (patch: Partial<CounterCustomer>) => onChange({ ...draft, ...patch });
 
@@ -175,7 +179,7 @@ export function CustomerPanel({ value, onChange }: Props) {
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
         <label className="block">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Phone — checked first
+            Phone — optional, checked first
           </span>
           <input
             className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
@@ -187,7 +191,7 @@ export function CustomerPanel({ value, onChange }: Props) {
         </label>
         <label className="block">
           <span className="text-[11px] font-semibold uppercase tracking-wide text-muted-foreground">
-            Name
+            Name — optional
           </span>
           <input
             className="mt-1 w-full rounded-lg border border-border bg-background px-3 py-2 text-sm"
@@ -302,7 +306,9 @@ export function CustomerPanel({ value, onChange }: Props) {
         </button>
         <button
           type="button"
-          disabled={draft.phone.length !== 10}
+          // Any one detail is enough — a name for the receipt, or just an email
+          // for the invoice. A phone, if typed at all, must be a whole number.
+          disabled={!canAttach}
           className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground disabled:opacity-50"
           onClick={() => {
             // A known customer's dates are saved now, because their account

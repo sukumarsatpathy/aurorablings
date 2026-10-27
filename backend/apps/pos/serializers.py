@@ -140,6 +140,17 @@ class CashTenderSerializer(serializers.Serializer):
     cash_received = serializers.DecimalField(max_digits=12, decimal_places=2, required=False)
 
 
+class UpiTenderSerializer(serializers.Serializer):
+    """
+    Staff confirming a Paytm UPI payment they heard on the Soundbox.
+
+    No amount: the server credits the outstanding balance, exactly as the QR
+    was drawn for it. The reference is the reconciliation key and is required.
+    """
+    order = serializers.UUIDField()
+    reference = serializers.CharField(max_length=40, trim_whitespace=True)
+
+
 class VoidSaleSerializer(serializers.Serializer):
     reason = serializers.CharField(max_length=255)
 

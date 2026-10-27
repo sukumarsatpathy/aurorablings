@@ -201,3 +201,25 @@
   .rich-text em, .rich-text i { font-style: italic; }
   .rich-text u { text-decoration: underline; }
 }
+
+/* Home page category scroller: a slim, on-brand horizontal scrollbar so
+   desktop mouse users can see (and drag) that there is more to the side. */
+.category-scroller {
+  scrollbar-width: thin;
+  scrollbar-color: #517b4b33 transparent;
+  -webkit-overflow-scrolling: touch;
+  overscroll-behavior-x: contain;
+}
+.category-scroller::-webkit-scrollbar {
+  height: 6px;
+}
+.category-scroller::-webkit-scrollbar-track {
+  background: transparent;
+}
+.category-scroller::-webkit-scrollbar-thumb {
+  background: #517b4b33;
+  border-radius: 999px;
+}
+.category-scroller:hover::-webkit-scrollbar-thumb {
+  background: #517b4b80;
+}

@@ -51,7 +51,13 @@ export function ReceiptPanel({ orderId, orderNumber, state, customerPhone, onDon
         </div>
         {state?.tenders.map((t, i) => (
           <div key={i} className="flex justify-between text-muted-foreground">
-            <dt className="capitalize">{t.method === 'upi' ? 'UPI · Razorpay' : t.method}</dt>
+            <dt className="capitalize">
+              {t.method === 'upi'
+                ? t.provider === 'paytm'
+                  ? `UPI · Paytm${t.reference ? ` · ref ${t.reference}` : ''}`
+                  : 'UPI · Razorpay'
+                : t.method}
+            </dt>
             <dd className="font-mono text-xs text-foreground tabular-nums">{money(t.amount)}</dd>
           </div>
         ))}

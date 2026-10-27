@@ -294,7 +294,9 @@ class PlaceOrderSerializer(serializers.Serializer):
     coupon_code      = serializers.CharField(required=False, allow_blank=True, default="")
     notes            = serializers.CharField(required=False, allow_blank=True, default="")
     warehouse_id     = serializers.UUIDField(required=False, allow_null=True)
-    guest_email      = serializers.EmailField(required=False, default="")
+    guest_email      = serializers.EmailField(required=False, allow_blank=True, default="")
+    # True when the shopper picked "Continue as guest" (no login, email optional).
+    guest_checkout   = serializers.BooleanField(required=False, default=False)
     # For guest carts
     session_key      = serializers.CharField(required=False, default="")
     create_account   = serializers.BooleanField(required=False, default=False)

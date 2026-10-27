@@ -98,6 +98,27 @@ export function CloseShiftDialog({ shiftId, onCancel, onClosed }: Props) {
               </div>
             </dl>
 
+            {summary.paytm_upi && summary.paytm_upi.length > 0 && (
+              <details className="mt-3 rounded-lg border border-border px-3 py-2 text-sm">
+                <summary className="cursor-pointer font-medium">
+                  Paytm UPI to match ({summary.paytm_upi.length})
+                </summary>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Tick these off against the Paytm for Business app. Anything here that
+                  isn't in Paytm was confirmed without the money arriving.
+                </p>
+                <ul className="mt-2 space-y-1">
+                  {summary.paytm_upi.map((row) => (
+                    <li key={`${row.order_number}-${row.reference}`} className="flex justify-between gap-3 text-xs">
+                      <span className="font-mono">{row.order_number}</span>
+                      <span className="font-mono text-muted-foreground">ref {row.reference}</span>
+                      <span className="tabular-nums">{money(Number(row.amount))}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
             {summary.part_paid_open > 0 && (
               <p className="mt-3 rounded-lg bg-amber-500/10 px-3 py-2 text-xs text-amber-800">
                 {summary.part_paid_open} part-paid{' '}

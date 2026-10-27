@@ -81,11 +81,24 @@ class MyOrderListView(APIView):
 
 
 class MyOrderDetailView(APIView):
-    """GET /orders/{id}/"""
-    permission_classes = [IsAuthenticated]
+    """
+    GET /orders/{id}/
+
+    Logged-in customers as before. A guest may read their own order with the
+    X-Guest-Order-Token issued when it was placed; anyone else gets a 401.
+    """
+    permission_classes = [AllowAny]
 
     def get(self, request, order_id):
-        order = _get_order_or_404(order_id, request.user)
+        from apps.orders import guest_access
+
+        if guest_access.request_is_authenticated(request):
+            order = _get_order_or_404(order_id, request.user)
+        elif guest_access.token_order_id(request):
+            order = guest_access.get_guest_order_or_404(request, order_id)
+        else:
+            from rest_framework.exceptions import NotAuthenticated
+            raise NotAuthenticated()
         return success_response(
             data=OrderDetailSerializer(order, context={"request": request}).data,
             request_id=getattr(request, "request_id", None),
@@ -132,8 +145,14 @@ class PlaceOrderView(APIView):
             create_account=data.get("create_account", False),
             account_data=data.get("account") or {},
             save_address=data.get("save_address", True),
+            guest_checkout=data.get("guest_checkout", False),
         )
         response_data = OrderDetailSerializer(order, context={"request": request}).data
+        if not order.user_id:
+            # Proof of ownership for this one order, for a shopper with no login:
+            # sent back on payment, thank-you and cancel calls. See guest_access.
+            from apps.orders import guest_access
+            response_data = {**response_data, "guest_token": guest_access.issue_token(order)}
         if resolved_user and not request.user.is_authenticated and data.get("create_account", False):
             from apps.accounts.serializers import UserProfileSerializer
             from apps.accounts.services import _issue_tokens
@@ -160,15 +179,38 @@ class PlaceOrderView(APIView):
 # ─────────────────────────────────────────────────────────────
 
 class CancelOrderView(APIView):
-    permission_classes = [IsAuthenticated]
+    """
+    Logged-in customers as before. A guest can cancel their own unpaid order
+    (the storefront does this when the Razorpay window is dismissed, to release
+    the reserved stock) with the token issued at placement.
+    """
+    permission_classes = [AllowAny]
 
     def post(self, request, order_id):
-        order = _get_order_or_404(order_id, request.user)
+        from apps.orders import guest_access
+        from apps.orders.models import PaymentStatus
+
+        if guest_access.request_is_authenticated(request):
+            order = _get_order_or_404(order_id, request.user)
+            actor = request.user
+        elif guest_access.token_order_id(request):
+            order = guest_access.get_guest_order_or_404(request, order_id)
+            # A token is not a refund authority: a paid guest order is support's.
+            if order.payment_status != PaymentStatus.PENDING:
+                return error_response(
+                    message="This order has been paid. Please contact support to cancel it.",
+                    error_code="guest_cancel_not_allowed",
+                    status_code=409,
+                )
+            actor = None
+        else:
+            from rest_framework.exceptions import NotAuthenticated
+            raise NotAuthenticated()
         s = CancelOrderSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         order = services.cancel_order(
             order=order,
-            changed_by=request.user,
+            changed_by=actor,
             reason=s.validated_data["reason"],
         )
         return success_response(
