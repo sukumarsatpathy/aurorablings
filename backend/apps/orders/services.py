@@ -389,6 +389,89 @@ def update_admin_order(
 
 
 @transaction.atomic
+def attach_customer_to_order(
+    *,
+    order: Order,
+    user=None,
+    name: str | None = None,
+    phone: str | None = None,
+    email: str | None = None,
+    create_account: bool = False,
+    save_address: bool = False,
+    changed_by=None,
+) -> Order:
+    """
+    Put a customer's full details on an order from the admin panel.
+
+    Three cases, in order of preference:
+      1. ``user`` given — staff picked an existing customer. The order is linked
+         to that account.
+      2. No user, but name/phone/email typed — the details go on the order. If a
+         customer already exists with that phone or email they are linked (the
+         same matching the counter uses, so one person never becomes two
+         accounts). A new account is created only when ``create_account`` is set
+         and an email is given; it gets the usual set-password welcome.
+      3. Nothing given — nothing changes.
+
+    ``None`` means "leave as is"; an empty string clears a contact field.
+    With ``save_address``, the order's delivery address is also kept in the
+    linked customer's address book (without replacing their default).
+    """
+    from apps.accounts import customer_linking
+
+    fields: list[str] = []
+    if name is not None:
+        order.contact_name = name.strip()
+        fields.append("contact_name")
+    if phone is not None:
+        order.contact_phone = "".join(ch for ch in phone if ch.isdigit())[-10:]
+        fields.append("contact_phone")
+    if email is not None and not (user or order.user_id):
+        order.guest_email = email.strip().lower()
+        fields.append("guest_email")
+    if fields:
+        order.save(update_fields=fields)
+
+    created_user = None
+    if user is not None:
+        if order.user_id != user.id:
+            order.user = user
+            order.save(update_fields=["user"])
+        if order.contact_phone and not user.phone:
+            user.phone = order.contact_phone
+            user.save(update_fields=["phone"])
+    elif not order.user_id and (order.contact_phone or order.guest_email):
+        result = customer_linking.link_or_create_customer(
+            order=order,
+            name=order.contact_name,
+            phone=order.contact_phone,
+            email=order.guest_email,
+            create_account=create_account,
+        )
+        if result.created:
+            created_user = result.user
+        order.refresh_from_db()
+
+    if save_address and order.user_id and order.shipping_address:
+        customer_linking.save_address_to_profile(
+            user=order.user, address=order.shipping_address, changed_by=changed_by,
+        )
+
+    if created_user is not None:
+        try:
+            customer_linking.send_welcome(user=created_user, order=order)
+        except Exception:  # noqa: BLE001 - a mail failure must not undo the edit
+            logger.warning("admin_customer_welcome_failed", order_id=str(order.id))
+
+    logger.info(
+        "admin_order_customer_attached",
+        order_id=str(order.id), user_id=str(order.user_id) if order.user_id else None,
+        created=bool(created_user), by=getattr(changed_by, "id", None),
+    )
+    return order
+
+
+@transaction.atomic
 def delete_admin_order(*, order: Order) -> None:
     if order.status in {OrderStatus.PAID, OrderStatus.SHIPPED, OrderStatus.DELIVERED, OrderStatus.COMPLETED}:
         raise ConflictError("Paid or fulfilled orders cannot be deleted.")

@@ -142,6 +142,18 @@ export function PaymentStage({
           </p>
         </div>
 
+        {(state?.fulfilment_type || order.fulfilment_type) === 'ship' && (
+          <p className="mt-3 rounded-lg bg-sky-500/10 px-3 py-2 text-xs text-sky-900">
+            <strong>Courier.</strong>{' '}
+            {(() => {
+              const a = (state?.shipping_address || {}) as Record<string, string>;
+              return [a.full_name, a.line1, a.city, a.pincode || a.postal_code].filter(Boolean).join(' · ') ||
+                'Ships to the address entered.';
+            })()}{' '}
+            — read it back to the customer before taking payment.
+          </p>
+        )}
+
         {/*
           What came off the price, itemised.
 

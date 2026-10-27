@@ -210,6 +210,7 @@ def link_or_create_customer(
             match.user.phone = phone
             match.user.save(update_fields=["phone"])
         _apply_occasion_dates(user=match.user, order=order)
+        _keep_delivery_address(user=match.user, order=order)
         logger.info("customer_linked", order_id=str(order.id), user_id=str(match.user.id))
         # Deliberately no welcome email: they already have an account, and being
         # welcomed to a shop you've used for a year reads as a mistake.
@@ -236,9 +237,82 @@ def link_or_create_customer(
     order.user = user
     order.save(update_fields=["user"])
     _apply_occasion_dates(user=user, order=order)
+    _keep_delivery_address(user=user, order=order)
 
     logger.info("customer_created_from_counter", order_id=str(order.id), user_id=str(user.id))
     return CustomerLinkResult(user=user, created=True, reason="account created")
+
+
+#: The address-book columns an order address may fill. Anything else on the
+#: order's snapshot (state_code, landmark, email…) stays on the order only.
+_ADDRESS_FIELDS = ("full_name", "line1", "line2", "city", "state", "postal_code", "country", "phone")
+
+
+def _clean_order_address(address: dict | None) -> dict:
+    raw = dict(address or {})
+    cleaned = {
+        "full_name": raw.get("full_name") or raw.get("name") or "",
+        "line1": raw.get("line1") or raw.get("address_line1") or "",
+        "line2": raw.get("line2") or raw.get("address_line2") or "",
+        "city": raw.get("city") or "",
+        "state": raw.get("state") or "",
+        "postal_code": raw.get("postal_code") or raw.get("pincode") or "",
+        "country": raw.get("country") or "India",
+        "phone": raw.get("phone") or "",
+    }
+    return {k: str(v or "").strip() for k, v in cleaned.items()}
+
+
+def save_address_to_profile(*, user: User, address: dict | None, changed_by=None):
+    """
+    Keep a delivery address in the customer's address book (accounts.Address).
+
+    Careful with what is already there:
+      - an identical address (same first line and pincode) is not duplicated
+      - it becomes the default shipping address only if they have none yet —
+        a one-off gift parcel to a cousin must not replace the customer's own
+        default for every future order
+
+    Returns the Address, or None when there is nothing usable to save. Never
+    raises into the caller: a paid order must not fail over its address book.
+    """
+    from apps.accounts.models import Address, AddressType
+    from apps.accounts.services import create_address
+
+    data = _clean_order_address(address)
+    if not (data["full_name"] and data["line1"] and data["city"] and data["postal_code"]):
+        return None
+
+    try:
+        existing = Address.objects.filter(
+            user=user,
+            address_type=AddressType.SHIPPING,
+            line1__iexact=data["line1"],
+            postal_code=data["postal_code"],
+        ).first()
+        if existing is not None:
+            return existing
+
+        has_default = Address.objects.filter(
+            user=user, address_type=AddressType.SHIPPING, is_default=True,
+        ).exists()
+        created = create_address(
+            user=user,
+            data={**data, "address_type": AddressType.SHIPPING, "is_default": not has_default},
+        )
+        logger.info("order_address_saved_to_profile", user_id=str(user.id), address_id=str(created.id))
+        return created
+    except Exception as exc:  # noqa: BLE001
+        logger.warning("order_address_save_failed", user_id=str(user.id), error=str(exc))
+        return None
+
+
+def _keep_delivery_address(*, user: User, order) -> None:
+    """A courier sale's address belongs in the customer's address book too."""
+    from apps.orders.models import FulfilmentType
+
+    if getattr(order, "fulfilment_type", "") == FulfilmentType.SHIP and order.shipping_address:
+        save_address_to_profile(user=user, address=order.shipping_address)
 
 
 def _apply_occasion_dates(*, user: User, order) -> None:

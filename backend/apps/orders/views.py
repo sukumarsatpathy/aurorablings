@@ -62,6 +62,34 @@ def _get_order_or_404(order_id, user):
     return order
 
 
+def _attach_admin_customer(*, order, data, user, changed_by):
+    """Apply the customer section of the admin order form, if it was sent."""
+    sent = any(k in data for k in ("contact_name", "contact_phone", "guest_email", "user_id")) \
+        or data.get("create_account") or data.get("save_address_to_profile")
+    if not sent and user is None:
+        return order
+    return services.attach_customer_to_order(
+        order=order,
+        user=user,
+        name=data.get("contact_name"),
+        phone=data.get("contact_phone"),
+        email=data.get("guest_email"),
+        create_account=bool(data.get("create_account")),
+        save_address=bool(data.get("save_address_to_profile")),
+        changed_by=changed_by,
+    )
+
+
+def _resolve_admin_user(user_id):
+    if not user_id:
+        return None
+    from apps.accounts.models import User
+    user = User.objects.filter(id=user_id).first()
+    if not user:
+        raise NotFoundError("User not found.")
+    return user
+
+
 # ─────────────────────────────────────────────────────────────
 #  Customer: my orders list + detail
 # ─────────────────────────────────────────────────────────────
@@ -284,6 +312,10 @@ class AdminOrderListView(APIView):
                 internal_notes=s.validated_data.get("internal_notes", ""),
                 changed_by=request.user,
             )
+        order = _attach_admin_customer(
+            order=order, data=s.validated_data, user=user, changed_by=request.user,
+        )
+        order = selectors.get_order_by_id(order.id) or order
         return success_response(
             data=OrderDetailSerializer(order, context={"request": request}).data,
             message="Order created.",
@@ -310,11 +342,17 @@ class AdminOrderDetailView(APIView):
             raise NotFoundError("Order not found.")
         s = AdminOrderUpdateSerializer(data=request.data, partial=True)
         s.is_valid(raise_exception=True)
+        data = dict(s.validated_data)
+        link_user = _resolve_admin_user(data.get("user_id"))
         order = services.update_admin_order(
             order=order,
             changed_by=request.user,
-            **s.validated_data,
+            **data,
         )
+        order = _attach_admin_customer(
+            order=order, data=data, user=link_user, changed_by=request.user,
+        )
+        order = selectors.get_order_by_id(order.id) or order
         return success_response(
             data=OrderDetailSerializer(order, context={"request": request}).data,
             message="Order updated.",

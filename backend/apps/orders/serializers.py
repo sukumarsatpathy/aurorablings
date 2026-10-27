@@ -177,6 +177,8 @@ class OrderListSerializer(serializers.ModelSerializer):
 
 class OrderDetailSerializer(serializers.ModelSerializer):
     """Full order detail including items and history."""
+    # The linked customer account, if any — lets the admin form show who it's linked to.
+    customer_id    = serializers.UUIDField(source="user_id", read_only=True, allow_null=True)
     items          = OrderItemSerializer(many=True, read_only=True)
     status_history = OrderStatusHistorySerializer(many=True, read_only=True)
     item_count     = serializers.IntegerField(read_only=True)
@@ -193,7 +195,7 @@ class OrderDetailSerializer(serializers.ModelSerializer):
             "status", "payment_status", "payment_method", "payment_reference",
             "shipping_approval_status", "fulfillment_method",
             "shipping_approved_at", "shipping_approval_notes",
-            "customer_name", "customer_email", "customer_phone", "guest_email",
+            "customer_id", "customer_name", "customer_email", "customer_phone", "guest_email",
             "contact_name", "contact_phone",
             "channel", "fulfilment_type",
             "shipping_address", "billing_address",
@@ -341,7 +343,26 @@ class AdminOrderItemInputSerializer(serializers.Serializer):
     quantity = serializers.IntegerField(min_value=1)
 
 
-class AdminOrderCreateSerializer(serializers.Serializer):
+class AdminCustomerDetailsMixin(serializers.Serializer):
+    """
+    The customer half of an admin order form. All optional; ``None`` (absent)
+    means "leave unchanged". See orders.services.attach_customer_to_order.
+    """
+    contact_name = serializers.CharField(required=False, allow_blank=True, max_length=150)
+    contact_phone = serializers.CharField(required=False, allow_blank=True, max_length=20)
+    # Create an account for these details if no existing customer matches.
+    create_account = serializers.BooleanField(required=False, default=False)
+    # Keep the delivery address in the customer's address book.
+    save_address_to_profile = serializers.BooleanField(required=False, default=False)
+
+    def validate_contact_phone(self, value):
+        digits = "".join(ch for ch in (value or "") if ch.isdigit())
+        if digits and len(digits[-10:]) != 10:
+            raise serializers.ValidationError("Enter a 10-digit phone number.")
+        return value
+
+
+class AdminOrderCreateSerializer(AdminCustomerDetailsMixin, serializers.Serializer):
     user_id = serializers.UUIDField(required=False, allow_null=True)
     guest_email = serializers.EmailField(required=False, allow_blank=True, default="")
     status = serializers.ChoiceField(choices=OrderStatus.choices, default=OrderStatus.PLACED)
@@ -370,7 +391,11 @@ class AdminOrderCreateSerializer(serializers.Serializer):
     items = AdminOrderItemInputSerializer(many=True, required=False, default=list)
 
 
-class AdminOrderUpdateSerializer(serializers.Serializer):
+class AdminOrderUpdateSerializer(AdminCustomerDetailsMixin, serializers.Serializer):
+    # Link the order to an existing customer (from the customer search), or
+    # type a guest email. Both optional; absent means unchanged.
+    user_id = serializers.UUIDField(required=False, allow_null=True)
+    guest_email = serializers.EmailField(required=False, allow_blank=True)
     payment_status = serializers.ChoiceField(choices=PaymentStatus.choices, required=False)
     payment_method = serializers.ChoiceField(choices=PaymentMethod.choices, required=False)
     shipping_address = serializers.DictField(

@@ -82,6 +82,15 @@ interface PaymentTxnView {
 
 interface OrderFormState {
   guest_email: string;
+  /** Linked customer account, '' when the order is a guest/walk-in. */
+  customer_id: string;
+  customer_label: string;
+  contact_name: string;
+  contact_phone: string;
+  create_account: boolean;
+  save_address_to_profile: boolean;
+  shipping_line2: string;
+  shipping_phone: string;
   status: string;
   payment_status: string;
   payment_method: string;
@@ -103,8 +112,29 @@ interface OrderFormState {
   shipping_country: string;
 }
 
+const customerSnapshot = (f: OrderFormState) =>
+  JSON.stringify([f.customer_id, f.contact_name, f.contact_phone, f.guest_email, f.create_account, f.save_address_to_profile]);
+
+/** The customer half of the save payload. */
+const customerPayload = (f: OrderFormState) => ({
+  ...(f.customer_id ? { user_id: f.customer_id } : {}),
+  contact_name: f.contact_name.trim(),
+  contact_phone: f.contact_phone.replace(/\D/g, ''),
+  guest_email: f.customer_id ? undefined : f.guest_email.trim(),
+  create_account: !f.customer_id && Boolean(f.guest_email.trim()) && f.create_account,
+  save_address_to_profile: f.save_address_to_profile,
+});
+
 const defaultForm: OrderFormState = {
   guest_email: '',
+  customer_id: '',
+  customer_label: '',
+  contact_name: '',
+  contact_phone: '',
+  create_account: false,
+  save_address_to_profile: true,
+  shipping_line2: '',
+  shipping_phone: '',
   status: 'placed',
   payment_status: 'pending',
   payment_method: 'cod',
@@ -161,6 +191,9 @@ export const Orders: React.FC = () => {
   const [customerSearch, setCustomerSearch] = useState('');
   const [customerOptions, setCustomerOptions] = useState<Customer[]>([]);
   const [showCustomerDropdown, setShowCustomerDropdown] = useState(false);
+  // What the customer section looked like when the order was opened, so an
+  // unrelated edit (status, notes) never re-links or re-saves the customer.
+  const [initialCustomer, setInitialCustomer] = useState('');
   const customerDropdownRef = useRef<HTMLDivElement | null>(null);
 
   const { formatCurrency } = useCurrency();
@@ -377,6 +410,7 @@ export const Orders: React.FC = () => {
   const openCreate = () => {
     setEditingOrder(null);
     setFormData(defaultForm);
+    setInitialCustomer(customerSnapshot(defaultForm));
     setDraftItems([]);
     setCalcBreakdown([]);
     setQuickQtyByVariant({});
@@ -392,8 +426,21 @@ export const Orders: React.FC = () => {
       const response = await ordersService.getAdminOrder(order.id);
       const detail = response?.data as AdminOrderDetail;
       setEditingOrder(detail);
-      setFormData({
+      const customerName = String(
+        (detail as any).contact_name ||
+          (detail.customer_name && detail.customer_name !== 'Guest' ? detail.customer_name : ''),
+      );
+      const customerId = String((detail as any).customer_id || '');
+      const next = {
         guest_email: detail.customer_email || '',
+        customer_id: customerId,
+        customer_label: customerId ? `${customerName || 'Customer'} · ${detail.customer_email || ''}` : '',
+        contact_name: customerName,
+        contact_phone: String(detail.customer_phone || ''),
+        create_account: false,
+        save_address_to_profile: false,
+        shipping_line2: String((detail.shipping_address || {}).line2 || ''),
+        shipping_phone: String((detail.shipping_address || {}).phone || ''),
         status: detail.status || 'placed',
         payment_status: detail.payment_status || 'pending',
         payment_method: detail.payment_method || 'cod',
@@ -413,8 +460,10 @@ export const Orders: React.FC = () => {
         shipping_state_code: String((detail.shipping_address || {}).state_code || ''),
         shipping_pincode: String((detail.shipping_address || {}).pincode || ''),
         shipping_country: String((detail.shipping_address || {}).country || 'India'),
-      });
-      setCustomerSearch(detail.customer_email || '');
+      };
+      setFormData(next);
+      setInitialCustomer(customerSnapshot(next));
+      setCustomerSearch('');
       setCustomerOptions([]);
       setShowCustomerDropdown(false);
       await loadPaymentTransactions(detail.id);
@@ -580,10 +629,18 @@ export const Orders: React.FC = () => {
       addresses.find((a: AddressData) => a.address_type === 'shipping') ||
       addresses.find((a: AddressData) => a.is_default) ||
       addresses[0];
+    const fullName = `${customer.first_name || ''} ${customer.last_name || ''}`.trim();
     setFormData((prev) => ({
       ...prev,
+      customer_id: customer.id,
+      customer_label: `${fullName || 'Customer'} · ${customer.email}`,
+      contact_name: fullName || prev.contact_name,
+      contact_phone: customer.phone || prev.contact_phone,
       guest_email: customer.email || prev.guest_email,
-      shipping_full_name: shipping?.full_name || `${customer.first_name || ''} ${customer.last_name || ''}`.trim() || prev.shipping_full_name,
+      create_account: false,
+      shipping_full_name: shipping?.full_name || fullName || prev.shipping_full_name,
+      shipping_phone: shipping?.phone || customer.phone || prev.shipping_phone,
+      shipping_line2: shipping?.line2 || prev.shipping_line2,
       shipping_line1: shipping?.line1 || prev.shipping_line1,
       shipping_city: shipping?.city || prev.shipping_city,
       shipping_state: shipping?.state || prev.shipping_state,
@@ -647,7 +704,13 @@ export const Orders: React.FC = () => {
           alert('Please add at least one product item.');
           return;
         }
+        const phoneDigits = formData.contact_phone.replace(/\D/g, '');
+        if (phoneDigits && phoneDigits.length !== 10) {
+          alert('Customer phone must be 10 digits.');
+          return;
+        }
         await ordersService.createAdminOrder({
+          ...customerPayload(formData),
           guest_email: formData.guest_email,
           status: formData.status,
           payment_status: formData.payment_status,
@@ -657,7 +720,9 @@ export const Orders: React.FC = () => {
           internal_notes: formData.internal_notes,
           shipping_address: {
             full_name: formData.shipping_full_name,
+            phone: formData.shipping_phone,
             line1: formData.shipping_line1,
+            line2: formData.shipping_line2,
             city: formData.shipping_city,
             state: formData.shipping_state,
             state_code: formData.shipping_state_code,
@@ -666,7 +731,9 @@ export const Orders: React.FC = () => {
           },
           billing_address: {
             full_name: formData.shipping_full_name,
+            phone: formData.shipping_phone,
             line1: formData.shipping_line1,
+            line2: formData.shipping_line2,
             city: formData.shipping_city,
             state: formData.shipping_state,
             state_code: formData.shipping_state_code,
@@ -676,12 +743,21 @@ export const Orders: React.FC = () => {
           items: draftItems.map((i) => ({ variant_id: i.variant_id, quantity: i.quantity })),
         });
       } else {
+        const customerChanged = customerSnapshot(formData) !== initialCustomer;
+        const phoneDigits = formData.contact_phone.replace(/\D/g, '');
+        if (customerChanged && phoneDigits && phoneDigits.length !== 10) {
+          alert('Customer phone must be 10 digits.');
+          return;
+        }
         await ordersService.updateAdminOrder(editingOrder.id, {
+          ...(customerChanged ? customerPayload(formData) : {}),
           payment_status: formData.payment_status,
           payment_method: formData.payment_method,
           shipping_address: {
             full_name: formData.shipping_full_name,
+            phone: formData.shipping_phone,
             line1: formData.shipping_line1,
+            line2: formData.shipping_line2,
             city: formData.shipping_city,
             state: formData.shipping_state,
             state_code: formData.shipping_state_code,
@@ -690,7 +766,9 @@ export const Orders: React.FC = () => {
           },
           billing_address: {
             full_name: formData.shipping_full_name,
+            phone: formData.shipping_phone,
             line1: formData.shipping_line1,
+            line2: formData.shipping_line2,
             city: formData.shipping_city,
             state: formData.shipping_state,
             state_code: formData.shipping_state_code,
@@ -845,34 +923,48 @@ export const Orders: React.FC = () => {
           </ModalHeader>
 
           <div className="grid grid-cols-1 md:grid-cols-2 gap-4 py-4">
-            <div className="grid gap-2 md:col-span-2">
-              <label className="text-xs font-bold uppercase text-muted-foreground">Customer Email (guest/manual)</label>
-              <div ref={customerDropdownRef} className="space-y-2 relative">
+            <div className="md:col-span-2 rounded-xl border border-border bg-white p-3 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <p className="text-xs font-bold uppercase text-muted-foreground">Customer</p>
+                {formData.customer_id ? (
+                  <span className="rounded-full bg-emerald-50 px-2 py-0.5 text-[11px] font-semibold text-emerald-700">
+                    Linked account
+                  </span>
+                ) : (
+                  <span className="rounded-full bg-muted px-2 py-0.5 text-[11px] font-semibold text-muted-foreground">
+                    Guest / walk-in
+                  </span>
+                )}
+              </div>
+
+              {/* Find an existing customer by name, email or phone. */}
+              <div ref={customerDropdownRef} className="relative space-y-1">
                 <Input
-                  value={formData.guest_email}
+                  placeholder="Search existing customer by name, email or phone"
+                  value={customerSearch}
                   onChange={(e) => {
-                    const value = e.target.value;
-                    setFormData({ ...formData, guest_email: value });
-                    setCustomerSearch(value);
+                    setCustomerSearch(e.target.value);
                     setShowCustomerDropdown(true);
                   }}
                   onFocus={() => {
-                    if (formData.guest_email.trim().length >= 2) {
-                      setCustomerSearch(formData.guest_email);
-                      setShowCustomerDropdown(true);
-                    }
+                    if (customerSearch.trim().length >= 2) setShowCustomerDropdown(true);
                   }}
                 />
                 {showCustomerDropdown && customerSearch.trim().length >= 2 ? (
-                  <div className="absolute z-30 w-full max-h-44 overflow-y-auto rounded-lg border border-border/70 bg-white shadow-sm">
+                  <div className="absolute z-30 w-full max-h-56 overflow-y-auto rounded-lg border border-border/70 bg-white shadow-sm">
                     {limitedCustomerOptions.length === 0 ? (
-                      <div className="px-3 py-4 text-xs text-muted-foreground">No matching customers found.</div>
+                      <div className="px-3 py-4 text-xs text-muted-foreground">
+                        No matching customers. Enter their details below instead.
+                      </div>
                     ) : (
                       limitedCustomerOptions.map((c) => (
                         <div key={c.id} className="flex items-center justify-between gap-2 px-3 py-2 text-xs border-b border-border/50 last:border-b-0">
                           <div className="min-w-0">
                             <div className="font-semibold truncate">{`${c.first_name || ''} ${c.last_name || ''}`.trim() || 'Customer'}</div>
-                            <div className="text-muted-foreground truncate">{c.email}</div>
+                            <div className="text-muted-foreground truncate">
+                              {c.email}
+                              {c.phone ? ` · ${c.phone}` : ''}
+                            </div>
                           </div>
                           <Button
                             type="button"
@@ -888,8 +980,91 @@ export const Orders: React.FC = () => {
                     )}
                   </div>
                 ) : null}
-                {formData.guest_email.trim().length > 0 && formData.guest_email.trim().length < 2 ? (
-                  <p className="text-[11px] text-muted-foreground px-1">Type at least 2 characters to search customers.</p>
+                {customerSearch.trim().length > 0 && customerSearch.trim().length < 2 ? (
+                  <p className="text-[11px] text-muted-foreground px-1">Type at least 2 characters to search.</p>
+                ) : null}
+              </div>
+
+              {formData.customer_id ? (
+                <div className="flex items-center justify-between gap-2 rounded-lg bg-emerald-50/60 px-3 py-2 text-xs">
+                  <span className="truncate">
+                    Linked to <strong>{formData.customer_label}</strong>
+                  </span>
+                  <button
+                    type="button"
+                    className="shrink-0 font-semibold text-muted-foreground underline-offset-4 hover:underline"
+                    onClick={() =>
+                      setFormData((prev) => ({ ...prev, customer_id: '', customer_label: '' }))
+                    }
+                  >
+                    Change
+                  </button>
+                </div>
+              ) : null}
+
+              <div className="grid grid-cols-1 gap-3 md:grid-cols-3">
+                <div className="grid gap-1">
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground">Full name</label>
+                  <Input
+                    value={formData.contact_name}
+                    onChange={(e) => setFormData({ ...formData, contact_name: e.target.value })}
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground">Phone</label>
+                  <Input
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={formData.contact_phone}
+                    onChange={(e) =>
+                      setFormData({ ...formData, contact_phone: e.target.value.replace(/\D/g, '').slice(0, 10) })
+                    }
+                  />
+                </div>
+                <div className="grid gap-1">
+                  <label className="text-[11px] font-bold uppercase text-muted-foreground">Email</label>
+                  <Input
+                    type="email"
+                    value={formData.guest_email}
+                    disabled={Boolean(formData.customer_id)}
+                    title={formData.customer_id ? "The linked account's email" : undefined}
+                    onChange={(e) => setFormData({ ...formData, guest_email: e.target.value })}
+                  />
+                </div>
+              </div>
+
+              <div className="space-y-2 text-xs">
+                {!formData.customer_id && formData.guest_email.trim() ? (
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={formData.create_account}
+                      onChange={(e) => setFormData({ ...formData, create_account: e.target.checked })}
+                    />
+                    <span>
+                      <strong>Create a customer account</strong> if no customer has this phone or email
+                      <span className="block text-muted-foreground">
+                        They get a welcome email to set a password. An existing customer is linked instead, never duplicated.
+                      </span>
+                    </span>
+                  </label>
+                ) : null}
+                {formData.customer_id || formData.create_account || formData.contact_phone || formData.guest_email.trim() ? (
+                  <label className="flex items-start gap-2">
+                    <input
+                      type="checkbox"
+                      className="mt-0.5"
+                      checked={formData.save_address_to_profile}
+                      onChange={(e) => setFormData({ ...formData, save_address_to_profile: e.target.checked })}
+                    />
+                    <span>
+                      <strong>Save the delivery address to the customer&apos;s profile</strong>
+                      <span className="block text-muted-foreground">
+                        Added to their address book; it won&apos;t replace an existing default.
+                      </span>
+                    </span>
+                  </label>
                 ) : null}
               </div>
             </div>
@@ -1007,6 +1182,20 @@ export const Orders: React.FC = () => {
                 <div className="grid gap-2">
                   <label className="text-xs font-bold uppercase text-muted-foreground">Address Line 1</label>
                   <Input value={formData.shipping_line1} onChange={(e) => setFormData({ ...formData, shipping_line1: e.target.value })} />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-xs font-bold uppercase text-muted-foreground">Address Line 2</label>
+                  <Input value={formData.shipping_line2} onChange={(e) => setFormData({ ...formData, shipping_line2: e.target.value })} placeholder="Optional" />
+                </div>
+                <div className="grid gap-2">
+                  <label className="text-xs font-bold uppercase text-muted-foreground">Delivery Phone</label>
+                  <Input
+                    inputMode="numeric"
+                    maxLength={10}
+                    value={formData.shipping_phone}
+                    placeholder={formData.contact_phone || 'Recipient phone'}
+                    onChange={(e) => setFormData({ ...formData, shipping_phone: e.target.value.replace(/\D/g, '').slice(0, 10) })}
+                  />
                 </div>
                 <div className="grid gap-2">
                   <label className="text-xs font-bold uppercase text-muted-foreground">City</label>

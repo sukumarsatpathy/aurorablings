@@ -92,6 +92,51 @@ def quote(
     return priced
 
 
+def clean_courier_address(address: dict | None) -> dict:
+    """
+    Validate and tidy a delivery address taken at the counter.
+
+    Everything the courier (NimbusPost) needs to book and deliver the parcel is
+    required here, so a sale can't be rung up as "courier" and then sit in the
+    shipping queue with nowhere to send it. Stored with both key spellings the
+    rest of the system reads (line1/address_line1, pincode/postal_code).
+    """
+    raw = {k: str(v or "").strip() for k, v in dict(address or {}).items()}
+    # Keep anything else the caller sent (state_code drives GST/surcharge
+    # pricing), then overwrite the fields this function owns.
+    cleaned = dict(raw)
+    cleaned.update({
+        "full_name": raw.get("full_name", ""),
+        "phone": "".join(ch for ch in raw.get("phone", "") if ch.isdigit())[-10:],
+        "line1": raw.get("line1") or raw.get("address_line1", ""),
+        "line2": raw.get("line2") or raw.get("address_line2", ""),
+        "city": raw.get("city", ""),
+        "state": raw.get("state", ""),
+        "pincode": "".join(ch for ch in (raw.get("pincode") or raw.get("postal_code", "")) if ch.isdigit()),
+        "country": raw.get("country") or "India",
+    })
+
+    missing = [
+        label for key, label in (
+            ("full_name", "recipient name"), ("line1", "address line 1"),
+            ("city", "city"),
+        ) if not cleaned[key]
+    ]
+    if not (cleaned["state"] or cleaned.get("state_code")):
+        missing.append("state")
+    if len(cleaned["phone"]) != 10:
+        missing.append("10-digit phone")
+    if len(cleaned["pincode"]) != 6:
+        missing.append("6-digit pincode")
+    if missing:
+        raise POSOrderError("A courier sale needs a complete delivery address: " + ", ".join(missing) + ".")
+
+    cleaned["address_line1"] = cleaned["line1"]
+    cleaned["address_line2"] = cleaned["line2"]
+    cleaned["postal_code"] = cleaned["pincode"]
+    return cleaned
+
+
 @transaction.atomic
 def create_pos_order(
     *,
@@ -121,8 +166,12 @@ def create_pos_order(
     if not items:
         raise POSOrderError("A sale needs at least one item.")
 
-    if fulfilment_type == FulfilmentType.SHIP and not (shipping_address or {}):
-        raise POSOrderError("A ship-to-customer sale needs a delivery address.")
+    if fulfilment_type == FulfilmentType.SHIP:
+        shipping_address = clean_courier_address(shipping_address)
+        # The parcel is addressed to whoever is on the label; if staff didn't
+        # type a separate customer name/number, the label's are the customer's.
+        contact_name = (contact_name or "").strip() or shipping_address["full_name"]
+        contact_phone = (contact_phone or "").strip() or shipping_address["phone"]
 
     order = order_services.create_admin_order_from_items(
         items=items,

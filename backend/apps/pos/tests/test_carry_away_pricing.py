@@ -72,7 +72,8 @@ class CarryAwayPricingTests(TestCase):
         order = order_service.create_pos_order(
             items=self.items(), shift=self.shift, staff=self.staff,
             fulfilment_type=FulfilmentType.SHIP,
-            shipping_address={"line1": "1 Janpath", "city": "Bhubaneswar",
+            shipping_address={"full_name": "Asha Rao", "phone": "9876543210",
+                              "line1": "1 Janpath", "city": "Bhubaneswar",
                               "state_code": "OD", "pincode": "751001"},
         )
 

@@ -377,6 +377,10 @@ def payment_state(*, order: Order) -> dict:
         "contact_name": order.contact_name or "",
         "contact_phone": order.contact_phone or "",
         "contact_email": order.guest_email or "",
+        # Handed over vs courier, and where it is going — so a resumed sale
+        # comes back the way it was rung up.
+        "fulfilment_type": order.fulfilment_type,
+        "shipping_address": order.shipping_address or {},
         "items": [
             {"variant_id": str(i.variant_id), "quantity": i.quantity}
             for i in order.items.all()

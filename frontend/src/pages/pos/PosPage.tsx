@@ -2,6 +2,13 @@ import { useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { CartPanel } from '@/components/pos/CartPanel';
+import {
+  EMPTY_ADDRESS,
+  FulfilmentPanel,
+  missingCourierFields,
+  type CourierAddress,
+  type FulfilmentChoice,
+} from '@/components/pos/FulfilmentPanel';
 import { PaymentStage } from '@/components/pos/PaymentStage';
 import { CatalogueGrid } from '@/components/pos/CatalogueGrid';
 import { CloseShiftDialog } from '@/components/pos/CloseShiftDialog';
@@ -38,6 +45,13 @@ export function PosPage() {
   const [customer, setCustomer] = useState<CounterCustomer | null>(null);
   const [resuming, setResuming] = useState(true);
   const [closingShift, setClosingShift] = useState(false);
+  // Handed over at the counter (default) or sent by courier to an address.
+  const [fulfilment, setFulfilment] = useState<FulfilmentChoice>('carry_away');
+  const [courierAddress, setCourierAddress] = useState<CourierAddress>(EMPTY_ADDRESS);
+  const resetDelivery = () => {
+    setFulfilment('carry_away');
+    setCourierAddress(EMPTY_ADDRESS);
+  };
 
   /**
    * An in-progress sale must survive a reload.
@@ -70,8 +84,21 @@ export function PosPage() {
             subtotal: state.subtotal,
             discount_amount: state.discount_amount,
             grand_total: state.grand_total,
-            fulfilment_type: 'carry_away',
+            fulfilment_type: state.fulfilment_type || 'carry_away',
           });
+          if (state.fulfilment_type === 'ship') {
+            const a = (state.shipping_address || {}) as Record<string, string>;
+            setFulfilment('ship');
+            setCourierAddress({
+              full_name: a.full_name || '',
+              phone: a.phone || '',
+              line1: a.line1 || a.address_line1 || '',
+              line2: a.line2 || a.address_line2 || '',
+              city: a.city || '',
+              state: a.state || '',
+              pincode: a.pincode || a.postal_code || '',
+            });
+          }
           // Who the sale is for comes back too. A resumed order that shows no
           // name reads as a different sale to the person holding the tablet.
           if (state.contact_phone || state.contact_name) {
@@ -114,13 +141,22 @@ export function PosPage() {
 
   const createSale = async () => {
     if (!shift) return;
+    if (fulfilment === 'ship') {
+      const missing = missingCourierFields(courierAddress);
+      if (missing.length) {
+        setOrderError(`Courier needs a complete address: ${missing.join(', ')}.`);
+        return;
+      }
+    }
     setCreating(true);
     setOrderError('');
     try {
       const created = await posService.createOrder({
         items: cart.lines,
         shift: shift.id,
-        fulfilment_type: 'carry_away',
+        fulfilment_type: fulfilment,
+        shipping_address:
+          fulfilment === 'ship' ? { ...courierAddress, country: 'India' } : undefined,
         contact_name: customer?.name || '',
         contact_phone: customer?.phone || '',
         // The email always goes on the order. A receipt is transactional and
@@ -228,6 +264,7 @@ export function PosPage() {
             setClosingShift(false);
             setOrder(null);
             setCustomer(null);
+            resetDelivery();
             cart.clear();
             sessionStorage.removeItem('pos_active_order');
             // No shift means the gate takes over — the till is closed until
@@ -249,11 +286,13 @@ export function PosPage() {
             onFinished={() => {
               setOrder(null);
               setCustomer(null);
+              resetDelivery();
               cart.clear();
               void refresh();
             }}
             onVoided={() => {
               setOrder(null);
+              resetDelivery();
               cart.clear();
               void refresh();
             }}
@@ -294,6 +333,28 @@ export function PosPage() {
           onRemove={cart.remove}
           onCreateOrder={() => void createSale()}
           error={orderError}
+          createLabel={fulfilment === 'ship' ? 'Create courier sale' : undefined}
+          beforeTotals={
+            <FulfilmentPanel
+              value={fulfilment}
+              address={courierAddress}
+              onChange={(next) => {
+                setFulfilment(next);
+                setOrderError('');
+                // Start the label from the customer, if one is attached.
+                if (next === 'ship' && !courierAddress.full_name && !courierAddress.phone) {
+                  setCourierAddress((prev) => ({
+                    ...prev,
+                    full_name: customer?.name || '',
+                    phone: customer?.phone || '',
+                  }));
+                }
+              }}
+              onAddressChange={setCourierAddress}
+              customerName={customer?.name}
+              customerPhone={customer?.phone}
+            />
+          }
         />
       </div>
       </div>

@@ -1,3 +1,5 @@
+import type { ReactNode } from 'react';
+
 import type { CartEntry } from '@/hooks/usePosCart';
 
 interface Props {
@@ -9,6 +11,10 @@ interface Props {
   onRemove: (variantId: string) => void;
   onCreateOrder: () => void;
   error?: string;
+  /** Shown between the lines and the totals — the delivery choice lives here. */
+  beforeTotals?: ReactNode;
+  /** Wording for the courier case, so the button says what will happen. */
+  createLabel?: string;
 }
 
 const money = (value: number | string) =>
@@ -31,6 +37,8 @@ export function CartPanel({
   onRemove,
   onCreateOrder,
   error,
+  beforeTotals,
+  createLabel,
 }: Props) {
   return (
     <div className="flex h-full flex-col bg-muted/30">
@@ -114,6 +122,10 @@ export function CartPanel({
         )}
       </div>
 
+      {beforeTotals && entries.length > 0 && (
+        <div className="max-h-[55vh] shrink-0 overflow-y-auto">{beforeTotals}</div>
+      )}
+
       <div className="border-t border-border bg-card p-4">
         <div className="flex items-baseline justify-between">
           <span className="text-xs font-semibold uppercase tracking-wider text-muted-foreground">
@@ -137,7 +149,7 @@ export function CartPanel({
           onClick={onCreateOrder}
           className="mt-3 w-full rounded-lg bg-primary px-4 py-3 text-sm font-semibold text-primary-foreground disabled:opacity-50"
         >
-          {busy ? 'Creating sale…' : 'Create sale'}
+          {busy ? 'Creating sale…' : createLabel || 'Create sale'}
         </button>
       </div>
     </div>

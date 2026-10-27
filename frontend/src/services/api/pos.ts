@@ -112,6 +112,9 @@ export interface PaymentState {
   items: Array<{ variant_id: string; quantity: number }>;
   amount_paid: string;
   balance_due: string;
+  /** Handed over at the counter, or sent by courier. */
+  fulfilment_type?: 'carry_away' | 'ship';
+  shipping_address?: Record<string, unknown>;
   /** Which rail the counter is using for UPI. 'paytm' = staff confirm with the UPI reference. */
   upi_provider?: 'paytm' | 'razorpay';
   tenders: Array<{

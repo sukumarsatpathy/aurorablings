@@ -23,6 +23,10 @@ export interface AdminOrderListRow {
 
 export interface AdminOrderDetail extends AdminOrderListRow {
   guest_email?: string;
+  /** Linked customer account id, or null for a guest / walk-in order. */
+  customer_id?: string | null;
+  contact_name?: string;
+  contact_phone?: string;
   payment_method?: string;
   payment_reference?: string;
   shipping_address?: Record<string, string>;
@@ -290,6 +294,10 @@ const ordersService = {
   createAdminOrder: async (payload: {
     user_id?: string;
     guest_email?: string;
+    contact_name?: string;
+    contact_phone?: string;
+    create_account?: boolean;
+    save_address_to_profile?: boolean;
     status?: string;
     payment_status?: string;
     payment_method?: string;
@@ -325,6 +333,12 @@ const ordersService = {
   updateAdminOrder: async (
     id: string,
     payload: Partial<{
+      user_id: string;
+      guest_email: string;
+      contact_name: string;
+      contact_phone: string;
+      create_account: boolean;
+      save_address_to_profile: boolean;
       status: string;
       payment_status: string;
       payment_method: string;
