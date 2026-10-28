@@ -11,6 +11,7 @@ import {
 } from '@/components/pos/FulfilmentPanel';
 import { PaymentStage } from '@/components/pos/PaymentStage';
 import { CatalogueGrid } from '@/components/pos/CatalogueGrid';
+import { CameraScanner } from '@/components/pos/CameraScanner';
 import { CloseShiftDialog } from '@/components/pos/CloseShiftDialog';
 import { CustomerPanel, type CounterCustomer } from '@/components/pos/CustomerPanel';
 import { ShiftGate } from '@/components/pos/ShiftGate';
@@ -59,6 +60,12 @@ export function PosPage() {
     setCourierAddress(EMPTY_ADDRESS);
   };
   const [scanNotice, setScanNotice] = useState<ScanNotice | null>(null);
+  const [cameraOpen, setCameraOpen] = useState(false);
+  // Phones show one panel at a time — products or the cart — with tabs to
+  // switch. Stacking both in one fixed-height screen left the product panel
+  // with no height once the on-screen keyboard opened, so the search box
+  // disappeared the moment it was tapped.
+  const [mobileView, setMobileView] = useState<'products' | 'cart'>('products');
 
   /**
    * An in-progress sale must survive a reload.
@@ -276,8 +283,10 @@ export function PosPage() {
   }
 
   return (
-    <div className="flex h-[calc(100vh-4rem)] flex-col">
-      <header className="flex items-center gap-4 border-b border-border bg-card px-4 py-3">
+    // dvh, not vh: on phones 100vh is taller than the visible screen (it
+    // ignores the browser's address bar), which pushed the bottom off screen.
+    <div className="flex h-dvh flex-col">
+      <header className="flex items-center gap-3 border-b border-border bg-card px-3 py-2 md:gap-4 md:px-4 md:py-3">
         {/* The configured logo, falling back to the brand name as text. The
             fallback matters: a counter that renders a broken-image icon because
             the media file moved is worse than one that just says the name. */}
@@ -290,7 +299,7 @@ export function PosPage() {
         ) : (
           <span className="shrink-0 font-semibold">{branding.brandName}</span>
         )}
-        <span className="border-l border-border pl-4 font-mono text-[11px] text-muted-foreground">
+        <span className="hidden border-l border-border pl-4 font-mono text-[11px] text-muted-foreground sm:inline">
           {shift.terminal_code} · shift open
         </span>
         <Link
@@ -300,7 +309,7 @@ export function PosPage() {
           ← Admin
         </Link>
         <span className="ml-auto flex items-center gap-4 text-xs text-muted-foreground tabular-nums">
-          <span>Drawer: ₹{Number(shift.expected_cash_now).toLocaleString('en-IN')}</span>
+          <span className="hidden sm:inline">Drawer: ₹{Number(shift.expected_cash_now).toLocaleString('en-IN')}</span>
           {shift.part_paid_orders.length > 0 && (
             <span className="rounded-full bg-amber-500/10 px-3 py-1 font-semibold text-amber-600">
               {shift.part_paid_orders.length} part-paid
@@ -402,10 +411,36 @@ export function PosPage() {
           {scanNotice.text}
         </div>
       )}
-      <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[1.35fr_1fr]">
-        <div className="overflow-hidden border-r border-border">
-          <CatalogueGrid onAdd={cart.add} inCart={inCart} onScanCode={handleScan} />
+      {/* Phone tabs. The cart tab carries the count and total so a scan that
+          lands while on Products is still visible without switching. */}
+      <div className="grid shrink-0 grid-cols-2 border-b border-border bg-card text-sm font-semibold md:hidden" role="tablist">
+        {(['products', 'cart'] as const).map((view) => (
+          <button
+            key={view}
+            type="button"
+            role="tab"
+            aria-selected={mobileView === view}
+            onClick={() => setMobileView(view)}
+            className={`py-2.5 ${mobileView === view ? 'border-b-2 border-primary text-foreground' : 'text-muted-foreground'}`}
+          >
+            {view === 'products'
+              ? 'Products'
+              : `Cart · ${cart.itemCount}${cart.itemCount ? ` · ₹${Math.round(cart.indicativeSubtotal).toLocaleString('en-IN')}` : ''}`}
+          </button>
+        ))}
+      </div>
+      <div className="grid min-h-0 flex-1 grid-cols-1 grid-rows-1 overflow-hidden md:grid-cols-[1.35fr_1fr]">
+        <div
+          className={`${mobileView === 'products' ? 'block' : 'hidden'} min-h-0 overflow-hidden border-r border-border md:block`}
+        >
+          <CatalogueGrid
+            onAdd={cart.add}
+            inCart={inCart}
+            onScanCode={handleScan}
+            onOpenCamera={() => setCameraOpen(true)}
+          />
         </div>
+        <div className={`${mobileView === 'cart' ? 'block' : 'hidden'} min-h-0 overflow-hidden md:block`}>
         <CartPanel
           entries={cart.entries}
           itemCount={cart.itemCount}
@@ -438,8 +473,16 @@ export function PosPage() {
             />
           }
         />
+        </div>
       </div>
       </div>
+      )}
+      {cameraOpen && !order && (
+        <CameraScanner
+          onCode={(code) => void handleScan(code)}
+          onClose={() => setCameraOpen(false)}
+          notice={scanNotice}
+        />
       )}
     </div>
   );

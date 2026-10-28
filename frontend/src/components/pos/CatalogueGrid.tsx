@@ -12,6 +12,8 @@ interface Props {
    * for stock), false when it matched nothing.
    */
   onScanCode?: (code: string) => Promise<boolean>;
+  /** Opens the phone-camera scanner. The button is hidden when not given. */
+  onOpenCamera?: () => void;
 }
 
 /** A label barcode at the end of whatever was already in the box. */
@@ -28,7 +30,7 @@ const money = (value: string | number) =>
  * take under thirty seconds from empty cart to paid, and this is where most of
  * that budget is either spent or saved.
  */
-export function CatalogueGrid({ onAdd, inCart, onScanCode }: Props) {
+export function CatalogueGrid({ onAdd, inCart, onScanCode, onOpenCamera }: Props) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<CatalogueRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -67,7 +69,7 @@ export function CatalogueGrid({ onAdd, inCart, onScanCode }: Props) {
 
   return (
     <div className="flex h-full flex-col">
-      <div className="border-b border-border p-4">
+      <div className="flex shrink-0 gap-2 border-b border-border p-3 md:p-4">
         <input
           ref={searchRef}
           type="search"
@@ -89,12 +91,31 @@ export function CatalogueGrid({ onAdd, inCart, onScanCode }: Props) {
             searchRef.current?.focus();
           }}
           placeholder="Scan a barcode, or search name, SKU or stock ID…"
-          className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
+          // 16px on phones: iPhone Safari zooms the whole page into any
+          // smaller text box on tap, which throws the counter off screen.
+          className="min-w-0 flex-1 rounded-lg border border-border bg-background px-3 py-2 text-base outline-none focus:border-primary md:text-sm"
           aria-label="Search catalogue"
+          enterKeyHint="search"
+          autoComplete="off"
         />
+        {onOpenCamera && (
+          <button
+            type="button"
+            onClick={onOpenCamera}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-foreground hover:border-primary"
+            aria-label="Scan with camera"
+            title="Scan a barcode with this device's camera"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M3 7V5a2 2 0 0 1 2-2h2M17 3h2a2 2 0 0 1 2 2v2M21 17v2a2 2 0 0 1-2 2h-2M7 21H5a2 2 0 0 1-2-2v-2" />
+              <path d="M7 8v8M10 8v8M13 8v8M16 8v8" />
+            </svg>
+            <span className="hidden sm:inline">Camera</span>
+          </button>
+        )}
       </div>
 
-      <div className="grid flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(150px,1fr))] gap-3 overflow-y-auto p-4">
+      <div className="grid min-h-0 flex-1 auto-rows-min grid-cols-[repeat(auto-fill,minmax(140px,1fr))] gap-3 overflow-y-auto p-3 md:p-4">
         {rows.map((row) => {
           const taken = inCart[row.variant_id] || 0;
           const left = row.track_inventory ? row.stock - taken : Infinity;
