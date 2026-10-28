@@ -11,6 +11,7 @@ import bulkReceiveService, {
 } from '@/services/api/bulkReceive';
 import { isColourName, swatchColour } from '@/lib/variantOptions';
 import { parseStockCsv } from '@/lib/stockCsv';
+import { LABEL_PAPERS, labelPaper, type LabelPaperKey } from '@/lib/labelPapers';
 
 /** variant id → what's typed in its box ("" = nothing). */
 type Quantities = Record<string, string>;
@@ -168,8 +169,12 @@ export const BulkReceive: React.FC = () => {
   }>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [saved, setSaved] = useState<null | { message: string; lines: Array<{ variant_id: string; quantity: number }> }>(null);
-  const [labelBusy, setLabelBusy] = useState(false);
+  const [saved, setSaved] = useState<null | {
+    message: string;
+    /** What was received, by label paper: one label download per roll. */
+    labels: Array<{ paper: LabelPaperKey; items: Array<{ variant_id: string; copies: number }>; count: number }>;
+  }>(null);
+  const [labelBusy, setLabelBusy] = useState<LabelPaperKey | null>(null);
   const [labelError, setLabelError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
@@ -363,7 +368,12 @@ export const BulkReceive: React.FC = () => {
         message:
           result.message ||
           `Received ${r.total_quantity} pieces across ${r.variants} items.`,
-        lines: (r.lines || []).map((l) => ({ variant_id: l.variant_id, quantity: l.quantity })),
+        labels: LABEL_PAPERS.map((paper) => {
+          const items = lines
+            .filter((l) => labelPaper(l.product.label_paper).key === paper.key)
+            .map((l) => ({ variant_id: l.variant.id, copies: l.quantity }));
+          return { paper: paper.key, items, count: items.reduce((n, i) => n + i.copies, 0) };
+        }).filter((g) => g.items.length > 0),
       });
       setLabelError('');
       setQuantities({});
@@ -402,31 +412,37 @@ export const BulkReceive: React.FC = () => {
             {saved.message}
             {labelError ? <span className="mt-1 block text-red-700">{labelError}</span> : null}
           </span>
-          {saved.lines.length ? (
-            // Stock is already in; this only prints stickers for it, one per
-            // piece received. Reprinting later never changes stock.
-            <Button
-              type="button"
-              size="sm"
-              className="gap-1.5"
-              disabled={labelBusy}
-              onClick={async () => {
-                setLabelBusy(true);
-                setLabelError('');
-                try {
-                  await bulkReceiveService.downloadLabels(
-                    saved.lines.map((l) => ({ variant_id: l.variant_id, copies: l.quantity })),
-                  );
-                } catch (error) {
-                  setLabelError(await labelErrorMessage(error));
-                } finally {
-                  setLabelBusy(false);
-                }
-              }}
-            >
-              <Tag size={14} /> {labelBusy ? 'Preparing…' : 'Download labels'}
-            </Button>
-          ) : null}
+          {/*
+            Stock is already in; these only print labels for it, one per piece
+            received. One button per label paper (from each product's
+            category), because each file is printed with its own roll loaded.
+          */}
+          {saved.labels.map((group) => {
+            const paper = labelPaper(group.paper);
+            return (
+              <Button
+                key={group.paper}
+                type="button"
+                size="sm"
+                className="gap-1.5"
+                disabled={labelBusy !== null}
+                title={`${paper.size} · ${paper.material}`}
+                onClick={async () => {
+                  setLabelBusy(group.paper);
+                  setLabelError('');
+                  try {
+                    await bulkReceiveService.downloadLabels(group.items, 'xlsx', group.paper);
+                  } catch (error) {
+                    setLabelError(await labelErrorMessage(error));
+                  } finally {
+                    setLabelBusy(null);
+                  }
+                }}
+              >
+                <Tag size={14} /> {labelBusy === group.paper ? 'Preparing…' : `${paper.name}s (${group.count})`}
+              </Button>
+            );
+          })}
           <Link to="/admin/inventory" className="font-semibold underline">Back to Inventory</Link>
         </div>
       ) : null}

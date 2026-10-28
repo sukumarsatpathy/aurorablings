@@ -25,7 +25,7 @@ class CategorySerializer(serializers.ModelSerializer):
 
     class Meta:
         model  = Category
-        fields = ["id", "name", "slug", "parent", "parent_name", "image", "description", "is_active", "sort_order", "product_count", "is_coming_soon"]
+        fields = ["id", "name", "slug", "parent", "parent_name", "image", "description", "is_active", "sort_order", "label_paper", "product_count", "is_coming_soon"]
         read_only_fields = ["id", "slug", "product_count", "is_coming_soon"]
 
     def get_parent_name(self, obj) -> str | None:

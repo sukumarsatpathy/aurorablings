@@ -10,6 +10,11 @@ row and have no notion of a "copies" column. Columns:
 
     Barcode | Name | SKU | MRP
 
+Each product prints on its category's label paper (catalog.label_papers). One
+file is for one roll, so a request whose items need different papers is
+refused — the page asks once per paper. Pass `paper` to say which roll the file
+is for; it must match every item.
+
 Barcode is the variant's label number, sent as text so Excel doesn't turn it
 into 1.00E+07. Name is the short label name (≤ 20 chars). MRP is the variant's
 regular price — not a live offer price, because a sticker outlives an offer.
@@ -35,6 +40,7 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsStaffOrAdmin
+from apps.catalog.label_papers import DEFAULT_LABEL_PAPER, LabelPaper, paper_info
 from apps.catalog.models import ProductVariant
 from core.exceptions import ValidationError
 
@@ -52,10 +58,11 @@ def _mrp(price: Decimal) -> str:
     return str(int(price)) if price == price.to_integral_value() else f"{price:.2f}"
 
 
-def label_rows(items) -> list[list[str]]:
+def label_rows(items, paper: str | None = None) -> tuple[list[list[str]], str]:
     """
-    `items` = [{"variant_id", "copies"}] → one row per sticker, in the order
-    given. Lines for the same variant are added together.
+    `items` = [{"variant_id", "copies"}] → (one row per sticker in the order
+    given, the paper they print on). Lines for the same variant are added
+    together. All items must share one paper, and match `paper` if given.
     """
     merged: "OrderedDict[str, int]" = OrderedDict()
     for item in items:
@@ -70,7 +77,7 @@ def label_rows(items) -> list[list[str]]:
 
     variants = {
         str(v.pk): v
-        for v in ProductVariant.objects.select_related("product")
+        for v in ProductVariant.objects.select_related("product__category")
         .prefetch_related("attribute_values__attribute")
         .filter(pk__in=list(merged), product__deleted_at__isnull=True)
     }
@@ -80,6 +87,19 @@ def label_rows(items) -> list[list[str]]:
             f"{len(missing)} item{'s' if len(missing) != 1 else ''} no longer exist. Reload the page and try again."
         )
 
+    papers = {
+        (v.product.category.label_paper if v.product.category_id else DEFAULT_LABEL_PAPER)
+        for v in variants.values()
+    }
+    if paper and papers != {paper}:
+        wrong = sorted(paper_info(p)["name"] for p in papers - {paper})
+        raise ValidationError(
+            f"Some items print on a different paper ({', '.join(wrong)}). Download each paper separately."
+        )
+    if len(papers) > 1:
+        raise ValidationError("These items use different label papers. Download each paper separately.")
+    used = papers.pop()
+
     rows: list[list[str]] = []
     for vid, copies in merged.items():
         v = variants[vid]
@@ -87,7 +107,7 @@ def label_rows(items) -> list[list[str]]:
             v.save(update_fields=["barcode"])
         row = [v.barcode, v.label_text, v.sku, _mrp(v.price)]
         rows.extend([row] * copies)
-    return rows
+    return rows, used
 
 
 def _csv(rows) -> bytes:
@@ -134,6 +154,7 @@ class LabelItemSerializer(serializers.Serializer):
 class LabelSheetSerializer(serializers.Serializer):
     items = LabelItemSerializer(many=True, allow_empty=False, max_length=MAX_LINES)
     format = serializers.ChoiceField(choices=["xlsx", "csv"], required=False, default="xlsx")
+    paper = serializers.ChoiceField(choices=LabelPaper.choices, required=False)
 
 
 class LabelSheetView(APIView):
@@ -142,7 +163,7 @@ class LabelSheetView(APIView):
     def post(self, request):
         s = LabelSheetSerializer(data=request.data)
         s.is_valid(raise_exception=True)
-        rows = label_rows(s.validated_data["items"])
+        rows, paper = label_rows(s.validated_data["items"], s.validated_data.get("paper"))
         stamp = timezone.localtime().strftime("%Y%m%d-%H%M")
 
         fmt = s.validated_data["format"]
@@ -158,7 +179,9 @@ class LabelSheetView(APIView):
             content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         response = HttpResponse(body, content_type=content_type)
-        response["Content-Disposition"] = f'attachment; filename="labels-{stamp}.{fmt}"'
+        slug = paper_info(paper)["file_slug"]
+        response["Content-Disposition"] = f'attachment; filename="labels-{slug}-{stamp}.{fmt}"'
         response["X-Label-Count"] = str(len(rows))
-        response["Access-Control-Expose-Headers"] = "Content-Disposition, X-Label-Count"
+        response["X-Label-Paper"] = paper
+        response["Access-Control-Expose-Headers"] = "Content-Disposition, X-Label-Count, X-Label-Paper"
         return response

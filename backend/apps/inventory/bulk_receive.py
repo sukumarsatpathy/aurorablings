@@ -29,6 +29,7 @@ from rest_framework.views import APIView
 
 from apps.accounts.permissions import IsStaffOrAdmin
 from apps.catalog.media import variant_photo
+from apps.catalog.label_papers import DEFAULT_LABEL_PAPER
 from apps.catalog.models import Attribute, Product, ProductVariant
 from core.exceptions import NotFoundError, ValidationError
 from core.media import build_media_url
@@ -172,6 +173,8 @@ def _catalog(*, warehouse_id, request) -> list[dict]:
             "stock_id": product.stock_id,
             "is_active": product.is_active,
             "category": product.category.name if product.category_id else "",
+            # Which label roll this product prints on (set on its category).
+            "label_paper": product.category.label_paper if product.category_id else DEFAULT_LABEL_PAPER,
             "image": build_media_url(main.image_small or main.image, request=request) if main else None,
             "attributes": [
                 {

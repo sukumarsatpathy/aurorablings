@@ -8,6 +8,8 @@ import bulkReceiveService, {
   type BulkReceiveProduct,
   type BulkReceiveWarehouse,
 } from '@/services/api/bulkReceive';
+import { LabelPaperPicture } from '@/components/admin/LabelPaperPicture';
+import { LABEL_PAPERS, labelPaper, type LabelPaperKey } from '@/lib/labelPapers';
 
 /** variant id → copies typed ("" = none). */
 type Copies = Record<string, string>;
@@ -31,6 +33,9 @@ const mrp = (price?: string) => {
  * The file it downloads has one row per sticker (Barcode, Name, SKU, MRP);
  * import it into the label printer app and map those columns onto the
  * template once.
+ *
+ * Products are grouped by their category's label paper, with one download per
+ * paper: only one roll is in the printer at a time, so a file is one roll.
  */
 export const PrintLabels: React.FC = () => {
   const [warehouses, setWarehouses] = useState<BulkReceiveWarehouse[]>([]);
@@ -43,6 +48,7 @@ export const PrintLabels: React.FC = () => {
   const [search, setSearch] = useState('');
   const [searchOpen, setSearchOpen] = useState(false);
   const [busy, setBusy] = useState(false);
+  const [busyPaper, setBusyPaper] = useState<LabelPaperKey | null>(null);
   const [error, setError] = useState('');
   const [done, setDone] = useState('');
   const searchBoxRef = useRef<HTMLDivElement>(null);
@@ -142,29 +148,40 @@ export const PrintLabels: React.FC = () => {
     });
   };
 
-  const items = useMemo(
+  /** The products added, grouped by label paper, in the papers' fixed order. */
+  const groups = useMemo(
     () =>
-      added.flatMap((p) =>
-        p.variants
-          .map((v) => ({ variant_id: v.id, copies: Number(copies[v.id] || 0) }))
-          .filter((i) => i.copies > 0),
-      ),
+      LABEL_PAPERS.map((paper) => {
+        const products = added.filter((p) => labelPaper(p.label_paper).key === paper.key);
+        const items = products.flatMap((p) =>
+          p.variants
+            .map((v) => ({ variant_id: v.id, copies: Number(copies[v.id] || 0) }))
+            .filter((i) => i.copies > 0),
+        );
+        return { paper, products, items, total: items.reduce((s, i) => s + i.copies, 0) };
+      }).filter((g) => g.products.length > 0),
     [added, copies],
   );
-  const total = items.reduce((s, i) => s + i.copies, 0);
+  const total = groups.reduce((s, g) => s + g.total, 0);
 
-  const download = async (format: 'xlsx' | 'csv') => {
-    if (!items.length || busy) return;
+  const download = async (paper: LabelPaperKey, format: 'xlsx' | 'csv') => {
+    const group = groups.find((g) => g.paper.key === paper);
+    if (!group || !group.items.length || busy) return;
     setBusy(true);
+    setBusyPaper(paper);
     setError('');
     setDone('');
     try {
-      const count = await bulkReceiveService.downloadLabels(items, format);
-      setDone(`Downloaded ${count || total} label${(count || total) === 1 ? '' : 's'}. Import the file in the label printer app.`);
+      const count = (await bulkReceiveService.downloadLabels(group.items, format, paper)) || group.total;
+      setDone(
+        `Downloaded ${count} ${group.paper.name.toLowerCase()} label${count === 1 ? '' : 's'}. ` +
+          `Load the ${group.paper.size.split(' ·')[0]} roll and print it from the label printer app.`,
+      );
     } catch (e) {
       setError(await labelErrorMessage(e));
     } finally {
       setBusy(false);
+      setBusyPaper(null);
     }
   };
 
@@ -176,7 +193,8 @@ export const PrintLabels: React.FC = () => {
         </Link>
         <h1 className="mt-1 text-2xl font-bold tracking-tight text-foreground">Barcode Labels</h1>
         <p className="mt-1 text-xs text-muted-foreground">
-          Download a label sheet for the printer app: one row per sticker with barcode, name, SKU and MRP.
+          Download a label sheet for the printer app: one row per label with barcode, name, SKU and MRP.
+          Each category prints on its own paper (set in Categories), so there is one file per paper.
           Printing labels never changes stock — new stock is added with Receive or Bulk Receive.
         </p>
       </div>
@@ -265,7 +283,26 @@ export const PrintLabels: React.FC = () => {
         </div>
       ) : null}
 
-      {added.map((product) => (
+      {groups.map((group) => (
+        <div key={group.paper.key} className="space-y-3">
+          <div className="flex flex-wrap items-center gap-4 rounded-[14px] border border-primary/20 bg-primary/5 px-4 py-3">
+            <LabelPaperPicture paper={group.paper.key} className="h-14 w-auto max-w-[260px] shrink-0" />
+            <div className="min-w-0 flex-1">
+              <div className="font-bold text-foreground">
+                {group.paper.name} <span className="font-medium text-primary">· {group.paper.size}</span>
+              </div>
+              <div className="text-xs text-muted-foreground">
+                {group.paper.material} · {group.products.length} product{group.products.length === 1 ? '' : 's'} · {group.total} label{group.total === 1 ? '' : 's'}
+              </div>
+            </div>
+            <Button type="button" variant="outline" size="sm" onClick={() => void download(group.paper.key, 'csv')} disabled={!group.items.length || busy || group.total > MAX_LABELS}>
+              CSV
+            </Button>
+            <Button type="button" size="sm" onClick={() => void download(group.paper.key, 'xlsx')} disabled={!group.items.length || busy || group.total > MAX_LABELS} className="gap-1.5">
+              <Download size={14} /> {busyPaper === group.paper.key ? 'Preparing…' : `Download ${group.paper.name.toLowerCase()}s`}
+            </Button>
+          </div>
+      {group.products.map((product) => (
         <section key={product.id} className="rounded-[14px] border border-border bg-white shadow-sm" aria-label={product.name}>
           <div className="flex items-center gap-3 border-b border-border/60 px-4 py-3">
             {product.image ? <img src={product.image} alt="" className="h-10 w-10 rounded-lg border border-border/50 object-cover" /> : <span className="h-10 w-10 rounded-lg bg-muted" />}
@@ -318,22 +355,21 @@ export const PrintLabels: React.FC = () => {
           </div>
         </section>
       ))}
+        </div>
+      ))}
 
       <div className="sticky bottom-0 z-30 -mx-6 border-t border-border bg-white/95 px-6 py-3 shadow-[0_-8px_24px_rgba(0,0,0,0.05)] backdrop-blur md:-mx-8 md:px-8">
         <div className="flex flex-wrap items-center gap-3">
           <span className="text-lg font-bold text-foreground">{total} label{total === 1 ? '' : 's'}</span>
-          {total > MAX_LABELS ? (
+          <span className="text-sm text-muted-foreground">
+            {groups.map((g) => `${g.total} ${g.paper.name.toLowerCase()}`).join(' · ')}
+          </span>
+          {groups.some((g) => g.total > MAX_LABELS) ? (
             <span className="text-sm text-red-600">Up to {MAX_LABELS} per file — print in smaller batches.</span>
           ) : null}
           {error ? <span className="flex items-center gap-1.5 text-sm text-red-600"><AlertCircle size={15} /> {error}</span> : null}
           {done ? <span className="text-sm text-emerald-700">{done}</span> : null}
-          <span className="ml-auto" />
-          <Button type="button" variant="outline" onClick={() => void download('csv')} disabled={!items.length || busy || total > MAX_LABELS}>
-            CSV
-          </Button>
-          <Button type="button" onClick={() => void download('xlsx')} disabled={!items.length || busy || total > MAX_LABELS} className="gap-2">
-            <Download size={16} /> {busy ? 'Preparing…' : 'Download Excel'}
-          </Button>
+          <span className="ml-auto hidden text-xs text-muted-foreground md:inline">One file per paper — download each, then print it with that roll loaded.</span>
         </div>
       </div>
     </div>

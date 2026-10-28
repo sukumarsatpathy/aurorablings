@@ -20,6 +20,8 @@ import {
 import { ConfirmDialog } from '@/components/ui/ConfirmDialog';
 import UploadOverlay from '@/components/ui/UploadOverlay';
 import catalogService from '@/services/api/catalog';
+import { LabelPaperPicture } from '@/components/admin/LabelPaperPicture';
+import { DEFAULT_LABEL_PAPER, LABEL_PAPERS, labelPaper, type LabelPaperKey } from '@/lib/labelPapers';
 
 interface Category {
   id: string;
@@ -30,6 +32,8 @@ interface Category {
   description: string;
   is_active: boolean;
   sort_order: number;
+  /** Which barcode label roll this category's products print on. */
+  label_paper?: LabelPaperKey;
   product_count: number;
   image?: string;
 }
@@ -40,6 +44,7 @@ interface CategoryFormState {
   description: string;
   is_active: boolean;
   sort_order: number;
+  label_paper: LabelPaperKey;
   image: File | null;
 }
 
@@ -49,6 +54,7 @@ const DEFAULT_FORM: CategoryFormState = {
   description: '',
   is_active: true,
   sort_order: 0,
+  label_paper: DEFAULT_LABEL_PAPER,
   image: null,
 };
 
@@ -126,6 +132,19 @@ export const CategoryManagement: React.FC = () => {
       ),
     },
     {
+      header: 'Label paper',
+      accessorKey: 'label_paper',
+      cell: (item: Category) => {
+        const paper = labelPaper(item.label_paper);
+        return (
+          <div className="flex flex-col">
+            <span className="text-xs font-medium">{paper.name}</span>
+            <span className="text-[10px] text-muted-foreground">{paper.size}</span>
+          </div>
+        );
+      },
+    },
+    {
       header: 'Order',
       accessorKey: 'sort_order',
       align: 'center' as const,
@@ -151,6 +170,7 @@ export const CategoryManagement: React.FC = () => {
       description: item.description || '',
       is_active: item.is_active,
       sort_order: item.sort_order || 0,
+      label_paper: labelPaper(item.label_paper).key,
       image: null,
     });
     setIsModalOpen(true);
@@ -174,6 +194,7 @@ export const CategoryManagement: React.FC = () => {
     data.append('description', formData.description.trim());
     data.append('is_active', String(formData.is_active));
     data.append('sort_order', String(formData.sort_order));
+    data.append('label_paper', formData.label_paper);
     if (formData.image) data.append('image', formData.image);
 
     try {
@@ -278,7 +299,7 @@ export const CategoryManagement: React.FC = () => {
       )}
 
       <Modal open={isModalOpen} onOpenChange={setIsModalOpen}>
-        <ModalContent className="max-w-md">
+        <ModalContent className="max-h-[90vh] max-w-lg overflow-y-auto">
           <ModalHeader>
             <ModalTitle>{editingCategory ? 'Edit Category' : 'Add New Category'}</ModalTitle>
           </ModalHeader>
@@ -351,6 +372,46 @@ export const CategoryManagement: React.FC = () => {
               </div>
               <p className="text-[10px] text-muted-foreground italic">Recommended: Square JPG, PNG, or WEBP up to 5 MB.</p>
             </div>
+
+            {/*
+              Which roll this category's barcode labels print on. Both papers
+              carry the same data; the picture shows where it sits on each, so
+              the label printer app's template can be set up to match.
+            */}
+            <fieldset className="grid gap-2">
+              <legend className="mb-2 text-xs font-bold uppercase text-muted-foreground">Barcode Label Paper</legend>
+              {LABEL_PAPERS.map((paper) => {
+                const selected = formData.label_paper === paper.key;
+                return (
+                  <label
+                    key={paper.key}
+                    className={`flex cursor-pointer flex-col gap-2 rounded-xl border p-3 transition-colors ${
+                      selected ? 'border-primary bg-primary/5 ring-1 ring-inset ring-primary' : 'border-border hover:border-primary/40'
+                    }`}
+                  >
+                    <span className="flex items-start gap-2">
+                      <input
+                        type="radio"
+                        name="label_paper"
+                        value={paper.key}
+                        checked={selected}
+                        onChange={() => setFormData((prev) => ({ ...prev, label_paper: paper.key }))}
+                        className="mt-0.5 h-4 w-4 accent-primary"
+                      />
+                      <span className="min-w-0 flex-1">
+                        <span className="flex flex-wrap items-baseline gap-x-2">
+                          <span className="text-sm font-semibold text-foreground">{paper.name}</span>
+                          <span className="text-xs font-medium text-primary">{paper.size}</span>
+                        </span>
+                        <span className="block text-[11px] text-muted-foreground">{paper.material}</span>
+                        <span className="block text-[11px] text-muted-foreground">{paper.use}</span>
+                      </span>
+                    </span>
+                    <LabelPaperPicture paper={paper.key} className="h-auto w-full max-h-28" />
+                  </label>
+                );
+              })}
+            </fieldset>
 
             <div className="grid grid-cols-2 gap-4">
               <div className="grid gap-2">

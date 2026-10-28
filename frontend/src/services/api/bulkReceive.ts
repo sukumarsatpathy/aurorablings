@@ -30,6 +30,8 @@ export interface BulkReceiveProduct {
   stock_id: number | null;
   is_active: boolean;
   category: string;
+  /** Label roll this product prints on, from its category. */
+  label_paper?: string;
   image: string | null;
   attributes: Array<{
     name: string;
@@ -90,15 +92,18 @@ const bulkReceiveService = {
 
   /**
    * Download a label sheet for the label printer app: one row per sticker
-   * (Barcode, Name, SKU, MRP). Printing never changes stock.
+   * (Barcode, Name, SKU, MRP). One file is one label paper (roll): items whose
+   * categories use different papers must be downloaded separately. Printing
+   * never changes stock.
    */
   downloadLabels: async (
     items: Array<{ variant_id: string; copies: number }>,
     format: 'xlsx' | 'csv' = 'xlsx',
+    paper?: string,
   ): Promise<number> => {
     const response = await apiClient.post(
       '/v1/inventory/labels/',
-      { items, format },
+      { items, format, ...(paper ? { paper } : {}) },
       { responseType: 'blob' },
     );
     const disposition = String(response.headers['content-disposition'] || '');

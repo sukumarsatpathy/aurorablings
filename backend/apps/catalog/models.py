@@ -24,6 +24,7 @@ from django.core.validators import MinValueValidator, MaxValueValidator
 from core.models import SoftDeleteModel, BaseModel
 from core.image_optimization import compress_image, generate_responsive_variants
 from .managers import PublishedManager, ActiveCategoryManager
+from .label_papers import DEFAULT_LABEL_PAPER, LabelPaper
 
 
 # ─────────────────────────────────────────────────────────────
@@ -49,6 +50,11 @@ class Category(BaseModel):
     description = models.TextField(blank=True)
     is_active = models.BooleanField(default=True, db_index=True)
     sort_order = models.PositiveSmallIntegerField(default=0)
+    # Which label roll this category's products are printed on (label_papers).
+    label_paper = models.CharField(
+        max_length=20, choices=LabelPaper.choices, default=DEFAULT_LABEL_PAPER,
+        help_text="Barcode label paper used for products in this category.",
+    )
 
     objects     = ActiveCategoryManager()
     all_objects = models.Manager()

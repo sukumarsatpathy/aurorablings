@@ -15,8 +15,8 @@ from .models import (
 
 @admin.register(Category)
 class CategoryAdmin(admin.ModelAdmin):
-    list_display  = ["name", "parent", "is_active", "sort_order", "created_at"]
-    list_filter   = ["is_active", "parent"]
+    list_display  = ["name", "parent", "label_paper", "is_active", "sort_order", "created_at"]
+    list_filter   = ["is_active", "label_paper", "parent"]
     search_fields = ["name", "slug"]
     prepopulated_fields = {"slug": ("name",)}
     ordering = ["sort_order", "name"]

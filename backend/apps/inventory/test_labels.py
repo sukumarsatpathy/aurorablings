@@ -71,3 +71,51 @@ class LabelSheetTests(APITestCase):
             "items": [{"variant_id": str(self.a.id), "copies": 1000}] * 6,
         }, format="json")
         self.assertEqual(response.status_code, 400)
+
+
+class LabelPaperTests(APITestCase):
+    """Each category picks a roll; one file is one roll."""
+
+    def setUp(self):
+        admin = User.objects.create_user(
+            email="papers@example.com", password="pw123456", role="admin", is_staff=True, is_superuser=True,
+        )
+        self.client.force_authenticate(user=admin)
+        earrings = Category.objects.create(name="Earrings", slug="earrings")  # default: packed sticker
+        rings = Category.objects.create(name="Rings", slug="rings", label_paper="tail_tag")
+        self.stud = ProductVariant.objects.create(
+            product=Product.objects.create(name="Stud", slug="stud", category=earrings),
+            sku="STUD", price=Decimal("199"),
+        )
+        self.ring = ProductVariant.objects.create(
+            product=Product.objects.create(name="Band", slug="band", category=rings),
+            sku="BAND", price=Decimal("299"),
+        )
+
+    def post(self, *variants, paper=None):
+        payload = {"format": "csv", "items": [{"variant_id": str(v.id), "copies": 1} for v in variants]}
+        if paper:
+            payload["paper"] = paper
+        return self.client.post(URL, payload, format="json")
+
+    def test_new_categories_default_to_the_packed_sticker(self):
+        self.assertEqual(self.stud.product.category.label_paper, "packed_sticker")
+
+    def test_the_file_is_named_after_its_paper(self):
+        response = self.post(self.ring, paper="tail_tag")
+        self.assertEqual(response.status_code, 200)
+        self.assertIn("labels-tail-tag-", response["Content-Disposition"])
+        self.assertEqual(response["X-Label-Paper"], "tail_tag")
+
+    def test_mixed_papers_in_one_file_are_refused(self):
+        self.assertEqual(self.post(self.stud, self.ring).status_code, 400)
+
+    def test_items_must_match_the_paper_asked_for(self):
+        self.assertEqual(self.post(self.stud, paper="tail_tag").status_code, 400)
+
+    def test_the_category_api_reads_and_writes_the_paper(self):
+        rings = self.ring.product.category
+        response = self.client.patch(f"/api/v1/catalog/categories/{rings.id}/", {"label_paper": "packed_sticker"}, format="multipart")
+        self.assertEqual(response.status_code, 200, response.data)
+        rings.refresh_from_db()
+        self.assertEqual(rings.label_paper, "packed_sticker")
