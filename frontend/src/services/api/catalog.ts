@@ -23,6 +23,10 @@ export interface CatalogVariant {
   id: string;
   sku: string;
   name: string;
+  /** Staff only: counter-label barcode, label name override and printed label text. */
+  barcode?: string | null;
+  label_name?: string;
+  label_text?: string;
   price: string;
   compare_at_price?: string | null;
   effective_price?: string;
@@ -418,6 +422,7 @@ const catalogService = {
     offer_ends_at?: string | null;
     offer_label?: string;
     offer_is_active?: boolean;
+    label_name?: string;
   }) => {
     const response = await apiClient.post(`/v1/catalog/products/${productId}/variants/`, payload);
     return response.data;
@@ -435,6 +440,7 @@ const catalogService = {
     offer_ends_at: string | null;
     offer_label: string;
     offer_is_active: boolean;
+    label_name: string;
   }>) => {
     const response = await apiClient.patch(`/v1/catalog/variants/${variantId}/`, payload);
     return response.data;

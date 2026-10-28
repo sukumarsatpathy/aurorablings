@@ -304,18 +304,39 @@ class ProductVariantSerializer(serializers.ModelSerializer):
     has_active_offer   = serializers.BooleanField(read_only=True)
     effective_price    = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True)
     display_compare_at_price = serializers.DecimalField(max_digits=12, decimal_places=2, read_only=True, allow_null=True)
+    # What the label actually prints: the override, or the automatic name.
+    label_text         = serializers.CharField(read_only=True)
 
     class Meta:
         model  = ProductVariant
         fields = [
-            "id", "sku", "name", "price", "compare_at_price",
+            "id", "sku", "name", "barcode", "label_name", "label_text", "price", "compare_at_price",
             "offer_price", "offer_starts_at", "offer_ends_at", "offer_label", "offer_is_active",
             "has_active_offer", "effective_price", "display_compare_at_price",
             "stock_quantity", "allow_backorder", "is_active", "is_default",
             "attribute_values", "discount_percentage",
             "is_in_stock", "is_low_stock", "weight_grams",
         ]
-        read_only_fields = ["id", "discount_percentage", "is_in_stock", "is_low_stock"]
+        read_only_fields = ["id", "barcode", "discount_percentage", "is_in_stock", "is_low_stock"]
+
+    # Counter-label fields are for staff. The same serializer renders variants
+    # on the public product page, where they would be noise (and label_text
+    # costs work per variant), so they are dropped unless a staff user asked.
+    STAFF_ONLY_FIELDS = ("barcode", "label_name", "label_text")
+
+    def get_fields(self):
+        fields = super().get_fields()
+        request = self.context.get("request")
+        user = getattr(request, "user", None)
+        is_staff = bool(
+            user is not None
+            and getattr(user, "is_authenticated", False)
+            and getattr(user, "role", None) in ("admin", "staff")
+        )
+        if not is_staff:
+            for name in self.STAFF_ONLY_FIELDS:
+                fields.pop(name, None)
+        return fields
 
 
 class ProductVariantWriteSerializer(serializers.Serializer):
@@ -335,6 +356,8 @@ class ProductVariantWriteSerializer(serializers.Serializer):
     attribute_value_ids = serializers.ListField(child=serializers.UUIDField(), default=list)
     weight_grams        = serializers.IntegerField(required=False, allow_null=True)
     name                = serializers.CharField(max_length=255, required=False, default="")
+    # The barcode itself is never writable: it is assigned once and printed.
+    label_name          = serializers.CharField(max_length=20, required=False, allow_blank=True, trim_whitespace=True)
 
     def validate(self, attrs):
         price = attrs.get("price")

@@ -5,7 +5,17 @@ import posService, { type CatalogueRow } from '@/services/api/pos';
 interface Props {
   onAdd: (row: CatalogueRow) => void;
   inCart: Record<string, number>;
+  /**
+   * Enter in the search box. A scanner aimed at the till while this box has
+   * focus types the code here and presses Enter, so this is where most scans
+   * arrive. Resolves true when the code matched something (added or refused
+   * for stock), false when it matched nothing.
+   */
+  onScanCode?: (code: string) => Promise<boolean>;
 }
+
+/** A label barcode at the end of whatever was already in the box. */
+const TRAILING_BARCODE = /(\d{8})$/;
 
 const money = (value: string | number) =>
   `₹${Number(value).toLocaleString('en-IN', { maximumFractionDigits: 0 })}`;
@@ -18,7 +28,7 @@ const money = (value: string | number) =>
  * take under thirty seconds from empty cart to paid, and this is where most of
  * that budget is either spent or saved.
  */
-export function CatalogueGrid({ onAdd, inCart }: Props) {
+export function CatalogueGrid({ onAdd, inCart, onScanCode }: Props) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<CatalogueRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -63,7 +73,22 @@ export function CatalogueGrid({ onAdd, inCart }: Props) {
           type="search"
           value={query}
           onChange={(e) => setQuery(e.target.value)}
-          placeholder="Search name, SKU or stock ID…"
+          onKeyDown={async (e) => {
+            if (e.key !== 'Enter' || !onScanCode) return;
+            // Read the box, not state: a scanner types faster than renders.
+            const text = e.currentTarget.value.trim();
+            if (!text) return;
+            e.preventDefault();
+            // The scanner types after whatever is already in the box, so
+            // "ring10000123" is someone who searched, then scanned: look up
+            // just the trailing barcode.
+            const tail = text.match(TRAILING_BARCODE)?.[1];
+            const code = tail && /\D/.test(text.slice(0, -8)) ? tail : text;
+            const matched = await onScanCode(code);
+            if (matched) setQuery('');
+            searchRef.current?.focus();
+          }}
+          placeholder="Scan a barcode, or search name, SKU or stock ID…"
           className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm outline-none focus:border-primary"
           aria-label="Search catalogue"
         />

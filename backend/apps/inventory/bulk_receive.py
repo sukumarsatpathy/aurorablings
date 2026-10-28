@@ -151,6 +151,10 @@ def _catalog(*, warehouse_id, request) -> list[dict]:
                 "id": str(variant.pk),
                 "sku": variant.sku,
                 "name": variant.name,
+                # For the label page, which works from this same catalogue.
+                "barcode": variant.barcode,
+                "label_text": variant.label_text,
+                "price": str(variant.price),
                 "is_active": variant.is_active,
                 "on_hand": here.on_hand if here else 0,
                 "available": here.available if here else 0,

@@ -32,6 +32,8 @@ drf-spectacular>=0.27.0
 django-environ>=0.11.0
 weasyprint>=60.0
 reportlab>=4.0
+# Barcode label sheets (.xlsx) for the label printer app.
+openpyxl>=3.1
 
 # Production
 gunicorn>=21.2.0

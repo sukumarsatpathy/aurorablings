@@ -21,6 +21,7 @@ urlpatterns = [
     path("customers/<uuid:user_id>/occasions/",
                                           views.CustomerOccasionsView.as_view(), name="customer-occasions"),
     path("catalogue/",                    views.CatalogueSearchView.as_view(),   name="catalogue"),
+    path("scan/",                         views.ScanLookupView.as_view(),        name="scan"),
     path("quote/",                        views.POSQuoteView.as_view(),          name="quote"),
     path("orders/",                       views.POSOrderCreateView.as_view(),    name="order-create"),
     path("orders/part-paid/",             views.PartPaidOrderListView.as_view(), name="part-paid"),

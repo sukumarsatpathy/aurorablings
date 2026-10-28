@@ -67,6 +67,8 @@ export interface ShiftSummary {
 export interface CatalogueRow {
   variant_id: string;
   sku: string;
+  /** The number on the variant's printed label. */
+  barcode?: string | null;
   /** The product's counter stock reference. Null until someone assigns one. */
   stock_id: number | null;
   product_name: string;
@@ -257,6 +259,16 @@ const posService = {
   // ── Selling ─────────────────────────────────────────────
   catalogue: async (q: string): Promise<CatalogueRow[]> => {
     const { data } = await apiClient.get('/v1/pos/catalogue/', { params: { q } });
+    return data;
+  },
+
+  /**
+   * One scanned code → one sellable variant (label barcode, then exact SKU,
+   * then a stock ID that names a single-variant product). Rejects with the
+   * server's 404/409 when nothing — or more than one thing — matches.
+   */
+  scan: async (code: string): Promise<CatalogueRow> => {
+    const { data } = await apiClient.get('/v1/pos/scan/', { params: { code } });
     return data;
   },
 

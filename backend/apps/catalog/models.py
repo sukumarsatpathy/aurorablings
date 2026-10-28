@@ -537,6 +537,24 @@ class ProductVariant(BaseModel):
         help_text="Auto-generated from attribute values if left blank."
     )
 
+    # ── Counter label ─────────────────────────────────────────
+    # The number in the bars of the printed label, scanned at the till. Given
+    # out once on first save (see catalog.barcodes) and never changed: a label
+    # already stuck on a piece must keep pointing at it. Nullable only so the
+    # column could be added to existing rows; the migration fills every one.
+    barcode = models.CharField(
+        max_length=32, unique=True, null=True, blank=True, editable=False,
+        help_text="Printed on the counter label and scanned at the till. Assigned automatically.",
+    )
+    # What the label says in words, at most 20 characters. Blank means "work it
+    # out from the product and options" (barcodes.default_label_name), so most
+    # variants never need one; staff type one only where the automatic text
+    # reads badly.
+    label_name = models.CharField(
+        max_length=20, blank=True,
+        help_text="Short name printed on the label. Leave blank to build it from the product and options.",
+    )
+
     # ── Pricing (mandatory, no null allowed) ─────────────────
     price            = models.DecimalField(
         max_digits=12, decimal_places=2,
@@ -687,6 +705,25 @@ class ProductVariant(BaseModel):
             errors["offer_ends_at"] = "Offer end must be later than offer start."
         if errors:
             raise ValidationError(errors)
+
+    def save(self, *args, **kwargs):
+        if not self.barcode:
+            from .barcodes import next_variant_barcode
+
+            self.barcode = next_variant_barcode()
+            update_fields = kwargs.get("update_fields")
+            if update_fields is not None:
+                kwargs["update_fields"] = list({*update_fields, "barcode"})
+        super().save(*args, **kwargs)
+
+    @property
+    def label_text(self) -> str:
+        """The name printed on the label: the override if set, else the automatic one."""
+        if self.label_name:
+            return self.label_name
+        from .barcodes import default_label_name
+
+        return default_label_name(self)
 
     def build_name(self) -> str:
         """Build a human-readable name from attribute values."""

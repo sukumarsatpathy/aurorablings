@@ -1,6 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation } from 'react-router-dom';
-import { Search, Plus, Edit, Trash2, PackagePlus, Shuffle, SlidersHorizontal, AlertCircle, ChevronDown, Boxes } from 'lucide-react';
+import { Search, Plus, Edit, Trash2, PackagePlus, Shuffle, SlidersHorizontal, AlertCircle, ChevronDown, Boxes, Tag } from 'lucide-react';
 import { DataTable, StatusBadge } from '@/components/admin/AdminTable';
 import { Button } from '@/components/ui/Button';
 import { Card } from '@/components/ui/Card';
@@ -302,6 +302,7 @@ export const Inventory: React.FC = () => {
         <div className="flex flex-wrap gap-2">
           <Button variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground" onClick={() => openOps('receive')}><PackagePlus size={15} /> Receive</Button>
           <Button asChild variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground"><Link to="/admin/inventory/bulk-receive"><Boxes size={15} /> Bulk Receive</Link></Button>
+          <Button asChild variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground"><Link to="/admin/inventory/labels"><Tag size={15} /> Labels</Link></Button>
           <Button variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground" onClick={() => openOps('adjust')}><SlidersHorizontal size={15} /> Adjust</Button>
           <Button variant="outline" className="h-10 gap-2 border-primary/40 bg-white text-primary hover:bg-primary hover:text-primary-foreground" onClick={() => openOps('transfer')}><Shuffle size={15} /> Transfer</Button>
           <Button className="h-10 gap-2" onClick={() => openWarehouseModal()}><Plus size={15} /> Add Warehouse</Button>

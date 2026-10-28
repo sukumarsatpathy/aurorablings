@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import { Link } from 'react-router-dom';
 
 import { CartPanel } from '@/components/pos/CartPanel';
@@ -15,9 +15,15 @@ import { CloseShiftDialog } from '@/components/pos/CloseShiftDialog';
 import { CustomerPanel, type CounterCustomer } from '@/components/pos/CustomerPanel';
 import { ShiftGate } from '@/components/pos/ShiftGate';
 import { useBranding } from '@/hooks/useBranding';
+import { scanBeep, useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { usePosCart } from '@/hooks/usePosCart';
 import { usePosShift } from '@/hooks/usePosShift';
-import posService, { type PosOrder } from '@/services/api/pos';
+import posService, { type CatalogueRow, type PosOrder } from '@/services/api/pos';
+
+/** Codes we print on labels: 8 digits. Anything else in the box is a search. */
+const LOOKS_LIKE_BARCODE = /^\d{6,}$/;
+
+type ScanNotice = { kind: 'ok' | 'error'; text: string; at: number };
 
 /**
  * The counter.
@@ -52,6 +58,7 @@ export function PosPage() {
     setFulfilment('carry_away');
     setCourierAddress(EMPTY_ADDRESS);
   };
+  const [scanNotice, setScanNotice] = useState<ScanNotice | null>(null);
 
   /**
    * An in-progress sale must survive a reload.
@@ -138,6 +145,68 @@ export function PosPage() {
       }, {}),
     [cart.entries],
   );
+
+  /**
+   * A scan: look the code up, then add it exactly as a tap on its tile would.
+   *
+   * Same stock rule as the tiles — a piece the system shows as sold out can't
+   * be added, because the server would refuse the sale anyway and it is
+   * better to find out at the first beep than at the payment screen. Resolves
+   * true when the code matched a product (so the search box can clear), false
+   * when it matched nothing.
+   */
+  const addToCart = cart.add;
+  const handleScan = useCallback(
+    async (code: string): Promise<boolean> => {
+      const notify = (kind: ScanNotice['kind'], text: string) => {
+        scanBeep(kind);
+        setScanNotice({ kind, text, at: Date.now() });
+      };
+
+      let row: CatalogueRow;
+      try {
+        row = await posService.scan(code);
+      } catch (err) {
+        const response = (err as { response?: { status?: number; data?: { detail?: string } } })?.response;
+        const status = response?.status;
+        const detail = response?.data?.detail;
+        if (status === 404) {
+          // Plain words + Enter in the search box are a search, not a scan:
+          // the results are already on screen, so stay quiet.
+          if (LOOKS_LIKE_BARCODE.test(code)) notify('error', detail || `No product has the code ${code}.`);
+          return false;
+        }
+        notify('error', detail || 'Could not look up that code — check the connection and scan again.');
+        return status === 409; // matched, but needs a choice from the grid
+      }
+
+      const label = [row.product_name, row.variant_name].filter(Boolean).join(' · ');
+      const taken = inCart[row.variant_id] || 0;
+      if (row.track_inventory && taken >= row.stock) {
+        notify(
+          'error',
+          row.stock <= 0
+            ? `${label} shows 0 in stock. Receive it in Inventory before selling.`
+            : `Only ${row.stock} of ${label} in stock — all are already in the cart.`,
+        );
+        return true;
+      }
+      addToCart(row);
+      notify('ok', `Added ${label} — ₹${Number(row.price).toLocaleString('en-IN')}`);
+      return true;
+    },
+    [addToCart, inCart],
+  );
+
+  // Scans while nothing is focused (after tapping a tile, say). Off once a
+  // sale exists: the counter is collecting money then, not adding pieces.
+  useBarcodeScanner({ onScan: (code) => void handleScan(code), enabled: !order && Boolean(shift) });
+
+  useEffect(() => {
+    if (!scanNotice) return;
+    const timer = window.setTimeout(() => setScanNotice(null), scanNotice.kind === 'ok' ? 2500 : 5000);
+    return () => window.clearTimeout(timer);
+  }, [scanNotice]);
 
   const createSale = async () => {
     if (!shift) return;
@@ -320,9 +389,22 @@ export function PosPage() {
         </div>
       )}
       <CustomerPanel value={customer} onChange={setCustomer} />
+      {scanNotice && (
+        <div
+          role="status"
+          aria-live="polite"
+          className={`border-b px-4 py-2 text-sm font-medium ${
+            scanNotice.kind === 'ok'
+              ? 'border-emerald-200 bg-emerald-50 text-emerald-800'
+              : 'border-red-200 bg-red-50 text-red-700'
+          }`}
+        >
+          {scanNotice.text}
+        </div>
+      )}
       <div className="grid flex-1 grid-cols-1 overflow-hidden md:grid-cols-[1.35fr_1fr]">
         <div className="overflow-hidden border-r border-border">
-          <CatalogueGrid onAdd={cart.add} inCart={inCart} />
+          <CatalogueGrid onAdd={cart.add} inCart={inCart} onScanCode={handleScan} />
         </div>
         <CartPanel
           entries={cart.entries}

@@ -10,6 +10,12 @@ export interface BulkReceiveVariant {
   id: string;
   sku: string;
   name: string;
+  /** Number on the printed label. */
+  barcode?: string | null;
+  /** Short name the label prints (override or automatic). */
+  label_text?: string;
+  /** Regular price — what the label prints as MRP. */
+  price?: string;
   is_active: boolean;
   /** Units physically in the chosen warehouse now. */
   on_hand: number;
@@ -81,6 +87,46 @@ const bulkReceiveService = {
     const response = await apiClient.post('/v1/inventory/stock/bulk-receive/', payload);
     return response.data;
   },
+
+  /**
+   * Download a label sheet for the label printer app: one row per sticker
+   * (Barcode, Name, SKU, MRP). Printing never changes stock.
+   */
+  downloadLabels: async (
+    items: Array<{ variant_id: string; copies: number }>,
+    format: 'xlsx' | 'csv' = 'xlsx',
+  ): Promise<number> => {
+    const response = await apiClient.post(
+      '/v1/inventory/labels/',
+      { items, format },
+      { responseType: 'blob' },
+    );
+    const disposition = String(response.headers['content-disposition'] || '');
+    const name = disposition.match(/filename="([^"]+)"/)?.[1] || `labels.${format}`;
+    const url = URL.createObjectURL(response.data as Blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = name;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.setTimeout(() => URL.revokeObjectURL(url), 1000);
+    return Number(response.headers['x-label-count'] || 0);
+  },
 };
+
+/** The server's message out of a blob error response (label download). */
+export async function labelErrorMessage(error: unknown): Promise<string> {
+  const data = (error as { response?: { data?: unknown } })?.response?.data;
+  try {
+    if (data instanceof Blob) {
+      const parsed = JSON.parse(await data.text());
+      return parsed?.message || parsed?.detail || 'Could not make the label file.';
+    }
+  } catch {
+    /* fall through */
+  }
+  return 'Could not make the label file. Check your connection and try again.';
+}
 
 export default bulkReceiveService;

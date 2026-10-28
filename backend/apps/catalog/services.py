@@ -623,6 +623,7 @@ def create_variant(
     is_default: bool = False,
     weight_grams: int | None = None,
     name: str = "",
+    label_name: str = "",
 ) -> ProductVariant:
     """
     Create a product variant.
@@ -675,6 +676,7 @@ def create_variant(
         allow_backorder=allow_backorder,
         is_default=is_default,
         weight_grams=weight_grams,
+        label_name=label_name or "",
     )
 
     # ── Attach attribute values via through table ──────────────

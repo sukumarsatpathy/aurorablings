@@ -1,9 +1,10 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { AlertCircle, Check, ChevronLeft, Download, FileUp, Search, X } from 'lucide-react';
+import { AlertCircle, Check, ChevronLeft, Download, FileUp, Search, Tag, X } from 'lucide-react';
 import { Button } from '@/components/ui/Button';
 import { Input } from '@/components/ui/Input';
 import bulkReceiveService, {
+  labelErrorMessage,
   type BulkReceiveProduct,
   type BulkReceiveVariant,
   type BulkReceiveWarehouse,
@@ -167,7 +168,9 @@ export const BulkReceive: React.FC = () => {
   }>(null);
   const [saving, setSaving] = useState(false);
   const [saveError, setSaveError] = useState('');
-  const [saved, setSaved] = useState<null | { message: string }>(null);
+  const [saved, setSaved] = useState<null | { message: string; lines: Array<{ variant_id: string; quantity: number }> }>(null);
+  const [labelBusy, setLabelBusy] = useState(false);
+  const [labelError, setLabelError] = useState('');
   const fileRef = useRef<HTMLInputElement>(null);
   const searchBoxRef = useRef<HTMLDivElement>(null);
   const topRef = useRef<HTMLDivElement>(null);
@@ -360,7 +363,9 @@ export const BulkReceive: React.FC = () => {
         message:
           result.message ||
           `Received ${r.total_quantity} pieces across ${r.variants} items.`,
+        lines: (r.lines || []).map((l) => ({ variant_id: l.variant_id, quantity: l.quantity })),
       });
+      setLabelError('');
       setQuantities({});
       setProductIds([]);
       setCsvReport(null);
@@ -393,7 +398,35 @@ export const BulkReceive: React.FC = () => {
       {saved ? (
         <div role="status" className="flex items-center gap-3 rounded-2xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
           <Check size={18} className="shrink-0" />
-          <span className="flex-1">{saved.message}</span>
+          <span className="flex-1">
+            {saved.message}
+            {labelError ? <span className="mt-1 block text-red-700">{labelError}</span> : null}
+          </span>
+          {saved.lines.length ? (
+            // Stock is already in; this only prints stickers for it, one per
+            // piece received. Reprinting later never changes stock.
+            <Button
+              type="button"
+              size="sm"
+              className="gap-1.5"
+              disabled={labelBusy}
+              onClick={async () => {
+                setLabelBusy(true);
+                setLabelError('');
+                try {
+                  await bulkReceiveService.downloadLabels(
+                    saved.lines.map((l) => ({ variant_id: l.variant_id, copies: l.quantity })),
+                  );
+                } catch (error) {
+                  setLabelError(await labelErrorMessage(error));
+                } finally {
+                  setLabelBusy(false);
+                }
+              }}
+            >
+              <Tag size={14} /> {labelBusy ? 'Preparing…' : 'Download labels'}
+            </Button>
+          ) : null}
           <Link to="/admin/inventory" className="font-semibold underline">Back to Inventory</Link>
         </div>
       ) : null}

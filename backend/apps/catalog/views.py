@@ -483,7 +483,7 @@ class ProductViewSet(BaseViewSet):
 
         if request.method == "GET":
             qs = selectors.get_variants_for_product(product)
-            return self.ok(data=ProductVariantSerializer(qs, many=True).data)
+            return self.ok(data=ProductVariantSerializer(qs, many=True, context={"request": request}).data)
 
         # POST — staff only
         if not (request.user.is_authenticated and request.user.role in ("admin", "staff")):
@@ -492,7 +492,7 @@ class ProductViewSet(BaseViewSet):
         s = ProductVariantWriteSerializer(data=request.data)
         s.is_valid(raise_exception=True)
         variant = services.create_variant(product=product, **s.validated_data)
-        return self.created(data=ProductVariantSerializer(variant).data)
+        return self.created(data=ProductVariantSerializer(variant, context={"request": request}).data)
 
     # ── Gallery (public) ──────────────────────────────────────
     @action(detail=True, methods=["get"], url_path="gallery")
@@ -912,7 +912,7 @@ class ProductVariantViewSet(BaseViewSet):
         variant = selectors.get_variant_by_id(pk)
         if not variant:
             raise NotFoundError("Variant not found.")
-        return self.ok(data=ProductVariantSerializer(variant).data)
+        return self.ok(data=ProductVariantSerializer(variant, context={"request": request}).data)
 
     def partial_update(self, request, pk=None):
         variant = selectors.get_variant_by_id(pk)
@@ -958,7 +958,7 @@ class ProductVariantViewSet(BaseViewSet):
                     notify_back_in_stock_task.delay(str(variant.product_id))
                 except Exception:
                     logger.exception("failed_to_queue_back_in_stock_notification", product_id=str(variant.product_id))
-        return self.ok(data=ProductVariantSerializer(variant).data)
+        return self.ok(data=ProductVariantSerializer(variant, context={"request": request}).data)
 
     def destroy(self, request, pk=None):
         variant = selectors.get_variant_by_id(pk)

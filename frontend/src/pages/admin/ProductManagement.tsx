@@ -53,6 +53,12 @@ interface ProductAttribute {
 interface ProductVariation {
   id: string;
   sku: string;
+  /** Counter-label number, assigned by the server on first save. Read-only. */
+  barcode?: string | null;
+  /** Short name printed on the label (≤ 20 chars). Blank = automatic. */
+  labelName?: string;
+  /** What the label prints right now (override or automatic), from the server. */
+  labelText?: string;
   attributes: Record<string, string>;
   price: number;
   offerPrice?: number | null;
@@ -304,6 +310,9 @@ const mapDetailToProduct = (raw: CatalogProductDetail): Product => ({
   variations: (raw.variants || []).map((v) => ({
     id: v.id,
     sku: v.sku,
+    barcode: v.barcode ?? null,
+    labelName: v.label_name || '',
+    labelText: v.label_text || '',
     attributes: Object.fromEntries((v.attribute_values || []).map((a) => [a.attribute_name, a.value])),
     price: Number(v.price),
     offerPrice: (v as any).offer_price ? Number((v as any).offer_price) : null,
@@ -928,6 +937,7 @@ export const ProductManagement: React.FC = () => {
           offer_ends_at: v.offerEndsAt || null,
           offer_label: v.offerLabel || '',
           offer_is_active: Boolean(v.offerIsActive),
+          label_name: (v.labelName || '').trim(),
         });
       } else {
         const created = await catalogService.createVariant(productId, {
@@ -941,6 +951,7 @@ export const ProductManagement: React.FC = () => {
           offer_ends_at: v.offerEndsAt || null,
           offer_label: v.offerLabel || '',
           offer_is_active: Boolean(v.offerIsActive),
+          label_name: (v.labelName || '').trim(),
         });
         const createdId = created?.data?.id;
         if (createdId) keptPersistedIds.add(String(createdId));
@@ -2515,6 +2526,28 @@ export const ProductManagement: React.FC = () => {
                     <p className="text-[10px] text-muted-foreground -mt-1">
                       Stock is managed from Inventory module (warehouse-wise).
                     </p>
+                    {/*
+                      Counter label. The barcode is assigned by the server on
+                      save and never changes, so it is shown, not edited. The
+                      label name is optional: blank prints an automatic short
+                      name built from the product and options.
+                    */}
+                    <div className="grid grid-cols-2 gap-2 pr-6">
+                      <div className="flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-muted/20 px-2 text-xs">
+                        <span className="text-[10px] font-medium text-muted-foreground">Barcode</span>
+                        <span className="font-mono tabular-nums text-foreground">
+                          {v.barcode || <span className="text-muted-foreground">on save</span>}
+                        </span>
+                      </div>
+                      <Input
+                        placeholder={v.labelText ? `Label: ${v.labelText}` : 'Label name (auto)'}
+                        value={v.labelName || ''}
+                        maxLength={20}
+                        title="Short name printed on the barcode label, up to 20 characters. Leave blank for the automatic name."
+                        onChange={(e) => updateVariation(i, 'labelName', e.target.value.slice(0, 20))}
+                        className="h-7 text-xs"
+                      />
+                    </div>
                     <div className="grid grid-cols-2 gap-2 pr-6">
                       <Input
                         type="number"

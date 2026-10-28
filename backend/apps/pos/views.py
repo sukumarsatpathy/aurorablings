@@ -666,12 +666,12 @@ class CatalogueSearchView(APIView):
     """
     permission_classes = [IsAuthenticated, IsStaffOrAdmin]
 
-    def get(self, request):
+    @staticmethod
+    def _sellable_variants():
         from django.db.models import Count, Prefetch, Q, Sum
 
         from apps.catalog.models import ProductMedia, ProductVariant
 
-        query = (request.query_params.get("q") or "").strip()
         # Stock has two possible homes: WarehouseStock rows in the inventory app,
         # and the legacy `stock_quantity` column on the variant. The storefront
         # reads ProductVariant.available_quantity, which prefers the warehouse
@@ -709,6 +709,13 @@ class CatalogueSearchView(APIView):
                 wh_rows=Count("stock_records", filter=_active_wh),
             )
         )
+        return variants
+
+    def get(self, request):
+        from django.db.models import Q
+
+        query = (request.query_params.get("q") or "").strip()
+        variants = self._sellable_variants()
 
         # Restoring a cart after a refresh: the till knows which variants it had,
         # and needs today's price and stock for each rather than whatever it
@@ -723,6 +730,8 @@ class CatalogueSearchView(APIView):
                 Q(sku__icontains=query)
                 | Q(name__icontains=query)
                 | Q(product__name__icontains=query)
+                # A label's barcode typed (or scanned) into the search box.
+                | Q(barcode=query)
             )
             # A stock ID is an integer column, so `icontains` on it would ask
             # Postgres to compare an integer to a pattern and error. Only when
@@ -768,6 +777,7 @@ class CatalogueSearchView(APIView):
             {
                 "variant_id": str(v.id),
                 "sku": v.sku,
+                "barcode": v.barcode,
                 "stock_id": v.product.stock_id if v.product_id else None,
                 "product_name": v.product.name if v.product_id else "",
                 "variant_name": v.name or "",
@@ -780,6 +790,58 @@ class CatalogueSearchView(APIView):
             }
             for v in variants
         ]
+
+
+class ScanLookupView(CatalogueSearchView):
+    """
+    GET /api/v1/pos/scan/?code=10000123
+
+    What the till calls when the scanner fires: one code in, one variant out,
+    in the same row shape as the catalogue so the cart treats a scanned item
+    exactly like a tapped one.
+
+    Tried in order, first match wins:
+      1. the variant's label barcode (what our printed labels carry);
+      2. the SKU, exactly (a supplier tag, or someone typing it);
+      3. the product's stock ID, but only when that product has a single
+         sellable variant — a stock ID names a product, and guessing which
+         colour the customer is holding is how the wrong piece gets billed.
+
+    404 when nothing matches, so the till can play the error tone rather than
+    adding something close.
+    """
+
+    def get(self, request):
+        code = (request.query_params.get("code") or "").strip()
+        if not code or len(code) > 100:
+            return _bad("Scan a barcode.")
+
+        variants = self._sellable_variants()
+
+        hit = list(variants.filter(barcode=code)[:1])
+        if not hit:
+            hit = list(variants.filter(sku__iexact=code)[:2])
+            if len(hit) > 1:  # SKUs are unique; iexact can still tie on case
+                hit = [v for v in hit if v.sku == code][:1]
+        if not hit and code.isdigit() and len(code) < 10:
+            by_stock_id = list(variants.filter(product__stock_id=int(code))[:2])
+            if len(by_stock_id) == 1:
+                hit = by_stock_id
+            elif len(by_stock_id) > 1:
+                return Response(
+                    {
+                        "detail": f"Stock ID {code} has several variations — pick one from the list.",
+                        "code": "ambiguous",
+                    },
+                    status=status.HTTP_409_CONFLICT,
+                )
+
+        if not hit:
+            return Response(
+                {"detail": f"No product has the code {code}.", "code": "not_found"},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+        return Response(self._rows(hit)[0])
 
 
 class CustomerLookupView(APIView):

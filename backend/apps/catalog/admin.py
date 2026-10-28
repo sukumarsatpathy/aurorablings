@@ -66,8 +66,9 @@ class VariantAttributeValueInline(admin.TabularInline):
 class ProductVariantInline(admin.TabularInline):
     model  = ProductVariant
     extra  = 1
+    readonly_fields = ["barcode"]
     fields = [
-        "sku", "price", "offer_price", "offer_starts_at", "offer_ends_at",
+        "sku", "barcode", "label_name", "price", "offer_price", "offer_starts_at", "offer_ends_at",
         "compare_at_price", "stock_quantity", "allow_backorder", "is_default", "is_active",
     ]
     show_change_link = True
@@ -171,13 +172,13 @@ class ProductAdmin(admin.ModelAdmin):
 @admin.register(ProductVariant)
 class ProductVariantAdmin(admin.ModelAdmin):
     list_display   = [
-        "sku", "product", "price", "offer_price", "offer_starts_at", "offer_ends_at",
+        "sku", "barcode", "product", "price", "offer_price", "offer_starts_at", "offer_ends_at",
         "compare_at_price", "stock_quantity", "allow_backorder", "is_default", "is_active",
     ]
     list_filter    = ["is_active", "is_default", "product__category"]
-    search_fields  = ["sku", "product__name"]
+    search_fields  = ["sku", "=barcode", "product__name"]
     inlines        = [VariantAttributeValueInline]
-    readonly_fields = ["created_at", "updated_at"]
+    readonly_fields = ["barcode", "created_at", "updated_at"]
     list_editable = ["stock_quantity"]
     actions = ["increment_stock_by_ten", "decrement_stock_by_ten"]
 
