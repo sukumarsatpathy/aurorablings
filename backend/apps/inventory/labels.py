@@ -2,7 +2,7 @@
 Label sheet — the file the label printer app prints barcode stickers from.
 
     POST /api/v1/inventory/labels/
-         {items: [{variant_id, copies}], format?: "xlsx" | "csv"}
+         {items: [{variant_id, copies}], format?: "xls" | "csv" | "xlsx", paper?}
 
 Returns a spreadsheet with ONE ROW PER STICKER (a line with copies=3 becomes
 three identical rows), because label apps such as WE PRINT print one label per
@@ -22,6 +22,13 @@ Whatever is printed, the till still charges the price in the database.
 
 Printing labels never changes stock. Stock is added by receiving it (single or
 bulk receive); this endpoint only reads.
+
+Format: .xls (Excel 97–2003) is the default. The WePrint app (Detonger) that
+SEZNIK printers use lists XLS, XLSX and CSV, but opened our .xlsx as "no data
+found"; the old binary format is what phone label apps read most reliably.
+Every cell is plain text on a sheet named "Sheet1" with the headers in row 1.
+CSV is plain UTF-8 without a byte-order mark, which some apps read into the
+first column name. .xlsx stays available for spreadsheets.
 
 Kept in its own module so the main inventory views/services stay untouched.
 """
@@ -112,11 +119,29 @@ def label_rows(items, paper: str | None = None) -> tuple[list[list[str]], str]:
 
 def _csv(rows) -> bytes:
     buffer = io.StringIO()
-    writer = csv.writer(buffer)
+    writer = csv.writer(buffer, lineterminator="\r\n")
     writer.writerow(HEADERS)
     writer.writerows(rows)
-    # BOM so Excel on Windows opens it as UTF-8.
-    return ("﻿" + buffer.getvalue()).encode("utf-8")
+    return buffer.getvalue().encode("utf-8")
+
+
+def _xls(rows) -> bytes:
+    import xlwt
+
+    wb = xlwt.Workbook(encoding="utf-8")
+    ws = wb.add_sheet("Sheet1")
+    text = xlwt.easyxf(num_format_str="@")
+    for col, header in enumerate(HEADERS):
+        ws.write(0, col, header, text)
+    # Written as strings so the barcode stays "10000123", never 1.00E+07.
+    for r, row in enumerate(rows, start=1):
+        for col, value in enumerate(row):
+            ws.write(r, col, str(value), text)
+    for col, width in enumerate((12, 24, 18, 8)):
+        ws.col(col).width = 256 * width
+    out = io.BytesIO()
+    wb.save(out)
+    return out.getvalue()
 
 
 def _xlsx(rows) -> bytes:
@@ -124,7 +149,7 @@ def _xlsx(rows) -> bytes:
 
     wb = Workbook()
     ws = wb.active
-    ws.title = "Labels"
+    ws.title = "Sheet1"
     ws.append(HEADERS)
     for row in rows:
         ws.append(row)
@@ -153,7 +178,7 @@ class LabelItemSerializer(serializers.Serializer):
 
 class LabelSheetSerializer(serializers.Serializer):
     items = LabelItemSerializer(many=True, allow_empty=False, max_length=MAX_LINES)
-    format = serializers.ChoiceField(choices=["xlsx", "csv"], required=False, default="xlsx")
+    format = serializers.ChoiceField(choices=["xls", "xlsx", "csv"], required=False, default="xls")
     paper = serializers.ChoiceField(choices=LabelPaper.choices, required=False)
 
 
@@ -167,16 +192,20 @@ class LabelSheetView(APIView):
         stamp = timezone.localtime().strftime("%Y%m%d-%H%M")
 
         fmt = s.validated_data["format"]
-        if fmt == "xlsx":
+        builders = {
+            "xls": (_xls, "application/vnd.ms-excel"),
+            "xlsx": (_xlsx, "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"),
+        }
+        body = None
+        if fmt in builders:
+            build, content_type = builders[fmt]
             try:
-                body = _xlsx(rows)
-            except ImportError:  # openpyxl missing from an old image
+                body = build(rows)
+            except ImportError:  # library missing from an old image
                 fmt = "csv"
         if fmt == "csv":
             body = _csv(rows)
             content_type = "text/csv; charset=utf-8"
-        else:
-            content_type = "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
 
         response = HttpResponse(body, content_type=content_type)
         slug = paper_info(paper)["file_slug"]

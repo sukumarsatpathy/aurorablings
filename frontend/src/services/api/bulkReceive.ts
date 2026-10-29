@@ -98,7 +98,8 @@ const bulkReceiveService = {
    */
   downloadLabels: async (
     items: Array<{ variant_id: string; copies: number }>,
-    format: 'xlsx' | 'csv' = 'xlsx',
+    // .xls: the WePrint label app showed "no data found" for .xlsx files.
+    format: 'xls' | 'xlsx' | 'csv' = 'xls',
     paper?: string,
   ): Promise<number> => {
     const response = await apiClient.post(

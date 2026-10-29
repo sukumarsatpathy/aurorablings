@@ -34,7 +34,7 @@ class LabelSheetTests(APITestCase):
         self.b = ProductVariant.objects.create(product=product, sku="J-GRN", price=Decimal("549.50"))
 
     def rows(self, response):
-        text = response.content.decode("utf-8-sig")
+        text = response.content.decode("utf-8")
         return list(csv.reader(io.StringIO(text)))
 
     def test_one_row_per_sticker_in_the_order_asked(self):
@@ -55,10 +55,26 @@ class LabelSheetTests(APITestCase):
         response = self.client.post(URL, {"format": "csv", "items": [{"variant_id": str(self.a.id), "copies": 1}]}, format="json")
         self.assertEqual(self.rows(response)[1][3], "499")
 
-    def test_xlsx_is_the_default(self):
-        response = self.client.post(URL, {"items": [{"variant_id": str(self.a.id), "copies": 1}]}, format="json")
+    def test_xls_is_the_default_and_keeps_barcodes_as_text(self):
+        """Old-format Excel, because the WePrint app read our .xlsx as empty."""
+        try:
+            import xlrd
+        except ImportError:  # reader only needed to check the file
+            self.skipTest("xlrd not installed")
+
+        response = self.client.post(URL, {"items": [{"variant_id": str(self.a.id), "copies": 2}]}, format="json")
         self.assertEqual(response.status_code, 200)
-        self.assertTrue(response["Content-Disposition"].endswith('.xlsx"') or response["Content-Disposition"].endswith('.csv"'))
+        self.assertTrue(response["Content-Disposition"].endswith('.xls"'))
+        self.assertEqual(response["Content-Type"], "application/vnd.ms-excel")
+        sheet = xlrd.open_workbook(file_contents=response.content).sheet_by_index(0)
+        self.assertEqual(sheet.name, "Sheet1")
+        self.assertEqual(sheet.row_values(0), ["Barcode", "Name", "SKU", "MRP"])
+        self.assertEqual(sheet.row_values(1), [self.a.barcode, "Jhumka Red", "J-RED", "499"])
+        self.assertEqual(sheet.nrows, 3)
+
+    def test_csv_has_no_byte_order_mark(self):
+        response = self.client.post(URL, {"format": "csv", "items": [{"variant_id": str(self.a.id), "copies": 1}]}, format="json")
+        self.assertTrue(response.content.startswith(b"Barcode,Name,SKU,MRP"))
 
     def test_printing_labels_never_touches_stock(self):
         self.client.post(URL, {"format": "csv", "items": [{"variant_id": str(self.a.id), "copies": 5}]}, format="json")

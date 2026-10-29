@@ -164,7 +164,7 @@ export const PrintLabels: React.FC = () => {
   );
   const total = groups.reduce((s, g) => s + g.total, 0);
 
-  const download = async (paper: LabelPaperKey, format: 'xlsx' | 'csv') => {
+  const download = async (paper: LabelPaperKey, format: 'xls' | 'csv') => {
     const group = groups.find((g) => g.paper.key === paper);
     if (!group || !group.items.length || busy) return;
     setBusy(true);
@@ -298,7 +298,7 @@ export const PrintLabels: React.FC = () => {
             <Button type="button" variant="outline" size="sm" onClick={() => void download(group.paper.key, 'csv')} disabled={!group.items.length || busy || group.total > MAX_LABELS}>
               CSV
             </Button>
-            <Button type="button" size="sm" onClick={() => void download(group.paper.key, 'xlsx')} disabled={!group.items.length || busy || group.total > MAX_LABELS} className="gap-1.5">
+            <Button type="button" size="sm" onClick={() => void download(group.paper.key, 'xls')} disabled={!group.items.length || busy || group.total > MAX_LABELS} className="gap-1.5">
               <Download size={14} /> {busyPaper === group.paper.key ? 'Preparing…' : `Download ${group.paper.name.toLowerCase()}s`}
             </Button>
           </div>

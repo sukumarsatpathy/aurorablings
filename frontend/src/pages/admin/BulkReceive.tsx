@@ -431,7 +431,7 @@ export const BulkReceive: React.FC = () => {
                   setLabelBusy(group.paper);
                   setLabelError('');
                   try {
-                    await bulkReceiveService.downloadLabels(group.items, 'xlsx', group.paper);
+                    await bulkReceiveService.downloadLabels(group.items, 'xls', group.paper);
                   } catch (error) {
                     setLabelError(await labelErrorMessage(error));
                   } finally {

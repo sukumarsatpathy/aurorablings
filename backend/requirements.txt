@@ -34,6 +34,8 @@ weasyprint>=60.0
 reportlab>=4.0
 # Barcode label sheets (.xlsx) for the label printer app.
 openpyxl>=3.1
+# .xls label sheets: the WePrint label app reads the old Excel format reliably.
+xlwt>=1.3
 
 # Production
 gunicorn>=21.2.0
