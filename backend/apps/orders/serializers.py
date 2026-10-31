@@ -1,6 +1,7 @@
 from rest_framework import serializers
 from .models import Order, OrderItem, OrderStatusHistory, OrderStatus, PaymentMethod, PaymentStatus
 from core.media import build_media_url
+from apps.catalog.media import photo_for_variant
 
 
 class OrderStatusHistorySerializer(serializers.ModelSerializer):
@@ -42,7 +43,7 @@ class OrderItemSerializer(serializers.ModelSerializer):
 
         variant = getattr(obj, "variant", None)
         if variant and getattr(variant, "product", None):
-            media = variant.product.media.filter(is_primary=True).first() or variant.product.media.first()
+            media = photo_for_variant(variant)
             if media and getattr(media, "image", None):
                 return build_media_url(media.image, request=request)
         return None

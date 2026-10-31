@@ -73,8 +73,12 @@ interface ProductMedia {
   id: string;
   url: string;
   altText: string;
-  /** Colour option this photo shows (e.g. "Violet"); '' = all colours. */
-  optionLabel: string;
+  /**
+   * Options this photo shows, one per attribute at most:
+   * normalised attribute name → option label, e.g. { color: 'Violet', size: '2-6' }.
+   * An attribute left out = the photo shows for any of its options.
+   */
+  tags: Record<string, string>;
   isPrimary: boolean;
   sortOrder: number;
   file?: File;
@@ -196,14 +200,27 @@ const normalizeKey = (value: string): string => value.trim().toLowerCase();
 
 const isColourAttributeName = (name: string): boolean => /colou?r/i.test(name || '');
 
-/** AttributeValue id → its label, for the product's colour attribute. */
-const colourLabelsById = (detail: CatalogProductDetail): Map<string, string> => {
-  const labels = new Map<string, string>();
+/** A saved photo's tags as { attribute (normalised) → option label }, from its option ids. */
+const mediaTagsFromIds = (detail: CatalogProductDetail, ids: string[]): Record<string, string> => {
+  const byId = new Map<string, { attrKey: string; label: string }>();
   for (const attr of detail.attributes || []) {
-    if (!isColourAttributeName(attr.name)) continue;
-    for (const val of attr.values || []) labels.set(String(val.id), val.value);
+    for (const val of attr.values || []) {
+      byId.set(String(val.id), { attrKey: normalizeKey(attr.name || ''), label: val.value });
+    }
   }
-  return labels;
+  const tags: Record<string, string> = {};
+  for (const id of ids) {
+    const hit = byId.get(String(id));
+    if (hit && hit.attrKey && !tags[hit.attrKey]) tags[hit.attrKey] = hit.label;
+  }
+  return tags;
+};
+
+/** The option of `attr` a photo is tagged with, matched case-insensitively; '' = any. */
+const mediaTagFor = (tags: Record<string, string>, attr: ProductAttribute): string => {
+  const wanted = normalizeKey(tags[normalizeKey(attr.name)] || '');
+  if (!wanted) return '';
+  return attr.options.find((opt) => normalizeKey(opt) === wanted) || '';
 };
 
 const buildAttributeValueIdMap = (detail: CatalogProductDetail): Record<string, string> => {
@@ -326,7 +343,13 @@ const mapDetailToProduct = (raw: CatalogProductDetail): Product => ({
     id: m.id,
     url: normalizeAssetUrl(m.image),
     altText: m.alt_text || '',
-    optionLabel: (m.attribute_value && colourLabelsById(raw).get(String(m.attribute_value))) || '',
+    tags: mediaTagsFromIds(
+      raw,
+      (m.attribute_values && m.attribute_values.length
+        ? m.attribute_values
+        : m.attribute_value ? [m.attribute_value] : []
+      ).map(String),
+    ),
     isPrimary: !!m.is_primary,
     sortOrder: Number(m.sort_order || 0),
     persisted: true,
@@ -569,7 +592,7 @@ export const ProductManagement: React.FC = () => {
                 id: `LIST-MEDIA-${p.id}`,
                 url: normalizeAssetUrl(p.primary_image),
                 altText: '',
-                optionLabel: '',
+                tags: {},
                 isPrimary: true,
                 sortOrder: 0,
                 persisted: true,
@@ -1022,10 +1045,17 @@ export const ProductManagement: React.FC = () => {
 
   const syncMedia = async (productId: string, attributeValueIdMap: Record<string, string>) => {
     const keptPersistedIds = new Set<string>();
-    const colourAttr = formData.attributes.find((attr) => isColourAttributeName(attr.name));
-    const colourValueId = (label: string): string | null => {
-      if (!colourAttr || !label) return null;
-      return attributeValueIdMap[`${normalizeKey(colourAttr.name)}::${normalizeKey(label)}`] || null;
+    // Option ids for a photo's tags: one per attribute, only options this
+    // product still comes in (a removed option's tag is dropped).
+    const tagIds = (tags: Record<string, string>): string[] => {
+      const ids: string[] = [];
+      for (const attr of formData.attributes) {
+        const label = mediaTagFor(tags, attr);
+        if (!label) continue;
+        const id = attributeValueIdMap[`${normalizeKey(attr.name)}::${normalizeKey(label)}`];
+        if (id) ids.push(id);
+      }
+      return ids;
     };
     const totalNewUploads = formData.media.filter((m) => !m.persisted && m.file).length;
     let uploadIndex = 0;
@@ -1038,7 +1068,7 @@ export const ProductManagement: React.FC = () => {
           alt_text: m.altText,
           is_primary: m.isPrimary,
           sort_order: i,
-          attribute_value_id: colourValueId(m.optionLabel),
+          attribute_value_ids: tagIds(m.tags),
         });
       } else if (m.file) {
         uploadIndex += 1;
@@ -1051,7 +1081,7 @@ export const ProductManagement: React.FC = () => {
             alt_text: m.altText,
             is_primary: m.isPrimary,
             sort_order: i,
-            attribute_value_id: colourValueId(m.optionLabel),
+            attribute_value_ids: tagIds(m.tags),
           },
           (percent) => {
             setUploadStatus({
@@ -1522,7 +1552,7 @@ export const ProductManagement: React.FC = () => {
       id: `temp-media-${Date.now()}-${index}`,
       url: URL.createObjectURL(file),
       altText: file.name.replace(/\.[^/.]+$/, ''),
-      optionLabel: '',
+      tags: {},
       isPrimary: false,
       sortOrder: formData.media.length + index,
       file,
@@ -1558,17 +1588,24 @@ export const ProductManagement: React.FC = () => {
     }));
   };
 
-  // Colours a photo can be tagged with: every colour ticked for this product,
-  // including ones whose variations haven't been generated yet.
-  const colourOptions = useMemo(() => {
-    const attr = formData.attributes.find((a) => isColourAttributeName(a.name));
-    return attr ? attr.options : ([] as string[]);
-  }, [formData.attributes]);
+  // Attributes a photo can be tagged with, each with every option ticked for
+  // this product (including ones whose variations haven't been generated yet).
+  const taggableAttributes = useMemo(
+    () => formData.attributes.filter((a) => a.name.trim() && a.options.some((opt) => opt.trim())),
+    [formData.attributes],
+  );
 
-  const updateMediaColour = (mediaId: string, optionLabel: string) => {
+  const updateMediaTag = (mediaId: string, attrName: string, optionLabel: string) => {
+    const key = normalizeKey(attrName);
     setFormData((prev) => ({
       ...prev,
-      media: prev.media.map((m) => (m.id === mediaId ? { ...m, optionLabel } : m)),
+      media: prev.media.map((m) => {
+        if (m.id !== mediaId) return m;
+        const tags = { ...m.tags };
+        if (optionLabel) tags[key] = optionLabel;
+        else delete tags[key];
+        return { ...m, tags };
+      }),
     }));
   };
 
@@ -2177,105 +2214,6 @@ export const ProductManagement: React.FC = () => {
                 </div>
               </div>
 
-              <div className="space-y-4 rounded-xl border border-border/80 bg-white p-4">
-                <div className="flex items-center justify-between border-b pb-2">
-                  <h3 className="font-bold text-sm text-foreground">Product Images</h3>
-                  <Badge variant="surface" className="text-[10px]">{formData.media.length} uploaded</Badge>
-                </div>
-                <div className="grid gap-2">
-                  <label className="text-sm font-medium">Upload Images</label>
-                  <input
-                    ref={mediaInputRef}
-                    type="file"
-                    accept="image/jpeg,image/png,image/webp"
-                    multiple
-                    onChange={(e) => handleMediaSelect(e.target.files)}
-                    className="hidden"
-                  />
-                  <div
-                    onDragOver={(e) => {
-                      e.preventDefault();
-                      setIsDragOverUploader(true);
-                    }}
-                    onDragLeave={() => setIsDragOverUploader(false)}
-                    onDrop={handleDropMedia}
-                    onClick={() => mediaInputRef.current?.click()}
-                    className={[
-                      'rounded-xl border-2 border-dashed p-5 cursor-pointer transition-all duration-300',
-                      isDragOverUploader
-                        ? 'border-primary bg-primary/10'
-                        : 'border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/30',
-                    ].join(' ')}
-                  >
-                    <div className="text-center space-y-2">
-                      <p className="text-sm font-semibold text-foreground">Drag and drop product images here</p>
-                      <p className="text-xs text-muted-foreground">or click to browse files</p>
-                    </div>
-                  </div>
-                </div>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[260px] overflow-y-auto pr-1">
-                  {formData.media.map((media) => (
-                    <div key={media.id} className="rounded-xl border border-border bg-white p-2 shadow-sm">
-                      <div className="relative">
-                        <img src={media.url} alt={media.altText || 'Product image'} className="h-28 w-full rounded-md object-cover border border-border/60" />
-                        {media.isPrimary ? (
-                          <span className="absolute top-2 left-2 rounded-full bg-primary text-white text-[10px] font-bold px-2 py-0.5">
-                            Primary
-                          </span>
-                        ) : null}
-                      </div>
-                      <div className="mt-2 space-y-2">
-                        <Input
-                          value={media.altText}
-                          onChange={(e) => updateMediaAltText(media.id, e.target.value)}
-                          placeholder="Alt text"
-                          className="h-8 text-xs"
-                        />
-                        {colourOptions.length > 0 ? (
-                          <select
-                            value={colourOptions.includes(media.optionLabel) ? media.optionLabel : ''}
-                            onChange={(e) => updateMediaColour(media.id, e.target.value)}
-                            aria-label="Colour shown in this photo"
-                            className="h-8 w-full rounded-md border border-input bg-white px-2 text-xs"
-                          >
-                            <option value="">All colours</option>
-                            {colourOptions.map((label) => (
-                              <option key={label} value={label}>{label}</option>
-                            ))}
-                          </select>
-                        ) : null}
-                        <div className="flex items-center justify-between gap-2">
-                          <Button
-                            type="button"
-                            variant="outline"
-                            size="sm"
-                            className="h-7 px-2 text-[10px]"
-                            onClick={() => setPrimaryMedia(media.id)}
-                            disabled={media.isPrimary}
-                          >
-                            {media.isPrimary ? 'Selected' : 'Set Primary'}
-                          </Button>
-                          <Button
-                            type="button"
-                            variant="ghost"
-                            size="sm"
-                            className="h-7 px-2 text-[10px] text-destructive"
-                            onClick={() => removeMedia(media.id)}
-                          >
-                            Remove
-                          </Button>
-                        </div>
-                      </div>
-                    </div>
-                  ))}
-                  {formData.media.length === 0 ? (
-                    <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-center text-xs text-muted-foreground sm:col-span-2">
-                      No product images uploaded yet.
-                    </div>
-                  ) : null}
-                </div>
-              </div>
-
               <div className="space-y-3 rounded-xl border border-border/80 bg-white p-4">
                 <div className="flex items-center justify-between border-b pb-2">
                   <h3 className="font-bold text-sm text-foreground">Product Video</h3>
@@ -2475,160 +2413,274 @@ export const ProductManagement: React.FC = () => {
               </div>
             </div>
 
-              <div ref={variationsSectionRef} className={`space-y-4 rounded-xl border bg-white p-4 ${formErrors.variations ? 'border-destructive/60' : 'border-border/80'}`}>
-                <div className="flex items-center justify-between border-b pb-2">
-                  <h3 className="font-bold text-sm text-foreground">Variations ({formData.variations.length})</h3>
-                  <div className="flex items-center gap-2">
-                    <Button
-                      variant="outline"
-                      size="sm"
-                      onClick={() => openInventoryForVariant(formData.variations[0])}
-                      className="h-7 text-xs px-2 border-primary/50 bg-white text-primary hover:bg-primary hover:text-primary-foreground"
+            <div className="space-y-6">
+                <div ref={variationsSectionRef} className={`space-y-4 rounded-xl border bg-white p-4 ${formErrors.variations ? 'border-destructive/60' : 'border-border/80'}`}>
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <h3 className="font-bold text-sm text-foreground">Variations ({formData.variations.length})</h3>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openInventoryForVariant(formData.variations[0])}
+                        className="h-7 text-xs px-2 border-primary/50 bg-white text-primary hover:bg-primary hover:text-primary-foreground"
+                      >
+                        Manage Stock
+                      </Button>
+                      <Button variant="ghost" size="sm" onClick={addManualVariation} className="h-7 text-xs px-2"><Plus size={14} className="mr-1" /> Add Manual</Button>
+                    </div>
+                  </div>
+                  {formErrors.variations ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variations}</p> : null}
+
+                <div className="space-y-2 max-h-[560px] min-h-[220px] overflow-y-auto pr-2">
+                  {formData.variations.length === 0 ? (
+                    <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
+                      Add variations manually or generate them from attributes.
+                    </div>
+                  ) : formData.variations.map((v, i) => (
+                    <div
+                      key={v.id}
+                      ref={(node) => {
+                        variationRowRefs.current[v.id] = node;
+                      }}
+                      className={`bg-white border p-3 rounded-xl space-y-3 relative group shadow-sm ${(formErrors.variationById?.[v.id] ? 'border-destructive/60' : 'border-border')}`}
                     >
-                      Manage Stock
-                    </Button>
-                    <Button variant="ghost" size="sm" onClick={addManualVariation} className="h-7 text-xs px-2"><Plus size={14} className="mr-1" /> Add Manual</Button>
+                      <Button variant="ghost" size="sm" onClick={() => removeVariation(i)} className="absolute top-2 right-2 h-6 w-6 p-0 text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
+                        <Trash2 size={14} />
+                      </Button>
+                      <div className="grid grid-cols-2 gap-2 pr-6">
+                        <Input
+                          placeholder="SKU"
+                          value={v.sku}
+                          onChange={(e) => updateVariation(i, 'sku', e.target.value)}
+                          className={`h-7 text-xs ${(formErrors.variationById?.[v.id]?.sku ? 'border-destructive focus-visible:ring-destructive/30' : '')}`}
+                        />
+                        <Input
+                          type="number"
+                          placeholder="Price"
+                          value={v.price}
+                          onChange={(e) => updateVariation(i, 'price', parseFloat(e.target.value) || 0)}
+                          className={`h-7 text-xs ${(formErrors.variationById?.[v.id]?.price ? 'border-destructive focus-visible:ring-destructive/30' : '')}`}
+                        />
+                      </div>
+                      <p className="text-[10px] text-muted-foreground -mt-1">
+                        Stock is managed from Inventory module (warehouse-wise).
+                      </p>
+                      {/*
+                        Counter label. The barcode is assigned by the server on
+                        save and never changes, so it is shown, not edited. The
+                        label name is optional: blank prints an automatic short
+                        name built from the product and options.
+                      */}
+                      <div className="grid grid-cols-2 gap-2 pr-6">
+                        <div className="flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-muted/20 px-2 text-xs">
+                          <span className="text-[10px] font-medium text-muted-foreground">Barcode</span>
+                          <span className="font-mono tabular-nums text-foreground">
+                            {v.barcode || <span className="text-muted-foreground">on save</span>}
+                          </span>
+                        </div>
+                        <Input
+                          placeholder={v.labelText ? `Label: ${v.labelText}` : 'Label name (auto)'}
+                          value={v.labelName || ''}
+                          maxLength={20}
+                          title="Short name printed on the barcode label, up to 20 characters. Leave blank for the automatic name."
+                          onChange={(e) => updateVariation(i, 'labelName', e.target.value.slice(0, 20))}
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div className="grid grid-cols-2 gap-2 pr-6">
+                        <Input
+                          type="number"
+                          placeholder="Offer Price"
+                          value={typeof v.offerPrice === 'number' ? v.offerPrice : ''}
+                          onChange={(e) => updateVariation(i, 'offerPrice', e.target.value ? parseFloat(e.target.value) : null)}
+                          className={`h-7 text-xs ${(formErrors.variationById?.[v.id]?.offer ? 'border-destructive focus-visible:ring-destructive/30' : '')}`}
+                        />
+                        <Input
+                          placeholder="Offer Label"
+                          value={v.offerLabel || ''}
+                          onChange={(e) => updateVariation(i, 'offerLabel', e.target.value)}
+                          className="h-7 text-xs"
+                        />
+                      </div>
+                      <div className="grid grid-cols-1 gap-2 pr-6">
+                        <div className="grid grid-cols-2 gap-2">
+                          <div className="rounded-md border border-border/70 bg-muted/20 p-2 space-y-1.5">
+                            <p className="text-[10px] font-medium text-muted-foreground">Offer Starts</p>
+                            <Input
+                              type="date"
+                              value={toLocalDateInput(v.offerStartsAt || '')}
+                              onChange={(e) => updateVariationDateTimePart(i, 'offerStartsAt', 'date', e.target.value)}
+                              className="h-8 text-xs w-full"
+                            />
+                            <Input
+                              type="time"
+                              step={60}
+                              value={toLocalTimeInput(v.offerStartsAt || '')}
+                              onChange={(e) => updateVariationDateTimePart(i, 'offerStartsAt', 'time', e.target.value)}
+                              className="h-8 text-xs w-full"
+                            />
+                          </div>
+                          <div className="rounded-md border border-border/70 bg-muted/20 p-2 space-y-1.5">
+                            <p className="text-[10px] font-medium text-muted-foreground">Offer Ends</p>
+                            <Input
+                              type="date"
+                              value={toLocalDateInput(v.offerEndsAt || '')}
+                              onChange={(e) => updateVariationDateTimePart(i, 'offerEndsAt', 'date', e.target.value)}
+                              className="h-8 text-xs w-full"
+                            />
+                            <Input
+                              type="time"
+                              step={60}
+                              value={toLocalTimeInput(v.offerEndsAt || '')}
+                              onChange={(e) => updateVariationDateTimePart(i, 'offerEndsAt', 'time', e.target.value)}
+                              className="h-8 text-xs w-full"
+                            />
+                          </div>
+                        </div>
+                      </div>
+                      <label className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
+                        <input
+                          type="checkbox"
+                          checked={Boolean(v.offerIsActive)}
+                          onChange={(e) => updateVariation(i, 'offerIsActive', e.target.checked)}
+                        />
+                        Offer active
+                      </label>
+                      {formErrors.variationById?.[v.id]?.sku ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variationById?.[v.id]?.sku}</p> : null}
+                      {formErrors.variationById?.[v.id]?.price ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variationById?.[v.id]?.price}</p> : null}
+                      {formErrors.variationById?.[v.id]?.offer ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variationById?.[v.id]?.offer}</p> : null}
+                      <div className="flex flex-wrap gap-2 truncate">
+                        {formData.attributes.map((attr, aIndex) => (
+                          <div key={aIndex} className="flex items-center gap-1.5 text-[10px] bg-muted/30 px-2 py-1 rounded-md">
+                            <span className="text-muted-foreground font-medium">{attr.name}:</span>
+                            <Input className="h-5 w-16 text-[10px] px-1 py-0 shadow-none border-border/50 bg-white" value={v.attributes[attr.name] || ''} onChange={(e) => updateVariation(i, attr.name, e.target.value, true)} placeholder="Value" />
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  ))}
+                  {formData.variations.length === 0 ? (
+                    <div className="text-center p-8 text-muted-foreground text-xs bg-muted/20 rounded-xl border border-dashed border-border flex min-h-[180px] flex-col items-center justify-center gap-3">
+                      <span>No variations defined yet.</span>
+                      <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addManualVariation}>
+                        + Add Manual Variation
+                      </Button>
+                    </div>
+                  ) : null}
+                </div>
+              </div>
+
+                <div className="space-y-4 rounded-xl border border-border/80 bg-white p-4">
+                  <div className="flex items-center justify-between border-b pb-2">
+                    <h3 className="font-bold text-sm text-foreground">Product Images</h3>
+                    <Badge variant="surface" className="text-[10px]">{formData.media.length} uploaded</Badge>
+                  </div>
+                  {taggableAttributes.length > 0 ? (
+                    <p className="text-xs text-muted-foreground">
+                      Pick the options each photo shows, e.g. a colour, or a colour and a size together. The product page shows it when a shopper picks those options. Leave on "Any" to show it for every option.
+                    </p>
+                  ) : null}
+                  <div className="grid gap-2">
+                    <label className="text-sm font-medium">Upload Images</label>
+                    <input
+                      ref={mediaInputRef}
+                      type="file"
+                      accept="image/jpeg,image/png,image/webp"
+                      multiple
+                      onChange={(e) => handleMediaSelect(e.target.files)}
+                      className="hidden"
+                    />
+                    <div
+                      onDragOver={(e) => {
+                        e.preventDefault();
+                        setIsDragOverUploader(true);
+                      }}
+                      onDragLeave={() => setIsDragOverUploader(false)}
+                      onDrop={handleDropMedia}
+                      onClick={() => mediaInputRef.current?.click()}
+                      className={[
+                        'rounded-xl border-2 border-dashed p-5 cursor-pointer transition-all duration-300',
+                        isDragOverUploader
+                          ? 'border-primary bg-primary/10'
+                          : 'border-border bg-muted/20 hover:border-primary/50 hover:bg-muted/30',
+                      ].join(' ')}
+                    >
+                      <div className="text-center space-y-2">
+                        <p className="text-sm font-semibold text-foreground">Drag and drop product images here</p>
+                        <p className="text-xs text-muted-foreground">or click to browse files</p>
+                      </div>
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-h-[520px] overflow-y-auto pr-1">
+                    {formData.media.map((media) => (
+                      <div key={media.id} className="rounded-xl border border-border bg-white p-2 shadow-sm">
+                        <div className="relative">
+                          <img src={media.url} alt={media.altText || 'Product image'} className="h-28 w-full rounded-md object-cover border border-border/60" />
+                          {media.isPrimary ? (
+                            <span className="absolute top-2 left-2 rounded-full bg-primary text-white text-[10px] font-bold px-2 py-0.5">
+                              Primary
+                            </span>
+                          ) : null}
+                        </div>
+                        <div className="mt-2 space-y-2">
+                          <Input
+                            value={media.altText}
+                            onChange={(e) => updateMediaAltText(media.id, e.target.value)}
+                            placeholder="Alt text"
+                            className="h-8 text-xs"
+                          />
+                          {taggableAttributes.map((attr) => {
+                            const current = mediaTagFor(media.tags, attr);
+                            return (
+                              <label key={attr.id || attr.name} className="flex items-center gap-2">
+                                <span className="w-14 shrink-0 truncate text-[10px] font-semibold uppercase tracking-wide text-muted-foreground" title={attr.name}>
+                                  {attr.name}
+                                </span>
+                                <select
+                                  value={current}
+                                  onChange={(e) => updateMediaTag(media.id, attr.name, e.target.value)}
+                                  aria-label={`${attr.name} shown in this photo`}
+                                  className={`h-8 min-w-0 flex-1 rounded-md border bg-white px-2 text-xs ${current ? 'border-primary/50 text-foreground' : 'border-input text-muted-foreground'}`}
+                                >
+                                  <option value="">Any {attr.name.toLowerCase()}</option>
+                                  {attr.options.filter((opt) => opt.trim()).map((opt) => (
+                                    <option key={opt} value={opt}>{opt}</option>
+                                  ))}
+                                </select>
+                              </label>
+                            );
+                          })}
+                          <div className="flex items-center justify-between gap-2">
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              className="h-7 px-2 text-[10px]"
+                              onClick={() => setPrimaryMedia(media.id)}
+                              disabled={media.isPrimary}
+                            >
+                              {media.isPrimary ? 'Selected' : 'Set Primary'}
+                            </Button>
+                            <Button
+                              type="button"
+                              variant="ghost"
+                              size="sm"
+                              className="h-7 px-2 text-[10px] text-destructive"
+                              onClick={() => removeMedia(media.id)}
+                            >
+                              Remove
+                            </Button>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    {formData.media.length === 0 ? (
+                      <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-center text-xs text-muted-foreground sm:col-span-2">
+                        No product images uploaded yet.
+                      </div>
+                    ) : null}
                   </div>
                 </div>
-                {formErrors.variations ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variations}</p> : null}
-
-              <div className="space-y-2 max-h-[560px] min-h-[220px] overflow-y-auto pr-2">
-                {formData.variations.length === 0 ? (
-                  <div className="rounded-lg border border-dashed border-border bg-muted/20 p-3 text-xs text-muted-foreground">
-                    Add variations manually or generate them from attributes.
-                  </div>
-                ) : formData.variations.map((v, i) => (
-                  <div
-                    key={v.id}
-                    ref={(node) => {
-                      variationRowRefs.current[v.id] = node;
-                    }}
-                    className={`bg-white border p-3 rounded-xl space-y-3 relative group shadow-sm ${(formErrors.variationById?.[v.id] ? 'border-destructive/60' : 'border-border')}`}
-                  >
-                    <Button variant="ghost" size="sm" onClick={() => removeVariation(i)} className="absolute top-2 right-2 h-6 w-6 p-0 text-destructive opacity-0 group-hover:opacity-100 transition-opacity">
-                      <Trash2 size={14} />
-                    </Button>
-                    <div className="grid grid-cols-2 gap-2 pr-6">
-                      <Input
-                        placeholder="SKU"
-                        value={v.sku}
-                        onChange={(e) => updateVariation(i, 'sku', e.target.value)}
-                        className={`h-7 text-xs ${(formErrors.variationById?.[v.id]?.sku ? 'border-destructive focus-visible:ring-destructive/30' : '')}`}
-                      />
-                      <Input
-                        type="number"
-                        placeholder="Price"
-                        value={v.price}
-                        onChange={(e) => updateVariation(i, 'price', parseFloat(e.target.value) || 0)}
-                        className={`h-7 text-xs ${(formErrors.variationById?.[v.id]?.price ? 'border-destructive focus-visible:ring-destructive/30' : '')}`}
-                      />
-                    </div>
-                    <p className="text-[10px] text-muted-foreground -mt-1">
-                      Stock is managed from Inventory module (warehouse-wise).
-                    </p>
-                    {/*
-                      Counter label. The barcode is assigned by the server on
-                      save and never changes, so it is shown, not edited. The
-                      label name is optional: blank prints an automatic short
-                      name built from the product and options.
-                    */}
-                    <div className="grid grid-cols-2 gap-2 pr-6">
-                      <div className="flex h-7 items-center gap-1.5 rounded-md border border-border/70 bg-muted/20 px-2 text-xs">
-                        <span className="text-[10px] font-medium text-muted-foreground">Barcode</span>
-                        <span className="font-mono tabular-nums text-foreground">
-                          {v.barcode || <span className="text-muted-foreground">on save</span>}
-                        </span>
-                      </div>
-                      <Input
-                        placeholder={v.labelText ? `Label: ${v.labelText}` : 'Label name (auto)'}
-                        value={v.labelName || ''}
-                        maxLength={20}
-                        title="Short name printed on the barcode label, up to 20 characters. Leave blank for the automatic name."
-                        onChange={(e) => updateVariation(i, 'labelName', e.target.value.slice(0, 20))}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="grid grid-cols-2 gap-2 pr-6">
-                      <Input
-                        type="number"
-                        placeholder="Offer Price"
-                        value={typeof v.offerPrice === 'number' ? v.offerPrice : ''}
-                        onChange={(e) => updateVariation(i, 'offerPrice', e.target.value ? parseFloat(e.target.value) : null)}
-                        className={`h-7 text-xs ${(formErrors.variationById?.[v.id]?.offer ? 'border-destructive focus-visible:ring-destructive/30' : '')}`}
-                      />
-                      <Input
-                        placeholder="Offer Label"
-                        value={v.offerLabel || ''}
-                        onChange={(e) => updateVariation(i, 'offerLabel', e.target.value)}
-                        className="h-7 text-xs"
-                      />
-                    </div>
-                    <div className="grid grid-cols-1 gap-2 pr-6">
-                      <div className="grid grid-cols-2 gap-2">
-                        <div className="rounded-md border border-border/70 bg-muted/20 p-2 space-y-1.5">
-                          <p className="text-[10px] font-medium text-muted-foreground">Offer Starts</p>
-                          <Input
-                            type="date"
-                            value={toLocalDateInput(v.offerStartsAt || '')}
-                            onChange={(e) => updateVariationDateTimePart(i, 'offerStartsAt', 'date', e.target.value)}
-                            className="h-8 text-xs w-full"
-                          />
-                          <Input
-                            type="time"
-                            step={60}
-                            value={toLocalTimeInput(v.offerStartsAt || '')}
-                            onChange={(e) => updateVariationDateTimePart(i, 'offerStartsAt', 'time', e.target.value)}
-                            className="h-8 text-xs w-full"
-                          />
-                        </div>
-                        <div className="rounded-md border border-border/70 bg-muted/20 p-2 space-y-1.5">
-                          <p className="text-[10px] font-medium text-muted-foreground">Offer Ends</p>
-                          <Input
-                            type="date"
-                            value={toLocalDateInput(v.offerEndsAt || '')}
-                            onChange={(e) => updateVariationDateTimePart(i, 'offerEndsAt', 'date', e.target.value)}
-                            className="h-8 text-xs w-full"
-                          />
-                          <Input
-                            type="time"
-                            step={60}
-                            value={toLocalTimeInput(v.offerEndsAt || '')}
-                            onChange={(e) => updateVariationDateTimePart(i, 'offerEndsAt', 'time', e.target.value)}
-                            className="h-8 text-xs w-full"
-                          />
-                        </div>
-                      </div>
-                    </div>
-                    <label className="inline-flex items-center gap-2 text-[11px] text-muted-foreground">
-                      <input
-                        type="checkbox"
-                        checked={Boolean(v.offerIsActive)}
-                        onChange={(e) => updateVariation(i, 'offerIsActive', e.target.checked)}
-                      />
-                      Offer active
-                    </label>
-                    {formErrors.variationById?.[v.id]?.sku ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variationById?.[v.id]?.sku}</p> : null}
-                    {formErrors.variationById?.[v.id]?.price ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variationById?.[v.id]?.price}</p> : null}
-                    {formErrors.variationById?.[v.id]?.offer ? <p className="text-[11px] text-destructive -mt-1">{formErrors.variationById?.[v.id]?.offer}</p> : null}
-                    <div className="flex flex-wrap gap-2 truncate">
-                      {formData.attributes.map((attr, aIndex) => (
-                        <div key={aIndex} className="flex items-center gap-1.5 text-[10px] bg-muted/30 px-2 py-1 rounded-md">
-                          <span className="text-muted-foreground font-medium">{attr.name}:</span>
-                          <Input className="h-5 w-16 text-[10px] px-1 py-0 shadow-none border-border/50 bg-white" value={v.attributes[attr.name] || ''} onChange={(e) => updateVariation(i, attr.name, e.target.value, true)} placeholder="Value" />
-                        </div>
-                      ))}
-                    </div>
-                  </div>
-                ))}
-                {formData.variations.length === 0 ? (
-                  <div className="text-center p-8 text-muted-foreground text-xs bg-muted/20 rounded-xl border border-dashed border-border flex min-h-[180px] flex-col items-center justify-center gap-3">
-                    <span>No variations defined yet.</span>
-                    <Button variant="outline" size="sm" className="h-7 text-xs" onClick={addManualVariation}>
-                      + Add Manual Variation
-                    </Button>
-                  </div>
-                ) : null}
-              </div>
             </div>
           </div>
 

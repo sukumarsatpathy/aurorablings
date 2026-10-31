@@ -128,7 +128,7 @@ def _catalog(*, warehouse_id, request) -> list[dict]:
         Product.objects  # default manager hides deleted products
         .select_related("category")
         .prefetch_related(
-            "media",
+            "media__attribute_values",
             Prefetch("attributes", queryset=Attribute.objects.prefetch_related("values").order_by("sort_order", "name")),
             Prefetch(
                 "variants",

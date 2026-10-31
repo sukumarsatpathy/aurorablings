@@ -136,7 +136,7 @@ def get_variant_options(*, search: str | None = None, active_only: bool = True) 
     qs = (
         ProductVariant.objects
         .select_related("product", "product__category")
-        .prefetch_related("product__media", "attribute_values")
+        .prefetch_related("product__media__attribute_values", "attribute_values")
         .all()
     )
     if active_only:

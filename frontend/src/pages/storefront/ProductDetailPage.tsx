@@ -19,9 +19,11 @@ import { cleanDescriptionHtml } from '@/lib/cleanHtml';
 import {
   buildOptionGroups,
   findVariant,
-  mediaForColour,
+  mediaForOptions,
+  mediaTagIds,
   optionState,
   pickOption,
+  selectedValueIds,
   swatchColour,
   variantSelection,
   type Selection,
@@ -186,7 +188,6 @@ export const ProductDetailPage: React.FC = () => {
     () => buildOptionGroups(activeVariants, product?.attributes || []),
     [activeVariants, product?.attributes],
   );
-  const colourGroup = optionGroups.find((group) => group.isColour) || null;
 
   // Start from ?color=…&size=… when present (shared links), else the default variant.
   useEffect(() => {
@@ -222,15 +223,16 @@ export const ProductDetailPage: React.FC = () => {
     return findVariant(activeVariants, optionGroups, selection) || defaultVariant;
   }, [activeVariants, optionGroups, selection, defaultVariant]);
 
-  const selectedColourIds = useMemo(() => {
-    if (!colourGroup) return null;
-    return colourGroup.values.find((v) => v.key === selection[colourGroup.key])?.valueIds || null;
-  }, [colourGroup, selection]);
+  // Option ids behind every pick (colour, size, …); photos are tagged with these.
+  const selectedOptionIds = useMemo(
+    () => selectedValueIds(optionGroups, selection),
+    [optionGroups, selection],
+  );
 
-  // Photos for the chosen colour. Main view uses the 480/768/1200px versions
+  // Photos for the chosen options (e.g. the Violet photos, or Violet + 2-6). Main view uses the 480/768/1200px versions
   // made at upload (not the full-size original); thumbnails use the 480px one.
   const gallery = useMemo(() => {
-    const media = mediaForColour(product?.media || [], selectedColourIds);
+    const media = mediaForOptions(product?.media || [], selectedOptionIds);
     const items = media
       .map((m) => {
         const full = normalizeAssetUrl(m.image);
@@ -244,7 +246,7 @@ export const ProductDetailPage: React.FC = () => {
     if (items.length > 0) return items;
     const placeholder = 'https://placehold.co/1000x1000/f3f4f6/517b4b?text=Product';
     return [{ main: placeholder, thumb: placeholder, srcSet: undefined, alt: '' }];
-  }, [product?.media, selectedColourIds]);
+  }, [product?.media, selectedOptionIds]);
   const images = useMemo(() => gallery.map((item) => item.main), [gallery]);
 
   // The video, if any, sits after the photos as one more gallery slot.
@@ -265,18 +267,32 @@ export const ProductDetailPage: React.FC = () => {
 
   const choose = (groupKey: string, valueKey: string) => {
     const next = pickOption(activeVariants, optionGroups, selection, groupKey, valueKey);
-    if (colourGroup && next[colourGroup.key] !== selection[colourGroup.key]) {
+    // Back to the first photo whenever the pick changes which photos show.
+    const photoIds = (sel: Selection) =>
+      mediaForOptions(product?.media || [], selectedValueIds(optionGroups, sel)).map((m) => m.id).join(',');
+    if (photoIds(next) !== photoIds(selection)) {
       setActiveImage(0);
       setIsGalleryHovered(false);
     }
     setSelection(next);
   };
 
-  // Warm the first photo of a colour when the shopper hovers its chip, so the
-  // switch is instant without downloading every colour's photos up front.
+  // Pickers whose options have photos of their own (usually colour).
+  const groupsWithPhotos = useMemo(() => {
+    const tagged = new Set((product?.media || []).flatMap((m) => mediaTagIds(m)));
+    return new Set(
+      optionGroups
+        .filter((g) => g.values.some((v) => v.valueIds.some((id) => tagged.has(String(id)))))
+        .map((g) => g.key),
+    );
+  }, [product?.media, optionGroups]);
+
+  // Warm the first photo of an option when the shopper hovers its chip, so the
+  // switch is instant without downloading every option's photos up front.
   const preloadedRef = useRef(new Set<string>());
-  const preloadColour = (valueIds: string[]) => {
-    const first = mediaForColour(product?.media || [], valueIds)[0];
+  const preloadOption = (groupKey: string, valueKey: string) => {
+    const next = pickOption(activeVariants, optionGroups, selection, groupKey, valueKey);
+    const first = mediaForOptions(product?.media || [], selectedValueIds(optionGroups, next))[0];
     const url = normalizeAssetUrl(first?.image_large || first?.image);
     if (!url || preloadedRef.current.has(url)) return;
     preloadedRef.current.add(url);
@@ -665,8 +681,8 @@ export const ProductDetailPage: React.FC = () => {
                           aria-checked={isSelected}
                           title={!state.exists ? `${value.label} isn't made in this combination` : !state.inStock ? `${value.label} is out of stock` : value.label}
                           onClick={() => choose(group.key, value.key)}
-                          onMouseEnter={group.isColour ? () => preloadColour(value.valueIds) : undefined}
-                          onFocus={group.isColour ? () => preloadColour(value.valueIds) : undefined}
+                          onMouseEnter={groupsWithPhotos.has(group.key) ? () => preloadOption(group.key, value.key) : undefined}
+                          onFocus={groupsWithPhotos.has(group.key) ? () => preloadOption(group.key, value.key) : undefined}
                           className={`relative inline-flex h-11 items-center gap-2 rounded-xl border px-4 text-base transition-colors ${
                             isSelected
                               ? 'bg-[#517b4b] text-white border-[#517b4b]'

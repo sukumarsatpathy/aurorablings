@@ -1,5 +1,6 @@
 from decimal import Decimal
 from rest_framework import serializers
+from apps.catalog.media import photo_for_variant
 from core.media import build_media_url
 from .models import Cart, CartItem
 
@@ -26,9 +27,9 @@ class CartItemReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_thumbnail(self, obj) -> str | None:
-        media_qs = obj.variant.product.media.all()
-        primary  = next((m for m in media_qs if m.is_primary), None) or (media_qs[0] if media_qs else None)
-        return build_media_url(primary.image, request=self.context.get("request")) if primary else None
+        # The photo of the options in the cart (e.g. the Violet one), else the primary.
+        photo = photo_for_variant(obj.variant)
+        return build_media_url(photo.image, request=self.context.get("request")) if photo else None
 
     def get_current_price(self, obj):
         return obj.variant.effective_price

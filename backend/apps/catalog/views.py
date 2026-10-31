@@ -23,6 +23,7 @@ from audit.services.activity_logger import log_activity
 
 from . import services, selectors
 from .filters import ProductFilter
+from .media import photo_for_variant
 from .models import (
     Category, Brand, Product, ProductVariant,
     Attribute, AttributeValue, ProductMedia, GlobalAttribute, ProductInfoItem,
@@ -512,7 +513,7 @@ class ProductViewSet(BaseViewSet):
         product = (
             Product.published
             .filter(pk=pk)
-            .prefetch_related("media")
+            .prefetch_related("media__attribute_values")
             .first()
         )
         if not product:
@@ -550,7 +551,7 @@ class ProductViewSet(BaseViewSet):
             alt_text=alt_text,
             is_primary=is_primary,
             sort_order=sort_order,
-            attribute_value_id=request.data.get("attribute_value_id"),
+            attribute_value_ids=services.media_tag_ids_from_payload(request.data),
         )
         return self.created(data=ProductMediaSerializer(media).data)
 
@@ -611,11 +612,15 @@ class ProductViewSet(BaseViewSet):
                 media.is_primary = raw
             else:
                 media.is_primary = str(raw).lower() == "true"
-        if "attribute_value_id" in request.data:
-            media.attribute_value = services.resolve_media_attribute_value(
-                product=product, value_id=request.data.get("attribute_value_id"),
-            )
+        tag_ids = services.media_tag_ids_from_payload(request.data)
+        # Check the tags before saving anything, so a bad id changes nothing.
+        tags = (
+            services.resolve_media_attribute_values(product=product, value_ids=tag_ids)
+            if tag_ids is not None else None
+        )
         media.save()
+        if tags is not None:
+            media.attribute_values.set(tags)
         return self.ok(data=ProductMediaSerializer(media).data, message="Product media updated.")
 
     @action(
@@ -857,7 +862,10 @@ class ProductViewSet(BaseViewSet):
 
                 recipient_email = record.email or (record.user.email if record.user_id and record.user else "")
                 if recipient_email:
-                    media = product.media.filter(is_primary=True).first() or product.media.first()
+                    media = (
+                        photo_for_variant(variant) if variant is not None
+                        else product.media.filter(is_primary=True).first() or product.media.first()
+                    )
                     product_image_url = ""
                     if media and getattr(media, "image", None):
                         image_url = str(media.image.url or "")

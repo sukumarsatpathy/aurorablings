@@ -51,6 +51,7 @@ from audit.services.activity_logger import log_activity
 
 from apps.cart.services import validate_cart as cart_validate_service, convert_cart
 from apps.cart.models import Cart, CartItem
+from apps.catalog.media import photo_for_variant
 from apps.catalog.models import ProductVariant
 from apps.inventory.services import reserve_stock, release_reservation, commit_reservation
 from apps.inventory.selectors import get_default_warehouse
@@ -227,7 +228,7 @@ def _build_order_items_for_email(order: Order) -> list[dict]:
         image_url = str(snapshot.get("image_url", "") or "")
 
         if not image_url and item.variant_id and item.variant and item.variant.product_id:
-            media = item.variant.product.media.filter(is_primary=True).first() or item.variant.product.media.first()
+            media = photo_for_variant(item.variant)
             if media and getattr(media, "image", None):
                 image_url = str(media.image.url or "")
 
@@ -719,7 +720,8 @@ def place_order(
         av_labels = " / ".join(av.value for av in variant.attribute_values.all())
 
         # Product snapshot — stable historical record
-        media = variant.product.media.filter(is_primary=True).first() or variant.product.media.first()
+        # The photo of the options bought (e.g. the Violet one), else the primary.
+        media = photo_for_variant(variant)
         image_url = str(media.image.url or "") if media and getattr(media, "image", None) else ""
         product_snapshot = {
             "product_id":   str(variant.product.id),

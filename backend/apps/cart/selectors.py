@@ -25,7 +25,7 @@ def get_cart_for_user(user) -> Cart | None:
         Cart.objects
         .prefetch_related(
             "items__variant__attribute_values__attribute",
-            "items__variant__product__media",
+            "items__variant__product__media__attribute_values",
         )
         .filter(user=user, status=CartStatus.ACTIVE)
         .order_by("-updated_at", "-created_at")
@@ -52,7 +52,7 @@ def get_cart_by_session(session_key: str) -> Cart | None:
         Cart.objects
         .prefetch_related(
             "items__variant__attribute_values__attribute",
-            "items__variant__product__media",
+            "items__variant__product__media__attribute_values",
         )
         .filter(session_key=session_key, status=CartStatus.ACTIVE)
         .order_by("-updated_at", "-created_at")
@@ -119,7 +119,7 @@ def calculate_cart_totals(cart: Cart, *, request=None) -> dict:
         )
         .prefetch_related(
             "variant__attribute_values__attribute",
-            "variant__product__media",
+            "variant__product__media__attribute_values",
         )
     )
 

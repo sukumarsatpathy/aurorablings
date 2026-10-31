@@ -236,17 +236,19 @@ def add_product_media(
     alt_text: str = "",
     is_primary: bool = False,
     sort_order: int = 0,
-    attribute_value_id=None,
+    attribute_value_ids=None,
 ) -> ProductMedia:
     image = validate_image_file(image)
+    tags = resolve_media_attribute_values(product=product, value_ids=attribute_value_ids or [])
     media = ProductMedia.objects.create(
         product=product,
         image=image,
         alt_text=alt_text,
         is_primary=is_primary,
         sort_order=sort_order,
-        attribute_value=resolve_media_attribute_value(product=product, value_id=attribute_value_id),
     )
+    if tags:
+        media.attribute_values.set(tags)
     logger.info("media_added", product_id=str(product.id), media_id=str(media.id))
     return media
 
@@ -272,18 +274,66 @@ def remove_product_video(*, product: Product) -> Product:
     return product
 
 
-def resolve_media_attribute_value(*, product: Product, value_id):
+def media_tag_ids_from_payload(data):
     """
-    The AttributeValue a photo is tagged with, checked to belong to this
-    product. Blank → None (photo shows for every option).
+    The option ids sent for a photo's tags, or None when the request doesn't
+    touch them. Accepts `attribute_value_ids` as a list (JSON), repeated form
+    fields, or one comma-separated string; and the older single
+    `attribute_value_id`. Blank / "null" entries are dropped, so an empty
+    list (or "") clears the tags.
     """
-    raw = str(value_id or "").strip()
-    if not raw or raw.lower() in {"null", "none"}:
-        return None
-    value = AttributeValue.objects.filter(pk=raw, attribute__product=product).first() if _is_uuid(raw) else None
-    if value is None:
+    if "attribute_value_ids" in data:
+        if hasattr(data, "getlist"):
+            raw = data.getlist("attribute_value_ids")
+        else:
+            raw = data.get("attribute_value_ids")
+        if raw is None:
+            raw = []
+        if isinstance(raw, str):
+            raw = [raw]
+        ids = []
+        for item in raw:
+            for part in str(item if item is not None else "").split(","):
+                part = part.strip()
+                if part and part.lower() not in {"null", "none"}:
+                    ids.append(part)
+        return ids
+    if "attribute_value_id" in data:
+        raw = str(data.get("attribute_value_id") or "").strip()
+        return [] if not raw or raw.lower() in {"null", "none"} else [raw]
+    return None
+
+
+def resolve_media_attribute_values(*, product: Product, value_ids) -> list:
+    """
+    The options a photo is tagged with, checked to belong to this product,
+    at most one per attribute (a photo can't be both Violet and Beige).
+    Empty → [] (photo shows for every option).
+    """
+    seen, raws = set(), []
+    for raw in value_ids or []:
+        raw = str(raw).strip()
+        if raw and raw not in seen:
+            seen.add(raw)
+            raws.append(raw)
+    if not raws:
+        return []
+    if not all(_is_uuid(raw) for raw in raws):
         raise ValidationError("That option doesn't belong to this product.")
-    return value
+    import uuid
+
+    raws = list(dict.fromkeys(str(uuid.UUID(raw)) for raw in raws))
+    values = list(
+        AttributeValue.objects
+        .filter(pk__in=raws, attribute__product=product)
+        .select_related("attribute")
+    )
+    if len(values) != len(raws):
+        raise ValidationError("That option doesn't belong to this product.")
+    attribute_ids = [v.attribute_id for v in values]
+    if len(set(attribute_ids)) != len(attribute_ids):
+        raise ValidationError("A photo can show only one option per attribute.")
+    return values
 
 
 def _is_uuid(raw: str) -> bool:

@@ -128,7 +128,7 @@ def get_product_by_id(product_id, *, published_only: bool = False) -> Product | 
             manager
             .select_related("category", "brand")
             .prefetch_related(
-                Prefetch("media", queryset=ProductMedia.objects.order_by("sort_order")),
+                Prefetch("media", queryset=ProductMedia.objects.order_by("sort_order").prefetch_related("attribute_values")),
                 Prefetch("variants", queryset=ProductVariant.objects.filter(is_active=True).prefetch_related("attribute_values__attribute")),
                 Prefetch("info_items", queryset=ProductInfoItem.objects.order_by("sort_order", "created_at")),
                 "attributes__values",
@@ -147,7 +147,7 @@ def get_product_by_slug(slug: str, *, published_only: bool = True) -> Product | 
             manager
             .select_related("category", "brand")
             .prefetch_related(
-                Prefetch("media", queryset=ProductMedia.objects.order_by("sort_order")),
+                Prefetch("media", queryset=ProductMedia.objects.order_by("sort_order").prefetch_related("attribute_values")),
                 Prefetch("variants", queryset=ProductVariant.objects.filter(is_active=True).prefetch_related("attribute_values__attribute")),
                 Prefetch("info_items", queryset=ProductInfoItem.objects.order_by("sort_order", "created_at")),
                 "attributes__values",

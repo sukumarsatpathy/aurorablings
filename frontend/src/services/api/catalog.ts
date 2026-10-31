@@ -13,7 +13,12 @@ export interface CatalogMedia {
   image_medium?: string | null;
   image_large?: string | null;
   alt_text: string;
-  /** Option this photo shows (e.g. the "Violet" value of Color); null = every option. */
+  /**
+   * Options this photo shows, at most one per attribute (e.g. [Violet] or
+   * [Violet, 2-6]); empty = every option.
+   */
+  attribute_values?: string[];
+  /** Older single tag (first of `attribute_values`); kept for compatibility. */
   attribute_value?: string | null;
   is_primary: boolean;
   sort_order: number;
@@ -454,13 +459,13 @@ const catalogService = {
   uploadProductMedia: async (
     productId: string,
     file: File,
-    data?: { alt_text?: string; is_primary?: boolean; sort_order?: number; attribute_value_id?: string | null },
+    data?: { alt_text?: string; is_primary?: boolean; sort_order?: number; attribute_value_ids?: string[] },
     onProgress?: UploadProgressHandler
   ) => {
     const form = new FormData();
     form.append('image', file);
     if (data?.alt_text) form.append('alt_text', data.alt_text);
-    if (data?.attribute_value_id) form.append('attribute_value_id', data.attribute_value_id);
+    if (data?.attribute_value_ids?.length) form.append('attribute_value_ids', data.attribute_value_ids.join(','));
     if (typeof data?.is_primary === 'boolean') form.append('is_primary', data.is_primary ? 'true' : 'false');
     if (typeof data?.sort_order === 'number') form.append('sort_order', String(data.sort_order));
 
@@ -474,7 +479,7 @@ const catalogService = {
   updateProductMedia: async (
     productId: string,
     mediaId: string,
-    payload: Partial<{ alt_text: string; is_primary: boolean; sort_order: number; attribute_value_id: string | null }>
+    payload: Partial<{ alt_text: string; is_primary: boolean; sort_order: number; attribute_value_ids: string[] }>
   ) => {
     const response = await apiClient.patch(`/v1/catalog/products/${productId}/media/${mediaId}/`, payload);
     return response.data;

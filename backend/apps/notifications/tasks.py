@@ -1,6 +1,7 @@
 from celery import shared_task
 from celery.utils.log import get_task_logger
 from django.conf import settings
+from apps.catalog.media import photo_for_variant
 
 logger = get_task_logger(__name__)
 
@@ -142,7 +143,11 @@ def notify_back_in_stock_task(product_id: str):
         if not recipient:
             continue
 
-        media = row.product.media.filter(is_primary=True).first() or row.product.media.first()
+        # The requested option's photo (e.g. the Violet one), else the primary.
+        media = (
+            photo_for_variant(row.variant) if row.variant_id
+            else row.product.media.filter(is_primary=True).first() or row.product.media.first()
+        )
         product_image_url = ""
         if media and getattr(media, "image", None):
             image_url = str(media.image.url or "")

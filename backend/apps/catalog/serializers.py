@@ -184,8 +184,11 @@ class ProductMediaSerializer(serializers.ModelSerializer):
     image_small = serializers.ImageField(required=False, allow_null=True)
     image_medium = serializers.ImageField(required=False, allow_null=True)
     image_large = serializers.ImageField(required=False, allow_null=True)
-    # The AttributeValue id this photo belongs to (e.g. Color: Violet), or null.
-    attribute_value = serializers.PrimaryKeyRelatedField(read_only=True)
+    # The options this photo shows (AttributeValue ids, at most one per
+    # attribute, e.g. [Violet] or [Violet, 2-6]); [] = every option.
+    attribute_values = serializers.PrimaryKeyRelatedField(many=True, read_only=True)
+    # Older clients read one tag: the first of the set, or null.
+    attribute_value = serializers.SerializerMethodField()
 
     class Meta:
         model  = ProductMedia
@@ -196,11 +199,16 @@ class ProductMediaSerializer(serializers.ModelSerializer):
             "image_medium",
             "image_large",
             "alt_text",
+            "attribute_values",
             "attribute_value",
             "is_primary",
             "sort_order",
         ]
         read_only_fields = ["id"]
+
+    def get_attribute_value(self, instance):
+        ids = sorted(str(av.pk) for av in instance.attribute_values.all())
+        return ids[0] if ids else None
 
     def validate_image(self, value):
         try:

@@ -316,13 +316,14 @@ class ProductMedia(BaseModel):
     image_medium = models.ImageField(upload_to="products/%Y/%m/", blank=True, null=True)
     image_large = models.ImageField(upload_to="products/%Y/%m/", blank=True, null=True)
     alt_text   = models.CharField(max_length=255, blank=True)
-    # Which option this photo shows, e.g. "Color: Violet". Empty = shown for
-    # every option. The product page shows the selected colour's photos first.
-    attribute_value = models.ForeignKey(
+    # Which options this photo shows: one per attribute at most, e.g.
+    # {Color: Violet} or {Color: Violet, Size: 2-6}. Empty = shown for every
+    # option. A variant shows the photos whose tags it has all of, the most
+    # specific first (see catalog/media.py and the storefront gallery).
+    attribute_values = models.ManyToManyField(
         "catalog.AttributeValue",
-        null=True, blank=True,
-        on_delete=models.SET_NULL,
-        related_name="media",
+        blank=True,
+        related_name="tagged_media",
     )
     is_primary = models.BooleanField(default=False, db_index=True)
     sort_order = models.PositiveSmallIntegerField(default=0)

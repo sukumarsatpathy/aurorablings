@@ -196,19 +196,47 @@ export function pickOption(
   return { ...best.sel };
 }
 
+/** Option ids a photo is tagged with ([] = shown for every option). */
+export function mediaTagIds(media: CatalogMedia): string[] {
+  if (media.attribute_values && media.attribute_values.length) return media.attribute_values.map(String);
+  return media.attribute_value ? [String(media.attribute_value)] : [];
+}
+
+/** Option ids behind the shopper's picks, across every picker. */
+export function selectedValueIds(groups: OptionGroup[], selection: Selection): string[] {
+  const ids: string[] = [];
+  for (const group of groups) {
+    const value = group.values.find((v) => v.key === selection[group.key]);
+    for (const id of value?.valueIds || []) ids.push(String(id));
+  }
+  return ids;
+}
+
 /**
- * Photos for the chosen colour: its tagged photos first, then photos tagged
- * with no colour. A colour with no photos of its own shows the untagged ones
- * (or everything, if nothing is untagged).
+ * Photos for the shopper's picks. A photo fits when every option it is tagged
+ * with is picked (a Violet photo fits Violet in any size; a Violet + 2-6
+ * photo fits only that combination). Fitting photos come first, the most
+ * specific first, then photos tagged with nothing. When nothing fits, the
+ * untagged photos show (or everything, if nothing is untagged).
  */
-export function mediaForColour(media: CatalogMedia[], colourValueIds: string[] | null): CatalogMedia[] {
+export function mediaForOptions(media: CatalogMedia[], pickedValueIds: string[] | null): CatalogMedia[] {
   const sorted = [...media].sort((a, b) => Number(a.sort_order || 0) - Number(b.sort_order || 0));
-  if (!colourValueIds || colourValueIds.length === 0) return sorted;
-  const ids = new Set(colourValueIds.map(String));
-  const own = sorted.filter((m) => m.attribute_value && ids.has(String(m.attribute_value)));
-  const shared = sorted.filter((m) => !m.attribute_value);
-  if (own.length) return [...own, ...shared];
+  if (!pickedValueIds || pickedValueIds.length === 0) return sorted;
+  const picked = new Set(pickedValueIds.map(String));
+  const tagged = sorted.map((m) => ({ m, tags: mediaTagIds(m) }));
+  const fitting = tagged
+    .filter(({ tags }) => tags.length > 0 && tags.every((id) => picked.has(id)))
+    // Array.prototype.sort is stable, so equal specificity keeps sort order.
+    .sort((a, b) => b.tags.length - a.tags.length)
+    .map(({ m }) => m);
+  const shared = tagged.filter(({ tags }) => tags.length === 0).map(({ m }) => m);
+  if (fitting.length) return [...fitting, ...shared];
   return shared.length ? shared : sorted;
+}
+
+/** Photos for one colour's ids (kept for older callers). */
+export function mediaForColour(media: CatalogMedia[], colourValueIds: string[] | null): CatalogMedia[] {
+  return mediaForOptions(media, colourValueIds);
 }
 
 /**
