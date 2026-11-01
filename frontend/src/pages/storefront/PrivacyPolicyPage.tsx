@@ -1,5 +1,6 @@
 import React from 'react';
 import { Link } from 'react-router-dom';
+import { INSTAGRAM_HANDLE, INSTAGRAM_URL } from '@/lib/contact';
 
 const sectionTitleClass = 'text-xl md:text-2xl font-semibold text-foreground';
 const bodyTextClass = 'mt-3 text-sm md:text-base leading-7 text-muted-foreground';
@@ -170,7 +171,10 @@ export const PrivacyPolicyPage: React.FC = () => {
               Puri, Odisha, India<br/>
               Email: connect@aurorablings.com<br/>
               Phone/WhatsApp: 7847090866<br/>
-              Instagram: @aurora_blings
+              Instagram:{' '}
+              <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer" className="underline underline-offset-2 hover:text-foreground">
+                @{INSTAGRAM_HANDLE}
+              </a>
             </p>
           </section>
         </div>

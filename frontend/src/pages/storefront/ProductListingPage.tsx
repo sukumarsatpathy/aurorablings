@@ -24,6 +24,7 @@ import type { DealProduct } from '@/types/product';
 import { useSectionTransition } from '@/animations/useSectionTransition';
 import { applySeo } from '@/lib/seo';
 import { pageSeoFor } from '@/lib/pageSeo';
+import { INSTAGRAM_URL } from '@/lib/contact';
 
 interface ProductListItem {
   id: string;
@@ -639,7 +640,7 @@ export const ProductListingPage: React.FC = () => {
                 </Button>
               ) : null}
               <Button asChild variant="outline">
-                <a href="https://www.instagram.com/aurora_blings" target="_blank" rel="noopener noreferrer">
+                <a href={INSTAGRAM_URL} target="_blank" rel="noopener noreferrer">
                   Follow on Instagram
                 </a>
               </Button>

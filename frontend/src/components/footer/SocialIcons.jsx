@@ -1,5 +1,6 @@
 import React, { useEffect, useRef } from 'react';
 import { gsap } from 'gsap';
+import { INSTAGRAM_URL } from '@/lib/contact';
 
 function InstagramIcon() {
   return (
@@ -34,7 +35,7 @@ const FACEBOOK_URL = '';
 const socials = [
   {
     label: 'Instagram',
-    href: 'https://www.instagram.com/aurora_blings',
+    href: INSTAGRAM_URL,
     Icon: InstagramIcon,
   },
   {
