@@ -276,7 +276,12 @@ export const Inventory: React.FC = () => {
       const product = String(v.product_name || '').toLowerCase();
       const variant = String(v.name || '').toLowerCase();
       const category = String(v.category_name || '').toLowerCase();
-      return sku.includes(q) || product.includes(q) || variant.includes(q) || category.includes(q);
+      return (
+        sku.includes(q) || product.includes(q) || variant.includes(q) || category.includes(q) ||
+        // Exact: a scanned label, or a product's stock ID.
+        String(v.barcode || '') === q ||
+        (v.stock_id != null && String(v.stock_id) === q)
+      );
     });
   }, [variants, opsVariantSearch, opsCategoryFilter]);
 
@@ -316,7 +321,7 @@ export const Inventory: React.FC = () => {
       </div>
 
       <div className="bg-white p-4 rounded-[14px] border border-border shadow-sm flex flex-col lg:flex-row gap-4">
-        <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input placeholder="Search by SKU, variant, or product..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-10 shadow-none border-border/60 bg-muted/20" /></div>
+        <div className="relative flex-1"><Search className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground" size={16} /><Input placeholder="Search by SKU, product, stock ID or scan a barcode..." value={search} onChange={(e) => setSearch(e.target.value)} className="pl-9 h-10 shadow-none border-border/60 bg-muted/20" /></div>
         <select className="h-10 min-w-[180px] rounded-xl border border-border/60 bg-background px-3 text-sm" value={warehouseFilter} onChange={(e) => setWarehouseFilter(e.target.value)}><option value="">All Warehouses</option>{warehouses.map((w) => <option key={w.id} value={w.id}>{w.name}</option>)}</select>
         <select className="h-10 min-w-[150px] rounded-xl border border-border/60 bg-background px-3 text-sm" value={status} onChange={(e) => setStatus(e.target.value as StockFilter)}><option value="">All Status</option><option value="in">In Stock</option><option value="low">Low Stock</option><option value="out">Out of Stock</option></select>
       </div>
@@ -438,9 +443,19 @@ export const Inventory: React.FC = () => {
                   <div className="absolute left-0 right-0 top-full z-50 mt-2 rounded-xl border border-border bg-background shadow-lg">
                     <div className="border-b border-border p-2">
                       <Input
-                        placeholder="Search by SKU, product or variant..."
+                        placeholder="Search by SKU, product, variant or scan a barcode..."
                         value={opsVariantSearch}
                         onChange={(e) => setOpsVariantSearch(e.target.value)}
+                        onKeyDown={(e) => {
+                          // A scanner types the code and presses Enter: pick
+                          // the variant when exactly one matches.
+                          if (e.key !== 'Enter') return;
+                          e.preventDefault();
+                          if (filteredOpsVariants.length === 1) {
+                            setOpsForm({ ...opsForm, variant_id: filteredOpsVariants[0].id });
+                            setOpsVariantDropdownOpen(false);
+                          }
+                        }}
                         className="h-9"
                       />
                     </div>

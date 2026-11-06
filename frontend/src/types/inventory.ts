@@ -34,6 +34,9 @@ export interface InventoryVariantOption {
   name: string;
   product_name: string;
   category_name?: string;
+  /** Label barcode, for finding the variant by scanning it. */
+  barcode?: string | null;
+  stock_id?: number | null;
   product_image?: string | null;
   is_active: boolean;
 }

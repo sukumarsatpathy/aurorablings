@@ -109,6 +109,9 @@ interface Product {
   name: string;
   /** Counter stock reference. Empty string when unassigned. */
   stockId: string;
+  /** Every variant's SKU and label barcode — list rows only, for search. */
+  skus?: string[];
+  barcodes?: string[];
   description: string;
   category: string;
   categoryId: string;
@@ -575,6 +578,8 @@ export const ProductManagement: React.FC = () => {
         id: String(p.id),
         name: String(p.name || ''),
         stockId: p.stock_id == null ? '' : String(p.stock_id),
+        skus: Array.isArray(p.skus) ? p.skus.map(String) : [],
+        barcodes: Array.isArray(p.barcodes) ? p.barcodes.map(String) : [],
         description: '',
         category: String(p.category_name || ''),
         categoryId: '',
@@ -1625,7 +1630,11 @@ export const ProductManagement: React.FC = () => {
             !term ||
             p.name.toLowerCase().includes(term) ||
             p.id.toLowerCase().includes(term) ||
-            (p.stockId ? p.stockId.toLowerCase().includes(term) : false);
+            (p.stockId ? p.stockId.toLowerCase().includes(term) : false) ||
+            (p.skus || []).some((sku) => sku.toLowerCase().includes(term)) ||
+            // Exact: a scanned label is a whole code, and partial digit
+            // matches would pull in half the catalogue.
+            (p.barcodes || []).includes(term);
           
           if (!matchesSearch) return false;
           
@@ -1804,7 +1813,7 @@ export const ProductManagement: React.FC = () => {
               <div className="relative group min-w-[240px]">
                 <Search className="absolute left-3 top-1/2 -translate-y-1/2 h-4 w-4 text-muted-foreground group-focus-within:text-primary transition-colors" />
                 <Input
-                  placeholder="Search products by name or ID..."
+                  placeholder="Search by name, SKU, stock ID or scan a barcode..."
                   className="pl-9 h-10 border-border/60 bg-white/50 focus:bg-white shadow-sm transition-all"
                   value={searchTerm}
                   onChange={(e) => setSearchTerm(e.target.value)}

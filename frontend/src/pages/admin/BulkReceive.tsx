@@ -231,7 +231,7 @@ export const BulkReceive: React.FC = () => {
         (p) =>
           norm(p.name).includes(q) ||
           String(p.stock_id ?? '') === q ||
-          p.variants.some((v) => norm(v.sku).includes(q)),
+          p.variants.some((v) => norm(v.sku).includes(q) || (v.barcode || '') === q),
       )
       .slice(0, 8);
   }, [search, catalog, productIds]);
@@ -489,7 +489,7 @@ export const BulkReceive: React.FC = () => {
               }
               if (e.key === 'Escape') setSearchOpen(false);
             }}
-            placeholder={loadingCatalog ? 'Loading products…' : 'Add a product — search by name, SKU or Stock ID…'}
+            placeholder={loadingCatalog ? 'Loading products…' : 'Add a product — name, SKU, stock ID or scan a barcode…'}
             className="h-11 pl-9"
             aria-label="Add a product"
             disabled={loadingCatalog || !warehouseId}

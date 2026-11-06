@@ -103,6 +103,25 @@ def _live_stock():
     )
 
 
+def _code_match(search: str, *, prefix: str = "") -> Q:
+    """
+    Exact matches for a scanned or typed label code: the variant's barcode,
+    and — when the text is all digits — the product's stock ID.
+
+    Exact, not "contains": a barcode is a whole code, and partial digit
+    matches would flood the list. OR'd onto the existing text search, so it
+    can only ever add results, never hide one.
+    """
+    term = (search or "").strip()
+    match = Q(**{f"{prefix}barcode": term}) if term else Q(pk__in=[])
+    # A stock ID is a PositiveIntegerField; a longer digit string (a 12-digit
+    # UPI ref pasted by mistake, say) must not reach Postgres as an
+    # out-of-range integer.
+    if term.isdigit() and int(term) <= 2147483647:
+        match |= Q(**{f"{prefix}product__stock_id": int(term)})
+    return match
+
+
 def get_all_stock_records(
     *,
     search: str | None = None,
@@ -115,7 +134,8 @@ def get_all_stock_records(
         qs = qs.filter(
             Q(variant__sku__icontains=search) |
             Q(variant__name__icontains=search) |
-            Q(variant__product__name__icontains=search)
+            Q(variant__product__name__icontains=search) |
+            _code_match(search, prefix="variant__")
         )
 
     if warehouse_id:
@@ -145,7 +165,8 @@ def get_variant_options(*, search: str | None = None, active_only: bool = True) 
         qs = qs.filter(
             Q(sku__icontains=search) |
             Q(name__icontains=search) |
-            Q(product__name__icontains=search)
+            Q(product__name__icontains=search) |
+            _code_match(search)
         )
     return qs.order_by("product__name", "sku")
 

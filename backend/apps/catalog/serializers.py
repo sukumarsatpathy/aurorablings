@@ -554,9 +554,20 @@ class AdminProductListSerializer(ProductListSerializer):
     """
 
     stock_summary = serializers.SerializerMethodField()
+    # Every variant's SKU and label barcode, so the admin product search can
+    # find a product by scanning its label. Read from the prefetched variants
+    # (no extra queries) and only on this staff-only serializer.
+    skus = serializers.SerializerMethodField()
+    barcodes = serializers.SerializerMethodField()
 
     class Meta(ProductListSerializer.Meta):
-        fields = ProductListSerializer.Meta.fields + ["stock_summary"]
+        fields = ProductListSerializer.Meta.fields + ["stock_summary", "skus", "barcodes"]
+
+    def get_skus(self, obj) -> list[str]:
+        return [v.sku for v in obj.variants.all() if v.sku]
+
+    def get_barcodes(self, obj) -> list[str]:
+        return [v.barcode for v in obj.variants.all() if v.barcode]
 
     def get_stock_summary(self, obj) -> str:
         try:

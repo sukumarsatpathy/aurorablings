@@ -61,6 +61,9 @@ class VariantOptionSerializer(serializers.Serializer):
     name = serializers.CharField(allow_blank=True)
     product_name = serializers.CharField(source="product.name")
     category_name = serializers.CharField(source="product.category.name", read_only=True)
+    # For finding a variant by scanning its label in the Receive/Adjust picker.
+    barcode = serializers.CharField(read_only=True, allow_null=True)
+    stock_id = serializers.IntegerField(source="product.stock_id", read_only=True, allow_null=True)
     product_image = serializers.SerializerMethodField()
     is_active = serializers.BooleanField()
     price = serializers.DecimalField(max_digits=12, decimal_places=2, source="effective_price", read_only=True)
