@@ -1,6 +1,12 @@
 import { useCallback, useEffect, useMemo, useState } from 'react';
 
-import posService, { type CatalogueRow } from '@/services/api/pos';
+import posService, {
+  QUICK_PREFIX,
+  quickItemService,
+  quickItemToRow,
+  type CartLine,
+  type CatalogueRow,
+} from '@/services/api/pos';
 
 export interface CartEntry {
   row: CatalogueRow;
@@ -13,7 +19,28 @@ const MAX_AGE_MS = 4 * 60 * 60 * 1000;
 
 interface Stored {
   savedAt: number;
+  /** variant_id is the cart key: a variant id, or "quick:<id>" for a quick item. */
   lines: Array<{ variant_id: string; quantity: number }>;
+}
+
+/**
+ * Today's rows for a set of cart keys. Catalogue variants and quick items are
+ * fetched from their own endpoints; a failure on the quick side never costs the
+ * catalogue lines.
+ */
+async function fetchRows(keys: string[]): Promise<CatalogueRow[]> {
+  const variantIds = keys.filter((k) => !k.startsWith(QUICK_PREFIX));
+  const quickIds = keys.filter((k) => k.startsWith(QUICK_PREFIX)).map((k) => k.slice(QUICK_PREFIX.length));
+  const [variants, quick] = await Promise.all([
+    posService.catalogueByIds(variantIds),
+    quickItemService.byIds(quickIds).catch(() => []),
+  ]);
+  return [...variants, ...quick.map(quickItemToRow)];
+}
+
+/** A server line (variant or quick item) as a cart key. */
+function lineKey(line: { variant_id?: string; quick_item_id?: string }): string {
+  return line.quick_item_id ? `${QUICK_PREFIX}${line.quick_item_id}` : String(line.variant_id || '');
 }
 
 /**
@@ -52,7 +79,7 @@ export function usePosCart() {
           return;
         }
 
-        const rows = await posService.catalogueByIds(stored.lines.map((l) => l.variant_id));
+        const rows = await fetchRows(stored.lines.map((l) => l.variant_id));
         if (!active) return;
 
         const rebuilt: CartEntry[] = [];
@@ -152,13 +179,14 @@ export function usePosCart() {
    * they are on restore: nothing about a cart is ever trusted from elsewhere.
    */
   const replaceFromLines = useCallback(
-    async (lines: Array<{ variant_id: string; quantity: number }>) => {
+    async (lines: Array<{ variant_id?: string; quick_item_id?: string; quantity: number }>) => {
       if (!lines.length) return;
       try {
-        const rows = await posService.catalogueByIds(lines.map((l) => l.variant_id));
+        const rows = await fetchRows(lines.map(lineKey));
         const rebuilt: CartEntry[] = [];
         for (const line of lines) {
-          const row = rows.find((r) => r.variant_id === line.variant_id);
+          const key = lineKey(line);
+          const row = rows.find((r) => r.variant_id === key);
           if (!row) continue;
           const capped = row.track_inventory ? Math.min(line.quantity, row.stock) : line.quantity;
           if (capped > 0) rebuilt.push({ row, quantity: capped });
@@ -192,8 +220,14 @@ export function usePosCart() {
     [entries],
   );
 
-  const lines = useMemo(
-    () => entries.map((e) => ({ variant_id: e.row.variant_id, quantity: e.quantity })),
+  /** What is sent to the server: ids and quantities, never a price. */
+  const lines = useMemo<CartLine[]>(
+    () =>
+      entries.map((e) =>
+        e.row.quick_item_id
+          ? { quick_item_id: e.row.quick_item_id, quantity: e.quantity }
+          : { variant_id: e.row.variant_id, quantity: e.quantity },
+      ),
     [entries],
   );
 

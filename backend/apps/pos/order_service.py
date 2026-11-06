@@ -75,6 +75,15 @@ def quote(
     quote that disagrees with the sale it turns into is worse than no quote:
     staff read the figure out loud before the order exists.
     """
+    from apps.pos import quick_items
+
+    variant_items, quick_lines = quick_items.split_lines(items)
+    if quick_lines:
+        return _quote_with_quick_items(
+            variant_items=variant_items, quick_lines=quick_lines,
+            coupon_code=coupon_code, fulfilment_type=fulfilment_type,
+        )
+
     priced = order_services.calculate_admin_order_pricing(
         items=items, coupon_code=(coupon_code or "").strip(),
     )
@@ -90,6 +99,119 @@ def quote(
             priced["shipping_cost"] = Decimal("0.00")
 
     return priced
+
+
+def _quote_with_quick_items(
+    *, variant_items: list[dict], quick_lines: list[dict], coupon_code: str, fulfilment_type: str,
+) -> dict:
+    """
+    Price a cart that has quick items in it, the way create_pos_order will.
+
+    Catalogue lines are still validated and priced by the shared engine; the
+    quick lines are priced from their server-side records; tax and charges are
+    then run once over the whole subtotal, as place_order does.
+    """
+    from apps.pos import quick_items
+    from apps.surcharge.services import SurchargeContext, calculate_surcharges
+
+    if (coupon_code or "").strip():
+        raise POSOrderError("Coupons can't be used on a sale with quick items. Use a manual discount.")
+
+    rows: list[dict] = []
+    subtotal = ZERO
+    if variant_items:
+        priced = order_services.calculate_admin_order_pricing(items=variant_items)
+        subtotal += Decimal(str(priced["subtotal"]))
+        rows.extend(priced["items"])
+    quick_total, quick_rows = quick_items.quick_subtotal(quick_lines)
+    subtotal += quick_total
+    rows.extend(quick_rows)
+
+    result = calculate_surcharges(SurchargeContext(subtotal=subtotal, payment_method=PaymentMethod.UPI))
+    shipping = result.shipping_total
+    grand_total = max(ZERO, result.grand_total)
+    if fulfilment_type == FulfilmentType.CARRY_AWAY and shipping:
+        grand_total = grand_total - shipping
+        shipping = ZERO
+
+    return {
+        "subtotal": subtotal,
+        "discount_amount": result.discount_total,
+        "shipping_cost": Decimal(shipping).quantize(Decimal("0.01")),
+        "tax_amount": result.tax_total,
+        "grand_total": Decimal(grand_total).quantize(Decimal("0.01")),
+        "coupon": None,
+        "breakdown": result.as_dict().get("breakdown", []),
+        "items": rows,
+    }
+
+
+def _create_order_with_quick_items(
+    *,
+    variant_items: list[dict],
+    quick_lines: list[dict],
+    contact_email: str,
+    shipping_address: dict,
+    notes: str,
+    staff,
+) -> Order:
+    """
+    Build a counter sale that includes quick items.
+
+    With catalogue lines too, the shared pipeline creates the order for them
+    exactly as it always has, then the quick lines are added and the totals run
+    once over everything. With quick items only there is no cart for the pipeline
+    to place, so the order is created here and given the same DRAFT → PLACED
+    transition, invoice and confirmation the pipeline would have.
+    """
+    from apps.inventory.selectors import get_default_warehouse
+    from apps.orders.models import OrderStatus
+    from apps.pos import quick_items
+
+    if variant_items:
+        order = order_services.create_admin_order_from_items(
+            items=variant_items,
+            guest_email=contact_email or "",
+            shipping_address=shipping_address or {},
+            payment_method=PaymentMethod.UPI,
+            notes=notes,
+            changed_by=staff,
+        )
+        quick_items.add_quick_lines(order=order, quick_lines=quick_lines)
+        quick_items.reprice_order(order, payment_method=PaymentMethod.UPI)
+        return order
+
+    warehouse = get_default_warehouse()
+    if not warehouse:
+        raise POSOrderError("No active default warehouse is configured.")
+
+    order = Order.objects.create(
+        guest_email=contact_email or "",
+        status=OrderStatus.DRAFT,
+        payment_method=PaymentMethod.UPI,
+        payment_status=PaymentStatus.PENDING,
+        shipping_address=shipping_address or {},
+        billing_address=shipping_address or {},
+        notes=notes,
+        warehouse=warehouse,
+    )
+    quick_items.add_quick_lines(order=order, quick_lines=quick_lines)
+    quick_items.reprice_order(order, payment_method=PaymentMethod.UPI)
+    order_services._apply_transition(
+        order=order, new_status=OrderStatus.PLACED, changed_by=staff,
+        notes="Order placed at the counter.",
+    )
+
+    # Same follow-up as place_order. No confirmation email here: a counter sale
+    # is created with PaymentMethod.UPI, which place_order treats as an online
+    # method and confirms only on payment — this path does the same.
+    try:
+        from apps.invoices.tasks import generate_invoice_task
+
+        transaction.on_commit(lambda: generate_invoice_task.delay(str(order.id)))
+    except Exception:
+        pass
+    return order
 
 
 def clean_courier_address(address: dict | None) -> dict:
@@ -173,15 +295,34 @@ def create_pos_order(
         contact_name = (contact_name or "").strip() or shipping_address["full_name"]
         contact_phone = (contact_phone or "").strip() or shipping_address["phone"]
 
-    order = order_services.create_admin_order_from_items(
-        items=items,
-        guest_email=contact_email or "",
-        shipping_address=shipping_address or {},
-        payment_method=PaymentMethod.UPI,
-        coupon_code=(coupon_code or "").strip(),
-        notes=notes,
-        changed_by=staff,
-    )
+    from apps.pos import quick_items
+
+    variant_items, quick_lines = quick_items.split_lines(items)
+    if quick_lines:
+        # Only sales with a photographed, barcode-less piece take this branch.
+        if (coupon_code or "").strip():
+            raise POSOrderError("Coupons can't be used on a sale with quick items. Use a manual discount.")
+        try:
+            order = _create_order_with_quick_items(
+                variant_items=variant_items,
+                quick_lines=quick_lines,
+                contact_email=contact_email,
+                shipping_address=shipping_address or {},
+                notes=notes,
+                staff=staff,
+            )
+        except quick_items.QuickItemError as exc:
+            raise POSOrderError(str(exc)) from exc
+    else:
+        order = order_services.create_admin_order_from_items(
+            items=items,
+            guest_email=contact_email or "",
+            shipping_address=shipping_address or {},
+            payment_method=PaymentMethod.UPI,
+            coupon_code=(coupon_code or "").strip(),
+            notes=notes,
+            changed_by=staff,
+        )
 
     order.contact_name = (contact_name or "").strip()
     order.contact_phone = (contact_phone or "").strip()

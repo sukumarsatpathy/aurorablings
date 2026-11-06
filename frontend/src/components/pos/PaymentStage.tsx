@@ -24,7 +24,7 @@ interface Props {
    * tender has landed this is gone and Void is the only way out — that path
    * refunds cash from the drawer, which is a different decision.
    */
-  onBack: (lines: Array<{ variant_id: string; quantity: number }>) => void;
+  onBack: (lines: Array<{ variant_id?: string; quick_item_id?: string; quantity: number }>) => void;
 }
 
 type Collection = Parameters<typeof UpiQrScreen>[0]['collection'];
@@ -80,7 +80,7 @@ export function PaymentStage({
       // The order's own lines go back to the cart, so a sale survives being
       // stepped out of even if the tablet has been reloaded since it was rung up.
       await posService.voidSale(order.order_id, 'edited before payment');
-      onBack(state?.items ?? []);
+      onBack([...(state?.items ?? []), ...(state?.quick_items ?? [])]);
     } catch (err: any) {
       setError((err?.response?.data?.detail || err?.response?.data?.message) || 'Could not return to the cart.');
     } finally {

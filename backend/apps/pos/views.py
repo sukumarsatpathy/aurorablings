@@ -42,6 +42,20 @@ def _bad(message, code=status.HTTP_400_BAD_REQUEST):
     return Response({"detail": str(message)}, status=code)
 
 
+def _sale_lines(validated_items) -> list[dict]:
+    """
+    Catalogue lines exactly as before ({variant_id, quantity}); quick-item lines
+    as {quick_item_id, quantity}. Still no price — the server has it.
+    """
+    lines = []
+    for i in validated_items:
+        if i.get("quick_item_id"):
+            lines.append({"quick_item_id": str(i["quick_item_id"]), "quantity": i["quantity"]})
+        else:
+            lines.append({"variant_id": str(i["variant_id"]), "quantity": i["quantity"]})
+    return lines
+
+
 def _is_admin(user) -> bool:
     """Staff run the counter; only an admin changes what the counters are."""
     return getattr(user, "role", None) == UserRole.ADMIN
@@ -525,10 +539,7 @@ class POSQuoteView(APIView):
 
         payload = POSQuoteSerializer(data=request.data)
         payload.is_valid(raise_exception=True)
-        items = [
-            {"variant_id": str(i["variant_id"]), "quantity": i["quantity"]}
-            for i in payload.validated_data["items"]
-        ]
+        items = _sale_lines(payload.validated_data["items"])
         try:
             return Response(order_service.quote(
                 items=items,
@@ -554,10 +565,7 @@ class POSOrderCreateView(APIView):
         if shift is None:
             return _bad("No open shift with that id.", status.HTTP_409_CONFLICT)
 
-        items = [
-            {"variant_id": str(i["variant_id"]), "quantity": i["quantity"]}
-            for i in data["items"]
-        ]
+        items = _sale_lines(data["items"])
         try:
             order = order_service.create_pos_order(
                 items=items,
@@ -942,3 +950,179 @@ class CustomerOccasionsView(APIView):
                 user.anniversary_date.isoformat() if user.anniversary_date else None
             ),
         })
+
+
+# ─────────────────────────────────────────────────────────────
+#  Quick items — barcode-less pieces sold with a photo
+# ─────────────────────────────────────────────────────────────
+
+class QuickItemListView(APIView):
+    """
+    GET  /pos/quick-items/?q=&ids=&include_sold_out=1 — search the counter's quick items.
+    POST /pos/quick-items/ (multipart: image, name, price, quantity) — photograph a new one.
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        from apps.pos.models import POSQuickItem
+        from apps.pos.serializers import QuickItemSerializer
+
+        items = POSQuickItem.objects.select_related("created_by")
+        ids = [i for i in (request.query_params.get("ids") or "").split(",") if i.strip()]
+        if ids:
+            # Restoring a cart: today's price and count for what the till remembered.
+            items = items.filter(pk__in=ids[:100], is_active=True)
+            return Response(QuickItemSerializer(items, many=True, context={"request": request}).data)
+
+        include_inactive = str(request.query_params.get("include_inactive", "")).lower() in ("1", "true", "yes")
+        if not include_inactive:
+            items = items.filter(is_active=True)
+        if str(request.query_params.get("include_sold_out", "")).lower() not in ("1", "true", "yes"):
+            items = items.filter(quantity__gt=0)
+        query = (request.query_params.get("q") or "").strip()
+        if query:
+            items = items.filter(name__icontains=query)
+        try:
+            limit = min(int(request.query_params.get("limit", 60)), 200)
+        except (TypeError, ValueError):
+            limit = 60
+        return Response(QuickItemSerializer(items[:limit], many=True, context={"request": request}).data)
+
+    def post(self, request):
+        from apps.pos import quick_items
+        from apps.pos.serializers import QuickItemSerializer, QuickItemWriteSerializer
+
+        payload = QuickItemWriteSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+        try:
+            item = quick_items.create_quick_item(
+                name=data["name"], price=data["price"], quantity=data.get("quantity", 1),
+                image=data.get("image"), staff=request.user,
+            )
+        except quick_items.QuickItemError as exc:
+            return _bad(exc)
+        return Response(
+            QuickItemSerializer(item, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class QuickItemDetailView(APIView):
+    """PATCH /pos/quick-items/<id>/ — fix the name, price, count or photo; or hide it."""
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def patch(self, request, item_id):
+        from apps.pos import quick_items
+        from apps.pos.models import POSQuickItem
+        from apps.pos.serializers import QuickItemSerializer, QuickItemWriteSerializer
+
+        item = POSQuickItem.objects.filter(pk=item_id).first()
+        if item is None:
+            return _bad("Quick item not found.", status.HTTP_404_NOT_FOUND)
+        payload = QuickItemWriteSerializer(data=request.data, partial=True)
+        payload.is_valid(raise_exception=True)
+        data = dict(payload.validated_data)
+        image = data.pop("image", None)
+        try:
+            item = quick_items.update_quick_item(item=item, staff=request.user, image=image, **data)
+        except quick_items.QuickItemError as exc:
+            return _bad(exc)
+        return Response(QuickItemSerializer(item, context={"request": request}).data)
+
+
+# ─────────────────────────────────────────────────────────────
+#  Expenses
+# ─────────────────────────────────────────────────────────────
+
+class ExpenseListView(APIView):
+    """
+    GET  /pos/expenses/?shift=&mode=cash|upi&from=YYYY-MM-DD&to=YYYY-MM-DD&include_voided=1
+    POST /pos/expenses/ (multipart: payment_mode, amount, remarks, bill_image?, upi_reference?, shift?)
+    """
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def get(self, request):
+        from apps.pos import expenses
+        from apps.pos.models import POSExpense
+        from apps.pos.serializers import ExpenseSerializer
+
+        qs = POSExpense.objects.select_related("created_by", "voided_by", "shift__terminal")
+        params = request.query_params
+        if params.get("shift"):
+            qs = qs.filter(shift_id=params["shift"])
+        if params.get("mode") in ("cash", "upi"):
+            qs = qs.filter(payment_mode=params["mode"])
+        if params.get("from"):
+            qs = qs.filter(created_at__date__gte=params["from"])
+        if params.get("to"):
+            qs = qs.filter(created_at__date__lte=params["to"])
+
+        totals = expenses.expense_totals(qs)
+        if str(params.get("include_voided", "1")).lower() in ("0", "false", "no"):
+            qs = qs.filter(voided_at__isnull=True)
+        try:
+            limit = min(int(params.get("limit", 100)), 500)
+        except (TypeError, ValueError):
+            limit = 100
+        return Response({
+            "totals": totals,
+            "results": ExpenseSerializer(qs[:limit], many=True, context={"request": request}).data,
+        })
+
+    def post(self, request):
+        from apps.pos import expenses
+        from apps.pos.serializers import ExpenseCreateSerializer, ExpenseSerializer
+
+        payload = ExpenseCreateSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        data = payload.validated_data
+
+        shift = None
+        if data.get("shift"):
+            shift = POSShift.objects.filter(pk=data["shift"]).first()
+            if shift is None:
+                return _bad("Shift not found.", status.HTTP_404_NOT_FOUND)
+        try:
+            expense = expenses.record_expense(
+                payment_mode=data["payment_mode"],
+                amount=data["amount"],
+                remarks=data["remarks"],
+                staff=request.user,
+                shift=shift,
+                bill_image=data.get("bill_image"),
+                upi_reference=data.get("upi_reference", ""),
+            )
+        except (expenses.ExpenseError, services.ShiftError) as exc:
+            return _bad(exc, status.HTTP_409_CONFLICT)
+
+        body = ExpenseSerializer(expense, context={"request": request}).data
+        if expense.shift_id:
+            body["expected_cash_now"] = str(services.expected_cash(expense.shift))
+        return Response(body, status=status.HTTP_201_CREATED)
+
+
+class ExpenseVoidView(APIView):
+    """POST /pos/expenses/<id>/void/ {reason} — cancel a wrong entry; cash goes back in the drawer total."""
+    permission_classes = [IsAuthenticated, IsStaffOrAdmin]
+
+    def post(self, request, expense_id):
+        from apps.pos import expenses
+        from apps.pos.models import POSExpense
+        from apps.pos.serializers import ExpenseSerializer, ExpenseVoidSerializer
+
+        expense = POSExpense.objects.filter(pk=expense_id).first()
+        if expense is None:
+            return _bad("Expense not found.", status.HTTP_404_NOT_FOUND)
+        payload = ExpenseVoidSerializer(data=request.data)
+        payload.is_valid(raise_exception=True)
+        try:
+            expense = expenses.void_expense(
+                expense=expense, staff=request.user, reason=payload.validated_data["reason"],
+            )
+        except (expenses.ExpenseError, services.ShiftError) as exc:
+            return _bad(exc, status.HTTP_409_CONFLICT)
+        body = ExpenseSerializer(expense, context={"request": request}).data
+        if expense.shift_id:
+            body["expected_cash_now"] = str(services.expected_cash(expense.shift))
+        return Response(body)

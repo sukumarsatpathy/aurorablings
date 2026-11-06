@@ -62,6 +62,80 @@ export interface ShiftSummary {
   part_paid_open: number;
   /** Staff-confirmed Paytm UPI payments, to tick off against the Paytm app at close. */
   paytm_upi?: Array<{ order_number: string; amount: string; reference: string; at: string; by: string }>;
+  /** Money spent during the shift. Cash ones are already inside cash_movements_net. */
+  expenses?: ExpenseTotals & { items: ShiftExpenseRow[] };
+}
+
+export interface ExpenseTotals {
+  cash: string;
+  upi: string;
+  total: string;
+  count: number;
+}
+
+export interface ShiftExpenseRow {
+  id: string;
+  payment_mode: 'cash' | 'upi';
+  amount: string;
+  remarks: string;
+  upi_reference: string;
+  has_bill: boolean;
+  voided: boolean;
+  at: string;
+  by: string;
+}
+
+export interface PosExpense {
+  id: string;
+  payment_mode: 'cash' | 'upi';
+  amount: string;
+  remarks: string;
+  bill_image: string | null;
+  upi_reference: string;
+  shift: string | null;
+  terminal: string;
+  created_by: string;
+  created_at: string;
+  is_voided: boolean;
+  voided_at: string | null;
+  voided_by: string;
+  void_reason: string;
+  /** Present when the expense is on a shift: the drawer after it. */
+  expected_cash_now?: string;
+}
+
+/** A barcode-less piece photographed at the counter. Never a catalogue product. */
+export interface QuickItem {
+  id: string;
+  name: string;
+  price: string;
+  quantity: number;
+  image: string | null;
+  is_active: boolean;
+  created_by: string;
+  created_at: string;
+}
+
+/** Cart key for a quick item, so it can never collide with a variant id. */
+export const QUICK_PREFIX = 'quick:';
+
+/** A quick item shaped like a catalogue row, so the grid and cart treat it the same. */
+export function quickItemToRow(item: QuickItem): CatalogueRow {
+  return {
+    variant_id: `${QUICK_PREFIX}${item.id}`,
+    quick_item_id: item.id,
+    sku: 'No barcode',
+    barcode: null,
+    stock_id: null,
+    product_name: item.name,
+    variant_name: '',
+    price: item.price,
+    compare_at_price: null,
+    stock: item.quantity,
+    track_inventory: true,
+    low_stock: item.quantity <= 1,
+    image: item.image,
+  };
 }
 
 export interface CatalogueRow {
@@ -80,10 +154,14 @@ export interface CatalogueRow {
   low_stock: boolean;
   /** Product's primary image, small derivative. Null when none is uploaded. */
   image: string | null;
+  /** Set when this row is a quick item (no barcode); variant_id is then a cart key only. */
+  quick_item_id?: string;
 }
 
+/** One sale line: a catalogue variant or a quick item, never a price. */
 export interface CartLine {
-  variant_id: string;
+  variant_id?: string;
+  quick_item_id?: string;
   quantity: number;
 }
 
@@ -112,6 +190,8 @@ export interface PaymentState {
   contact_email: string;
   /** The order's own lines — what "back to cart" refills from. */
   items: Array<{ variant_id: string; quantity: number }>;
+  /** Quick-item lines on the order (absent from older servers). */
+  quick_items?: Array<{ quick_item_id: string; quantity: number }>;
   amount_paid: string;
   balance_due: string;
   /** Handed over at the counter, or sent by courier. */
@@ -376,6 +456,74 @@ const posService = {
       /** UPI received on Paytm for this sale that must be refunded from the Paytm app. */
       paytm_upi_to_refund?: string;
     };
+  },
+};
+
+export interface ExpenseFilters {
+  shift?: string;
+  mode?: 'cash' | 'upi';
+  from?: string;
+  to?: string;
+  limit?: number;
+}
+
+/** Quick items and expenses. Uploads are multipart; everything else is as above. */
+export const quickItemService = {
+  search: async (q: string): Promise<QuickItem[]> => {
+    const { data } = await apiClient.get('/v1/pos/quick-items/', { params: { q } });
+    return data;
+  },
+
+  /** Re-read price and count for a restored cart. */
+  byIds: async (ids: string[]): Promise<QuickItem[]> => {
+    if (!ids.length) return [];
+    const { data } = await apiClient.get('/v1/pos/quick-items/', { params: { ids: ids.join(',') } });
+    return data;
+  },
+
+  create: async (payload: { name: string; price: string; quantity: number; image?: Blob | null }): Promise<QuickItem> => {
+    const form = new FormData();
+    form.append('name', payload.name);
+    form.append('price', payload.price);
+    form.append('quantity', String(payload.quantity));
+    if (payload.image) form.append('image', payload.image, 'photo.jpg');
+    const { data } = await apiClient.post('/v1/pos/quick-items/', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+};
+
+export const expenseService = {
+  list: async (filters: ExpenseFilters = {}): Promise<{ totals: ExpenseTotals; results: PosExpense[] }> => {
+    const { data } = await apiClient.get('/v1/pos/expenses/', { params: filters });
+    return data;
+  },
+
+  create: async (payload: {
+    payment_mode: 'cash' | 'upi';
+    amount: string;
+    remarks: string;
+    upi_reference?: string;
+    shift?: string;
+    bill_image?: Blob | null;
+  }): Promise<PosExpense> => {
+    const form = new FormData();
+    form.append('payment_mode', payload.payment_mode);
+    form.append('amount', payload.amount);
+    form.append('remarks', payload.remarks);
+    if (payload.upi_reference) form.append('upi_reference', payload.upi_reference);
+    if (payload.shift) form.append('shift', payload.shift);
+    if (payload.bill_image) form.append('bill_image', payload.bill_image, 'bill.jpg');
+    const { data } = await apiClient.post('/v1/pos/expenses/', form, {
+      headers: { 'Content-Type': 'multipart/form-data' },
+    });
+    return data;
+  },
+
+  void: async (id: string, reason: string): Promise<PosExpense> => {
+    const { data } = await apiClient.post(`/v1/pos/expenses/${id}/void/`, { reason });
+    return data;
   },
 };
 

@@ -13,13 +13,15 @@ import { PaymentStage } from '@/components/pos/PaymentStage';
 import { CatalogueGrid } from '@/components/pos/CatalogueGrid';
 import { CameraScanner } from '@/components/pos/CameraScanner';
 import { CloseShiftDialog } from '@/components/pos/CloseShiftDialog';
+import { ExpenseDialog } from '@/components/pos/ExpenseDialog';
+import { QuickAddDialog } from '@/components/pos/QuickAddDialog';
 import { CustomerPanel, type CounterCustomer } from '@/components/pos/CustomerPanel';
 import { ShiftGate } from '@/components/pos/ShiftGate';
 import { useBranding } from '@/hooks/useBranding';
 import { scanBeep, useBarcodeScanner } from '@/hooks/useBarcodeScanner';
 import { usePosCart } from '@/hooks/usePosCart';
 import { usePosShift } from '@/hooks/usePosShift';
-import posService, { type CatalogueRow, type PosOrder } from '@/services/api/pos';
+import posService, { quickItemToRow, type CatalogueRow, type PosOrder } from '@/services/api/pos';
 
 /** Codes we print on labels: 8 digits. Anything else in the box is a search. */
 const LOOKS_LIKE_BARCODE = /^\d{6,}$/;
@@ -61,6 +63,11 @@ export function PosPage() {
   };
   const [scanNotice, setScanNotice] = useState<ScanNotice | null>(null);
   const [cameraOpen, setCameraOpen] = useState(false);
+  // Barcode-less pieces: the dialog (with the search text as a starting name),
+  // and a counter that makes the grid re-read so the new item shows up.
+  const [quickAddName, setQuickAddName] = useState<string | null>(null);
+  const [catalogueRefresh, setCatalogueRefresh] = useState(0);
+  const [expensesOpen, setExpensesOpen] = useState(false);
   // Phones show one panel at a time — products or the cart — with tabs to
   // switch. Stacking both in one fixed-height screen left the product panel
   // with no height once the on-screen keyboard opened, so the search box
@@ -324,6 +331,14 @@ export function PosPage() {
           */}
           <button
             type="button"
+            onClick={() => setExpensesOpen(true)}
+            title="Record money spent — cash from the drawer, or UPI"
+            className="rounded-md border border-border px-2.5 py-1 text-[11px] font-semibold text-foreground"
+          >
+            Expense
+          </button>
+          <button
+            type="button"
             onClick={() => setClosingShift(true)}
             disabled={Boolean(order)}
             title={order ? 'Finish or void the open sale first' : 'Count the drawer and end the shift'}
@@ -333,6 +348,31 @@ export function PosPage() {
           </button>
         </span>
       </header>
+
+      {expensesOpen && (
+        <ExpenseDialog
+          shiftId={shift.id}
+          onClose={() => setExpensesOpen(false)}
+          onChanged={() => void refresh()}
+        />
+      )}
+
+      {quickAddName !== null && !order && (
+        <QuickAddDialog
+          initialName={quickAddName}
+          onClose={() => setQuickAddName(null)}
+          onSaved={(item) => {
+            setQuickAddName(null);
+            cart.add(quickItemToRow(item));
+            setCatalogueRefresh((n) => n + 1);
+            setScanNotice({
+              kind: 'ok',
+              text: `Added ${item.name} — ₹${Number(item.price).toLocaleString('en-IN')}`,
+              at: Date.now(),
+            });
+          }}
+        />
+      )}
 
       {closingShift && (
         <CloseShiftDialog
@@ -438,6 +478,8 @@ export function PosPage() {
             inCart={inCart}
             onScanCode={handleScan}
             onOpenCamera={() => setCameraOpen(true)}
+            onQuickAdd={(name) => setQuickAddName(name)}
+            refreshKey={catalogueRefresh}
           />
         </div>
         <div className={`${mobileView === 'cart' ? 'block' : 'hidden'} min-h-0 overflow-hidden md:block`}>

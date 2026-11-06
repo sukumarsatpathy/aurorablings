@@ -92,6 +92,12 @@ export function CloseShiftDialog({ shiftId, onCancel, onClosed }: Props) {
                 <dt className="text-muted-foreground">Opening float</dt>
                 <dd className="tabular-nums">{money(Number(summary.opening_float))}</dd>
               </div>
+              {summary.expenses && Number(summary.expenses.cash) > 0 && (
+                <div className="flex justify-between">
+                  <dt className="text-muted-foreground">Cash expenses (out of drawer)</dt>
+                  <dd className="tabular-nums">−{money(Number(summary.expenses.cash))}</dd>
+                </div>
+              )}
               <div className="flex justify-between font-semibold">
                 <dt>Expected in drawer</dt>
                 <dd className="tabular-nums">{money(expected)}</dd>
@@ -112,6 +118,27 @@ export function CloseShiftDialog({ shiftId, onCancel, onClosed }: Props) {
                     <li key={`${row.order_number}-${row.reference}`} className="flex justify-between gap-3 text-xs">
                       <span className="font-mono">{row.order_number}</span>
                       <span className="font-mono text-muted-foreground">ref {row.reference}</span>
+                      <span className="tabular-nums">{money(Number(row.amount))}</span>
+                    </li>
+                  ))}
+                </ul>
+              </details>
+            )}
+
+            {summary.expenses && summary.expenses.items.length > 0 && (
+              <details className="mt-3 rounded-lg border border-border px-3 py-2 text-sm">
+                <summary className="cursor-pointer font-medium">
+                  Expenses · cash {money(Number(summary.expenses.cash))} · UPI{' '}
+                  {money(Number(summary.expenses.upi))}
+                </summary>
+                <ul className="mt-2 space-y-1">
+                  {summary.expenses.items.map((row) => (
+                    <li
+                      key={row.id}
+                      className={`flex justify-between gap-3 text-xs ${row.voided ? 'line-through opacity-50' : ''}`}
+                    >
+                      <span className="uppercase text-muted-foreground">{row.payment_mode}</span>
+                      <span className="min-w-0 flex-1 truncate">{row.remarks}</span>
                       <span className="tabular-nums">{money(Number(row.amount))}</span>
                     </li>
                   ))}

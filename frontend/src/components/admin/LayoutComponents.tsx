@@ -1,6 +1,6 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Link, useLocation, useNavigate } from 'react-router-dom';
-import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users, Mail, Store } from 'lucide-react';
+import { LayoutDashboard, ShoppingBag, Box, RotateCcw, Settings, Search, BellRing, Bell, Tags, Sparkles, UserCog, LogOut, ChevronDown, MapPin, KeyRound, Check, X, TicketPercent, ClipboardList, HeartPulse, MoonStar, SunMedium, Warehouse, Monitor, FolderTree, MessageSquare, Users, Mail, Store, Wallet } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { Input } from '@/components/ui/Input';
 import { Button } from '@/components/ui/Button';
@@ -24,6 +24,7 @@ const NAV_ITEMS = [
   { path: '/admin/inventory', icon: Warehouse, label: 'Inventory' },
   { path: '/admin/reviews', icon: MessageSquare, label: 'Reviews' },
   { path: '/admin/orders', icon: ShoppingBag, label: 'Orders' },
+  { path: '/admin/expenses', icon: Wallet, label: 'Expenses' },
   { path: '/admin/customers', icon: Users, label: 'Users' },
   { path: '/admin/returns', icon: RotateCcw, label: 'Return Exchange' },
   { path: '/admin/coupons', icon: TicketPercent, label: 'Coupons' },

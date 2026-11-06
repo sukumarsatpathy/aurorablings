@@ -149,3 +149,147 @@ class POSCashMovement(models.Model):
     def signed_amount(self):
         """Positive if it adds to the drawer, negative if it takes from it."""
         return self.amount if self.movement_type == CashMovementType.PAY_IN else -self.amount
+
+
+# ─────────────────────────────────────────────────────────────
+#  Quick items — pieces sold at the counter without a catalogue entry
+# ─────────────────────────────────────────────────────────────
+
+class POSQuickItem(models.Model):
+    """
+    A piece with no barcode and no product page, photographed at the counter.
+
+    Deliberately *not* a catalogue Product: these never reach the website, the
+    product admin, the sitemap or the label printer. They exist only so the till
+    can sell them with a picture on the bill and a stock count that goes down.
+
+    The price lives here, on the server. A sale line names the quick item and a
+    quantity — the tablet still never sends a price.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    name = models.CharField(max_length=150)
+    image = models.ImageField(upload_to="pos/quick-items/%Y/%m/", blank=True)
+    price = models.DecimalField(max_digits=12, decimal_places=2)
+    #: Pieces on hand. Goes down when a sale is rung up, back up when it is voided.
+    quantity = models.PositiveIntegerField(default=1)
+    is_active = models.BooleanField(default=True, db_index=True)
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="pos_quick_items",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name = _("POS quick item")
+        verbose_name_plural = _("POS quick items")
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(check=models.Q(price__gt=0), name="pos_quick_item_price_positive"),
+        ]
+
+    def __str__(self):
+        return f"{self.name} — ₹{self.price} ({self.quantity} left)"
+
+
+class POSQuickSaleLine(models.Model):
+    """
+    Which order line was a quick item, and whether its stock has been put back.
+
+    Kept here rather than as a column on OrderItem so the orders app is untouched:
+    the order line itself is an ordinary OrderItem with no variant, which every
+    order, invoice and email path already handles (it is the same shape as a
+    line whose product was later deleted).
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    order = models.ForeignKey(
+        "orders.Order", on_delete=models.CASCADE, related_name="pos_quick_lines",
+    )
+    order_item = models.OneToOneField(
+        "orders.OrderItem", on_delete=models.CASCADE, related_name="pos_quick_line",
+    )
+    quick_item = models.ForeignKey(
+        POSQuickItem, on_delete=models.PROTECT, related_name="sale_lines",
+    )
+    quantity = models.PositiveIntegerField()
+    #: Set once the pieces have gone back on the shelf — makes restocking idempotent.
+    restocked_at = models.DateTimeField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = _("POS quick sale line")
+        verbose_name_plural = _("POS quick sale lines")
+        ordering = ["created_at"]
+
+    def __str__(self):
+        return f"{self.quick_item.name} × {self.quantity}"
+
+
+# ─────────────────────────────────────────────────────────────
+#  Expenses
+# ─────────────────────────────────────────────────────────────
+
+class ExpensePaymentMode(models.TextChoices):
+    CASH = "cash", _("Cash")
+    UPI  = "upi",  _("UPI")
+
+
+class POSExpense(models.Model):
+    """
+    Money spent on running the shop or stall — tea, transport, packing, rent.
+
+    Cash expenses come out of the drawer, so each writes a ``pay_out`` cash
+    movement on the open shift and the close still balances. UPI expenses are
+    recorded for the books and leave the drawer alone.
+
+    Never edited or deleted: a mistake is voided, which (for cash) puts the money
+    back into the drawer total with a matching ``pay_in``.
+    """
+
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    payment_mode = models.CharField(max_length=10, choices=ExpensePaymentMode.choices)
+    amount = models.DecimalField(max_digits=12, decimal_places=2)
+    remarks = models.CharField(max_length=500)
+    bill_image = models.ImageField(upload_to="pos/expense-bills/%Y/%m/", blank=True)
+    upi_reference = models.CharField(max_length=64, blank=True)
+    shift = models.ForeignKey(
+        POSShift, null=True, blank=True,
+        on_delete=models.PROTECT, related_name="expenses",
+    )
+    cash_movement = models.OneToOneField(
+        POSCashMovement, null=True, blank=True,
+        on_delete=models.PROTECT, related_name="expense",
+    )
+    created_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="pos_expenses",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    voided_at = models.DateTimeField(null=True, blank=True)
+    voided_by = models.ForeignKey(
+        "accounts.User", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="pos_expenses_voided",
+    )
+    void_reason = models.CharField(max_length=255, blank=True)
+    void_movement = models.OneToOneField(
+        POSCashMovement, null=True, blank=True,
+        on_delete=models.PROTECT, related_name="voided_expense",
+    )
+
+    class Meta:
+        verbose_name = _("POS expense")
+        verbose_name_plural = _("POS expenses")
+        ordering = ["-created_at"]
+        constraints = [
+            models.CheckConstraint(check=models.Q(amount__gt=0), name="pos_expense_amount_positive"),
+        ]
+
+    def __str__(self):
+        return f"{self.get_payment_mode_display()} ₹{self.amount} — {self.remarks[:40]}"
+
+    @property
+    def is_voided(self) -> bool:
+        return self.voided_at is not None

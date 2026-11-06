@@ -386,6 +386,13 @@ def payment_state(*, order: Order) -> dict:
             for i in order.items.all()
             if i.variant_id
         ],
+        # Quick items (no barcode, no catalogue entry) on the sale, so "back to
+        # cart" can put them back too. A separate key: older tills read
+        # ``items`` as variant lines only.
+        "quick_items": [
+            {"quick_item_id": str(line.quick_item_id), "quantity": line.quantity}
+            for line in order.pos_quick_lines.all()
+        ],
         "amount_paid": str(tender_service.amount_paid(order)),
         "balance_due": str(tender_service.balance_due(order)),
         # Lets the counter word its prompts for the rail actually in use.

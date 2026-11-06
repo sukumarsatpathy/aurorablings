@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
 
-import posService, { type CatalogueRow } from '@/services/api/pos';
+import posService, { quickItemService, quickItemToRow, type CatalogueRow } from '@/services/api/pos';
 
 interface Props {
   onAdd: (row: CatalogueRow) => void;
@@ -14,7 +14,14 @@ interface Props {
   onScanCode?: (code: string) => Promise<boolean>;
   /** Opens the phone-camera scanner. The button is hidden when not given. */
   onOpenCamera?: () => void;
+  /** Opens "quick add" for a piece with no barcode, pre-filled with the search text. */
+  onQuickAdd?: (name: string) => void;
+  /** Bump to re-run the current search (after a quick item is saved). */
+  refreshKey?: number;
 }
+
+/** A typed/scanned code is not a useful name for a new piece. */
+const LOOKS_LIKE_CODE = /^\d{6,}$/;
 
 /** A label barcode at the end of whatever was already in the box. */
 const TRAILING_BARCODE = /(\d{8})$/;
@@ -30,7 +37,7 @@ const money = (value: string | number) =>
  * take under thirty seconds from empty cart to paid, and this is where most of
  * that budget is either spent or saved.
  */
-export function CatalogueGrid({ onAdd, inCart, onScanCode, onOpenCamera }: Props) {
+export function CatalogueGrid({ onAdd, inCart, onScanCode, onOpenCamera, onQuickAdd, refreshKey = 0 }: Props) {
   const [query, setQuery] = useState('');
   const [rows, setRows] = useState<CatalogueRow[]>([]);
   const [loading, setLoading] = useState(true);
@@ -47,9 +54,15 @@ export function CatalogueGrid({ onAdd, inCart, onScanCode, onOpenCamera }: Props
     const timer = window.setTimeout(async () => {
       setLoading(true);
       try {
-        const results = await posService.catalogue(query);
+        // Quick items (no barcode) are searched alongside, and listed first so a
+        // piece photographed a minute ago is easy to find again. Their failure
+        // never hides the catalogue.
+        const [results, quick] = await Promise.all([
+          posService.catalogue(query),
+          quickItemService.search(query).catch(() => []),
+        ]);
         if (active) {
-          setRows(results);
+          setRows([...quick.map(quickItemToRow), ...results]);
           setError('');
         }
       } catch {
@@ -63,7 +76,7 @@ export function CatalogueGrid({ onAdd, inCart, onScanCode, onOpenCamera }: Props
       active = false;
       window.clearTimeout(timer);
     };
-  }, [query]);
+  }, [query, refreshKey]);
 
   const empty = useMemo(() => !loading && rows.length === 0, [loading, rows]);
 
@@ -111,6 +124,20 @@ export function CatalogueGrid({ onAdd, inCart, onScanCode, onOpenCamera }: Props
               <path d="M7 8v8M10 8v8M13 8v8M16 8v8" />
             </svg>
             <span className="hidden sm:inline">Camera</span>
+          </button>
+        )}
+        {onQuickAdd && (
+          <button
+            type="button"
+            onClick={() => onQuickAdd(LOOKS_LIKE_CODE.test(query.trim()) ? '' : query.trim())}
+            className="flex shrink-0 items-center gap-1.5 rounded-lg border border-border bg-card px-3 text-sm font-semibold text-foreground hover:border-primary"
+            aria-label="Quick add an item without a barcode"
+            title="Sell a piece that has no barcode — take a photo, name and price"
+          >
+            <svg aria-hidden="true" viewBox="0 0 24 24" className="h-5 w-5" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round">
+              <path d="M12 5v14M5 12h14" />
+            </svg>
+            <span className="hidden sm:inline">Quick add</span>
           </button>
         )}
       </div>
@@ -190,9 +217,18 @@ export function CatalogueGrid({ onAdd, inCart, onScanCode, onOpenCamera }: Props
           <p className="col-span-full p-10 text-center text-sm text-muted-foreground">Loading…</p>
         )}
         {empty && (
-          <p className="col-span-full p-10 text-center text-sm text-muted-foreground">
-            {query ? `Nothing matches “${query}”.` : 'No active products found.'}
-          </p>
+          <div className="col-span-full p-10 text-center text-sm text-muted-foreground">
+            <p>{query ? `Nothing matches “${query}”.` : 'No active products found.'}</p>
+            {onQuickAdd && (
+              <button
+                type="button"
+                onClick={() => onQuickAdd(LOOKS_LIKE_CODE.test(query.trim()) ? '' : query.trim())}
+                className="mt-3 rounded-lg border border-border bg-card px-4 py-2 text-sm font-semibold text-foreground hover:border-primary"
+              >
+                + Quick add an item without barcode
+              </button>
+            )}
+          </div>
         )}
         {error && <p className="col-span-full p-4 text-center text-sm text-destructive">{error}</p>}
       </div>

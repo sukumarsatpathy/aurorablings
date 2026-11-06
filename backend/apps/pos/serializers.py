@@ -1,9 +1,10 @@
 import re
+from decimal import Decimal
 
 from rest_framework import serializers
 
 from apps.accounts.serializers import OccasionDateValidationMixin
-from apps.pos.models import POSCashMovement, POSShift, POSTerminal
+from apps.pos.models import POSCashMovement, POSExpense, POSQuickItem, POSShift, POSTerminal
 
 
 class POSTerminalSerializer(serializers.ModelSerializer):
@@ -160,8 +161,16 @@ class POSLineItemSerializer(serializers.Serializer):
     What the counter is allowed to say about a line: which variant, how many.
     Notably absent: price. That is the server's to decide.
     """
-    variant_id = serializers.UUIDField()
+    variant_id = serializers.UUIDField(required=False)
+    # A photographed piece with no barcode (POSQuickItem). Exactly one of the
+    # two ids is given per line; the price comes from the server either way.
+    quick_item_id = serializers.UUIDField(required=False)
     quantity = serializers.IntegerField(min_value=1, max_value=999)
+
+    def validate(self, attrs):
+        if bool(attrs.get("variant_id")) == bool(attrs.get("quick_item_id")):
+            raise serializers.ValidationError("Each line needs either variant_id or quick_item_id.")
+        return attrs
 
 
 class POSQuoteSerializer(serializers.Serializer):
@@ -204,3 +213,86 @@ class ManualDiscountSerializer(serializers.Serializer):
     # their own credentials at the counter; there is no separate PIN to leak.
     approver_email = serializers.EmailField(required=False, allow_blank=True)
     approver_password = serializers.CharField(required=False, allow_blank=True)
+
+
+# ─────────────────────────────────────────────────────────────
+#  Quick items
+# ─────────────────────────────────────────────────────────────
+
+class QuickItemWriteSerializer(serializers.Serializer):
+    name = serializers.CharField(max_length=150)
+    price = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    quantity = serializers.IntegerField(min_value=0, max_value=99999, default=1)
+    image = serializers.ImageField(required=False, allow_null=True)
+    is_active = serializers.BooleanField(required=False)
+
+
+def _media_url(field, request):
+    if not field:
+        return None
+    from core.media import build_media_url
+
+    try:
+        return build_media_url(field, request=request)
+    except Exception:
+        return None
+
+
+class QuickItemSerializer(serializers.ModelSerializer):
+    image = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+
+    class Meta:
+        model = POSQuickItem
+        fields = ["id", "name", "price", "quantity", "image", "is_active", "created_by", "created_at"]
+
+    def get_image(self, obj):
+        return _media_url(obj.image, self.context.get("request"))
+
+    def get_created_by(self, obj):
+        return getattr(obj.created_by, "email", "") if obj.created_by_id else ""
+
+
+# ─────────────────────────────────────────────────────────────
+#  Expenses
+# ─────────────────────────────────────────────────────────────
+
+class ExpenseCreateSerializer(serializers.Serializer):
+    payment_mode = serializers.ChoiceField(choices=["cash", "upi"])
+    amount = serializers.DecimalField(max_digits=12, decimal_places=2, min_value=Decimal("0.01"))
+    remarks = serializers.CharField(max_length=500)
+    bill_image = serializers.ImageField(required=False, allow_null=True)
+    upi_reference = serializers.CharField(required=False, allow_blank=True, max_length=64)
+    shift = serializers.UUIDField(required=False, allow_null=True)
+
+
+class ExpenseVoidSerializer(serializers.Serializer):
+    reason = serializers.CharField(max_length=255)
+
+
+class ExpenseSerializer(serializers.ModelSerializer):
+    bill_image = serializers.SerializerMethodField()
+    created_by = serializers.SerializerMethodField()
+    voided_by = serializers.SerializerMethodField()
+    terminal = serializers.SerializerMethodField()
+    is_voided = serializers.BooleanField(read_only=True)
+
+    class Meta:
+        model = POSExpense
+        fields = [
+            "id", "payment_mode", "amount", "remarks", "bill_image", "upi_reference",
+            "shift", "terminal", "created_by", "created_at",
+            "is_voided", "voided_at", "voided_by", "void_reason",
+        ]
+
+    def get_bill_image(self, obj):
+        return _media_url(obj.bill_image, self.context.get("request"))
+
+    def get_created_by(self, obj):
+        return getattr(obj.created_by, "email", "") if obj.created_by_id else ""
+
+    def get_voided_by(self, obj):
+        return getattr(obj.voided_by, "email", "") if obj.voided_by_id else ""
+
+    def get_terminal(self, obj):
+        return obj.shift.terminal.code if obj.shift_id else ""

@@ -74,6 +74,7 @@ const AuditLogs = lazy(() => import('./pages/admin/AuditLogs').then(m => ({ defa
 const HealthDashboard = lazy(() => import('./pages/admin/HealthDashboard').then(m => ({ default: m.HealthDashboard })));
 const CategoryManagement = lazy(() => import('./pages/admin/CategoryManagement').then(m => ({ default: m.CategoryManagement })));
 const NotifyRequests = lazy(() => import('./pages/admin/NotifyRequests').then(m => ({ default: m.NotifyRequests })));
+const PosExpenses = lazy(() => import('./pages/admin/PosExpenses').then(m => ({ default: m.PosExpenses })));
 const Enquiries = lazy(() => import('./pages/admin/Enquiries').then(m => ({ default: m.Enquiries })));
 const NotificationDashboard = lazy(() => import('./pages/admin/NotificationDashboard').then(m => ({ default: m.NotificationDashboard })));
 const NotificationLogs = lazy(() => import('./pages/admin/NotificationLogs').then(m => ({ default: m.NotificationLogs })));
@@ -505,6 +506,7 @@ function AppContent() {
                 <Route path="notifications/logs" element={<NotificationLogs />} />
                 <Route path="newsletter" element={<NewsletterSubscribers />} />
                 <Route path="notify-requests" element={<NotifyRequests />} />
+                <Route path="expenses" element={<PosExpenses />} />
                 <Route path="enquiries" element={<Enquiries />} />
                 <Route path="coupons" element={<Coupons />} />
                 <Route path="audit-logs" element={<AuditLogs />} />

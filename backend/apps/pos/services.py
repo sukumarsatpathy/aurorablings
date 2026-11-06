@@ -499,6 +499,10 @@ def shift_summary(shift: POSShift) -> dict:
         "manual_discounts": money(discounts["manual"]),
         "coupon_discounts": money(discounts["coupon"]),
         "part_paid_open": open_part_paid_orders(shift).count(),
+        # Money spent during the shift. Cash expenses are already inside
+        # cash_movements_net (each is a pay_out); UPI ones are listed for the
+        # books and do not touch the drawer.
+        "expenses": _shift_expenses(shift, money),
         # Every staff-confirmed Paytm UPI payment, to tick off against the
         # Paytm for Business transaction list at close. Paytm never told this
         # system about these, so this list is the only bridge between the two.
@@ -511,5 +515,29 @@ def shift_summary(shift: POSShift) -> dict:
                 "by": getattr(t.collected_by, "email", "") if t.collected_by_id else "",
             }
             for t in tenders.filter(provider="paytm").select_related("order", "collected_by").order_by("created_at")
+        ],
+    }
+
+
+def _shift_expenses(shift: POSShift, money) -> dict:
+    from apps.pos.expenses import expense_totals
+
+    qs = shift.expenses.select_related("created_by").order_by("created_at")
+    totals = expense_totals(qs)
+    return {
+        **totals,
+        "items": [
+            {
+                "id": str(e.id),
+                "payment_mode": e.payment_mode,
+                "amount": money(e.amount),
+                "remarks": e.remarks,
+                "upi_reference": e.upi_reference,
+                "has_bill": bool(e.bill_image),
+                "voided": e.is_voided,
+                "at": e.created_at,
+                "by": getattr(e.created_by, "email", "") if e.created_by_id else "",
+            }
+            for e in qs
         ],
     }
