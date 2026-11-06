@@ -171,9 +171,12 @@ services:
       "--concurrency=${CELERY_CONCURRENCY:-1}",
       "--without-gossip", "--without-mingle", "--without-heartbeat",
       "-B",
-      "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler",
-      "--max-interval", "60"
+      "--scheduler", "django_celery_beat.schedulers:DatabaseScheduler"
     ]
+    # NOTE: do not add "--max-interval" here. It is a `celery beat` flag that
+    # `celery worker -B` rejects (exit 2), which crash-loops the worker and
+    # silently stops every background email. The 60s beat loop is set with
+    # CELERY_BEAT_MAX_LOOP_INTERVAL in config/settings/base.py instead.
     volumes:
       - /srv/aurora/shared/media:/app/media
       - /srv/aurora/shared/logs:/app/logs
