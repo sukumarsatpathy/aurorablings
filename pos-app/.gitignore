@@ -1,0 +1,8 @@
+node_modules/
+# Signing secrets — never commit (public repo)
+*.jks
+*.keystore
+android/keystore.properties
+# Build output
+*.apk
+*.aab

@@ -1,0 +1,73 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
+  <title>Aurora POS — offline</title>
+  <style>
+    :root { --green: #517b4b; --ink: #1f2a1e; --muted: #6b7568; --bg: #ffffff; }
+    * { box-sizing: border-box; }
+    html, body { height: 100%; margin: 0; }
+    body {
+      background: var(--bg); color: var(--ink);
+      font-family: system-ui, -apple-system, "Segoe UI", Roboto, sans-serif;
+      display: flex; align-items: center; justify-content: center; padding: 24px;
+      text-align: center;
+    }
+    main { max-width: 420px; }
+    .mark { display: block; width: 120px; height: 120px; margin: 0 auto 12px; }
+    .sparkles path { transform-box: fill-box; transform-origin: center; animation: twinkle 1.6s ease-in-out infinite; }
+    .sparkles path:nth-child(2) { animation-delay: .5s; }
+    .sparkles path:nth-child(3) { animation-delay: 1s; }
+    @keyframes twinkle { 0%, 100% { opacity: .25; transform: scale(.6); } 50% { opacity: 1; transform: scale(1.1); } }
+    @media (prefers-reduced-motion: reduce) { .sparkles path { animation: none; } }
+    h1 { font-size: 22px; margin: 0 0 8px; }
+    p { color: var(--muted); line-height: 1.5; margin: 0 0 24px; font-size: 15px; }
+    button {
+      appearance: none; border: 0; border-radius: 12px; background: var(--green); color: #fff;
+      font-size: 17px; font-weight: 600; padding: 16px 36px; min-width: 200px;
+    }
+    button:active { opacity: .85; }
+    .status { margin-top: 16px; font-size: 13px; color: var(--muted); min-height: 1em; }
+  </style>
+</head>
+<body>
+  <main>
+    <svg class="mark" viewBox="0 0 240 240" aria-hidden="true">
+  <g fill="none" stroke="#517b4b" stroke-linecap="round" stroke-linejoin="round">
+    <circle cx="120" cy="160" r="50" stroke-width="9"/>
+    <circle cx="120" cy="160" r="41" stroke-width="2.5" opacity=".35"/>
+    <path d="M96 58 H144 L162 80 L120 124 L78 80 Z" fill="#ffffff" stroke-width="5"/>
+    <path d="M78 80 H162" stroke-width="3.5"/>
+    <path d="M96 58 L106 80 L120 124 L134 80 L144 58" stroke-width="3"/>
+    <path d="M106 80 L120 58 L134 80" stroke-width="3"/>
+  </g>
+  <g class="sparkles" fill="#c9a227">
+    <path d="M178 46 Q180 56 190 58 Q180 60 178 70 Q176 60 166 58 Q176 56 178 46 Z"/>
+    <path d="M62 64 Q63.5 71 70 72.5 Q63.5 74 62 81 Q60.5 74 54 72.5 Q60.5 71 62 64 Z"/>
+    <path d="M172 92 Q173 97 178 98 Q173 99 172 104 Q171 99 166 98 Q171 97 172 92 Z"/>
+  </g>
+</svg>
+    <h1>Can't reach the counter</h1>
+    <p>Check the Wi-Fi or mobile data on this device. The POS will reopen by itself once the connection is back.</p>
+    <button id="retry" type="button">Try again</button>
+    <div class="status" id="status"></div>
+  </main>
+  <script>
+    (function () {
+      var status = document.getElementById('status');
+      function retry() {
+        status.textContent = 'Connecting…';
+        // Native hook from MainActivity reloads whichever server this build
+        // points at; the fallback covers a build without it.
+        if (window.AuroraPos && window.AuroraPos.retry) window.AuroraPos.retry();
+        else location.replace('https://aurorablings.com/pos');
+      }
+      document.getElementById('retry').addEventListener('click', retry);
+      window.addEventListener('online', retry);
+      // Quiet background retry every 15 s while the screen is showing.
+      setInterval(function () { if (navigator.onLine) retry(); }, 15000);
+    })();
+  </script>
+</body>
+</html>
